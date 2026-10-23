@@ -82,7 +82,7 @@ Token Stamina works locally. Its scripts open **no network connections**, send n
 To remove everything: uninstall the plugin, delete `~/.claude/token-stamina/` (or your `TOKEN_STAMINA_HOME`), remove `statusLine` and `env.CLAUDE_CODE_AUTO_COMPACT_WINDOW` from `~/.claude/settings.json` (or restore a `settings.json.bak-token-stamina-*` backup), and drop the keybinding if you added one.
 
 ## Support
-Token Stamina is free. Coffee-money support is welcome on Ko-fi (link: TODO, added once the page exists).
+Token Stamina is free. Coffee-money support is welcome at [ko-fi.com/tokenstamina](https://ko-fi.com/tokenstamina). Project site: [tokenstamina.com](https://tokenstamina.com).
 
 ## License
 MIT. See `LICENSE`.

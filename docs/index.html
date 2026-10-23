@@ -3,11 +3,12 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Token Stamina — a pace meter for Claude Code limits</title>
-<meta name="description" content="Token Stamina shows your weekly and 5-hour Claude Code usage against how much of the window has passed, and steps in only when you are ahead of pace. No LLM calls, nothing sent over the network.">
+<title>Token Stamina — make your Claude Code limit last until the reset</title>
+<meta name="description" content="When you spend faster than the clock, Token Stamina moves subagents to cheaper models, offers a compact at the right moment and keeps your place across it. Quiet when you're on pace. No LLM calls, nothing sent over the network.">
 <meta property="og:title" content="Token Stamina">
-<meta property="og:description" content="A pace meter for Claude Code's weekly and 5-hour limits. Local, no LLM calls.">
+<meta property="og:description" content="Make your Claude Code weekly limit last until the reset. Local, no LLM calls.">
 <meta property="og:url" content="https://tokenstamina.com/">
+<link rel="icon" href="logo.svg" type="image/svg+xml">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:ital,wght@0,400;0,500;0,600;1,400&display=swap" rel="stylesheet">
@@ -59,7 +60,8 @@ header.top {
   display: flex; align-items: baseline; justify-content: space-between; gap: 1rem; flex-wrap: wrap;
   padding-block: 1.4rem 0;
 }
-.mark { font-family: "IBM Plex Mono", monospace; font-weight: 500; font-size: .95rem; text-decoration: none; letter-spacing: -.01em; }
+.mark { font-family: "IBM Plex Mono", monospace; font-weight: 500; font-size: .95rem; text-decoration: none; letter-spacing: -.01em; display: inline-flex; align-items: center; gap: .55rem; }
+.mark .logo { width: 26px; height: 26px; display: block; }
 .mark span { color: var(--ink-2); }
 nav a { font-size: .9rem; margin-left: 1.1rem; color: var(--ink-2); text-decoration: none; }
 nav a:hover { color: var(--ink); text-decoration: underline; }
@@ -107,6 +109,22 @@ ol.does { padding-left: 1.2rem; margin: 0; }
 ol.does li { margin-bottom: 1rem; padding-left: .3rem; }
 ol.does li::marker { font-family: "IBM Plex Mono", monospace; color: var(--ink-2); font-size: .9em; }
 ol.does b { font-weight: 600; }
+.tag {
+  font: 500 .7rem/1 "IBM Plex Mono", monospace; text-transform: uppercase; letter-spacing: .04em;
+  border: 1px solid var(--rule); color: var(--ink-2); border-radius: 3px; padding: .2em .4em; margin-right: .4em;
+  vertical-align: .12em; white-space: nowrap;
+}
+
+/* on pace vs ahead of pace */
+.vs { display: grid; grid-template-columns: 1fr 1.35fr; gap: 1rem; margin-top: 2.4rem; }
+.case { border: 1px solid var(--rule); border-radius: 6px; padding: 1rem 1.1rem; font-size: .95rem; }
+.case.hot { border-color: var(--ink-2); }
+.case p { margin: 0 0 .6rem; }
+.case .when { font-weight: 600; }
+.case .meter { font-size: .82rem; color: var(--ink-2); }
+.case ul { list-style: none; padding: 0; margin: 0; }
+.case li { margin: 0 0 .5rem; padding-left: 0; }
+.case li .tag { display: inline-block; min-width: 5.6em; text-align: center; }
 
 /* install */
 .cmd { display: flex; align-items: stretch; border: 1px solid var(--rule); border-radius: 5px; margin: 0 0 .6rem; overflow: hidden; }
@@ -135,6 +153,7 @@ footer a { color: var(--ink-2); }
   .anno { grid-template-columns: 1fr; gap: 0 0; }
   .anno dd { margin: 0 0 .5rem; }
   nav a { margin-left: 0; margin-right: 1rem; }
+  .vs { grid-template-columns: 1fr; }
 }
 </style>
 </head>
@@ -142,7 +161,7 @@ footer a { color: var(--ink-2); }
 <div class="wrap">
 
 <header class="top">
-  <a class="mark" href="/">token<span>·</span>stamina</a>
+  <a class="mark" href="/"><svg class="logo" viewBox="0 0 64 64" aria-hidden="true"><rect width="64" height="64" rx="14" fill="#1d1c1a"/><rect x="10" y="24" width="40" height="16" rx="3" fill="none" stroke="#e9e4d8" stroke-width="3"/><rect x="51.5" y="28.5" width="3.5" height="7" rx="1.2" fill="#e9e4d8"/><rect x="14" y="28" width="20" height="8" rx="1" fill="#6fae63"/><rect x="37" y="18" width="3" height="28" rx="1.5" fill="#e3b53c"/></svg>token<span>·</span>stamina</a>
   <nav>
     <a href="#install">Install</a>
     <a href="#privacy">Privacy</a>
@@ -151,9 +170,43 @@ footer a { color: var(--ink-2); }
 </header>
 
 <div class="hero">
-  <h1>Find out you're over pace on Tuesday, not on Friday.</h1>
-  <p class="lede">Token Stamina is a small plugin for Claude Code. It compares how much of your weekly and 5-hour limits you've used with how much of each window has gone by, and it only gets in the way when you're ahead of pace. <strong>It makes no LLM calls and opens no network connections.</strong></p>
+  <h1>Make your weekly limit last until the reset.</h1>
+  <p class="lede">Token Stamina is a small plugin for Claude Code. When you're spending faster than the clock, it steps in: subagents drop to cheaper models, finished work gets a one-click compact that keeps your place, and you hear about it once, not on every prompt. When you're on pace, it stays out of the way. <strong>No LLM calls, no network connections.</strong></p>
 
+  <div class="vs">
+    <div class="case">
+      <p class="when"><span class="dot" style="background:var(--green)"></span>Tuesday, on pace</p>
+      <p class="meter mono">week 43% gone · limit 41% used</p>
+      <p>Nothing happens. The status line shows a green dot and that's all.</p>
+    </div>
+    <div class="case hot">
+      <p class="when"><span class="dot" style="background:var(--red)"></span>Tuesday, ahead of pace</p>
+      <p class="meter mono">week 43% gone · limit 62% used</p>
+      <ul>
+        <li><span class="tag">auto</span>Subagents without a pinned model run on Haiku or Sonnet.</li>
+        <li><span class="tag">auto</span>Your place is saved before a compact and put back after.</li>
+        <li><span class="tag">one click</span>When a task wraps up, <code>/compact</code> is offered with the commit subjects filled in.</li>
+        <li><span class="tag">once</span>One line tells you the grade changed.</li>
+      </ul>
+    </div>
+  </div>
+</div>
+
+<section>
+  <h2><span class="n">01</span>What it does when you're ahead of pace</h2>
+  <ol class="does">
+    <li><b>Cheaper subagents, automatically.</b> <span class="tag">auto</span> While the grade is red, a subagent call that doesn't name a model goes to Haiku for simple work or Sonnet otherwise. Calls that name a model, forks, and anything that looks like a judgment task are left alone. You can switch this to suggestions only, or off.</li>
+    <li><b>Compact early without losing your place.</b> <span class="tag">auto</span> Before you compact or clear, it writes down the last few requests, commits, edited files and to-dos, and puts them back afterwards. No model writes the note; it's assembled from your transcript. That makes the cheap move, starting lighter, a safe one.</li>
+    <li><b>The right moment, offered once.</b> <span class="tag">one click</span> When the conversation is large and a piece of work is done (a commit, an edit, an answer), it suggests <code>/compact</code> with the commit subjects already filled in, or a fresh session if you've gone very far.</li>
+    <li><b>An earlier auto-compact, if you want it.</b> <span class="tag">set once</span> Setup can move Claude Code's automatic compact point earlier, so long sessions stop re-reading a huge context on every call.</li>
+    <li><b>A heads-up, not a nag.</b> <span class="tag">once</span> One short line when the grade changes. Claude passes it on in your language.</li>
+  </ol>
+  <p class="small">What it won't do: switch the model of your main conversation, block a request, or compact on its own. Claude Code doesn't let plugins run <code>/compact</code>, so that stays your click. There's also <code>/token-stamina:audit</code>, which lists what is loaded into every conversation (CLAUDE.md files, plugins, MCP servers you never use) and changes nothing.</p>
+</section>
+
+<section id="pace">
+  <h2><span class="n">02</span>How it decides</h2>
+  <p>It lives in your status line and reads the usage numbers Claude Code already passes there.</p>
   <div class="term" aria-label="Example status line">
     <div class="bar" aria-hidden="true"><i></i><i></i><i></i></div>
 <pre><span class="dim">~/work/api</span>  main  <span class="dim">│</span>  7d 84% · today 5.3% <span class="y">●</span> · reset Mon 15:00 · ctx 41%</pre>
@@ -165,29 +218,14 @@ footer a { color: var(--ink-2); }
     <dt><code>reset Mon 15:00</code></dt><dd>when the weekly window rolls over</dd>
     <dt><code>ctx 41%</code></dt><dd>how full the current conversation is</dd>
   </dl>
-</div>
-
-<section id="pace">
-  <h2><span class="n">01</span>How the grade works</h2>
-  <p>A percentage on its own doesn't tell you much. 60% used is fine on Saturday and a problem on Monday. So the grade looks at both numbers: if you've used no more than the share of the week that has passed, you're green. Up to ten points ahead is yellow. Beyond that, or past 90% at any time, is red. The weekly and 5-hour windows are graded separately, and the worse of the two is the one you see.</p>
+  <p style="margin-top:1.6rem">A percentage on its own doesn't tell you much. 60% used is fine on Saturday and a problem on Monday. So the grade looks at both numbers: if you've used no more than the share of the week that has passed, you're green. Up to ten points ahead is yellow. Beyond that, or past 90% at any time, is red. The weekly and 5-hour windows are graded separately, and the worse of the two is the one you see.</p>
 
   <div class="pace">
     <label><span>Week elapsed</span><input id="el" type="range" min="0" max="100" value="43"><output id="elv">43%</output></label>
-    <label><span>Limit used</span><input id="us" type="range" min="0" max="100" value="49"><output id="usv">49%</output></label>
+    <label><span>Limit used</span><input id="us" type="range" min="0" max="100" value="62"><output id="usv">62%</output></label>
     <div class="track" aria-hidden="true"><div class="used" id="bar"></div><div class="tick" id="tick"></div></div>
     <p class="verdict" id="verdict" aria-live="polite"></p>
   </div>
-</section>
-
-<section>
-  <h2><span class="n">02</span>What it does when you're over pace</h2>
-  <ol class="does">
-    <li><b>Cheaper subagents, only when red.</b> If a subagent call doesn't name a model, Token Stamina routes it to Haiku for simple work or Sonnet otherwise. Calls that name a model, forks, and anything that looks like a judgment task are left alone. You can switch this to suggestions only, or off.</li>
-    <li><b>One line when the grade changes.</b> Not on every prompt. Claude sees a short note and passes it on in your language.</li>
-    <li><b>A hint at the end of a task.</b> Once the conversation is large and a piece of work is done (a commit, an edit, an answer), it suggests <code>/compact</code> with the commit subjects already filled in, or a fresh session if you've gone very far.</li>
-    <li><b>A note that survives the compact.</b> Before you compact or clear, it writes down the last few requests, commits, edited files and to-dos, and puts them back afterwards. No model writes the note; it's assembled from your transcript.</li>
-  </ol>
-  <p class="small">There's also <code>/token-stamina:audit</code>, which lists what is loaded into every conversation (CLAUDE.md files, plugins, MCP servers you never use) and changes nothing.</p>
 </section>
 
 <section id="install">
@@ -220,10 +258,9 @@ footer a { color: var(--ink-2); }
 
 <footer>
   <span>MIT licensed · free</span>
+  <a href="https://ko-fi.com/tokenstamina">Buy it a coffee on Ko-fi</a>
   <a href="https://github.com/token-stamina/token-stamina">Source</a>
-  <a href="https://github.com/token-stamina/token-stamina/issues">Report a problem</a>
-  <span>Formerly Token Pacer</span>
-</footer>
+  <a href="https://github.com/token-stamina/token-stamina/issues">Report a problem</a></footer>
 
 </div>
 <script>
@@ -241,7 +278,7 @@ footer a { color: var(--ink-2); }
     bar.style.width = u + '%'; bar.style.background = color; tick.style.left = 'calc(' + e + '% - 1px)';
     if (g === 'green') msg = 'On pace. You have ' + (e - u) + ' points of headroom against the clock.';
     else if (g === 'yellow') msg = d + ' points ahead of the clock. Nothing changes yet; you get one line saying so.';
-    else msg = (u >= 90 ? 'Past 90% of the limit.' : d + ' points ahead of the clock.') + ' Unpinned subagents move to cheaper models until you’re back under.';
+    else msg = (u >= 90 ? 'Past 90% of the limit.' : d + ' points ahead of the clock.') + ' Unpinned subagents move to cheaper models, and the next finished task gets a compact offer, until you’re back under.';
     out.innerHTML = '<span class="dot" style="background:' + color + '"></span><b>' + g[0].toUpperCase() + g.slice(1) + '.</b> ' + msg;
   }
   el.addEventListener('input', draw); us.addEventListener('input', draw); draw();

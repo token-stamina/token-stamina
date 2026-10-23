@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-label="Token Stamina">
+  <rect width="64" height="64" rx="14" fill="#1d1c1a"/>
+  <rect x="10" y="24" width="40" height="16" rx="3" fill="none" stroke="#e9e4d8" stroke-width="3"/>
+  <rect x="51.5" y="28.5" width="3.5" height="7" rx="1.2" fill="#e9e4d8"/>
+  <rect x="14" y="28" width="20" height="8" rx="1" fill="#6fae63"/>
+  <rect x="37" y="18" width="3" height="28" rx="1.5" fill="#e3b53c"/>
+</svg>
