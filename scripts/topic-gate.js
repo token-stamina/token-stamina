@@ -25,15 +25,21 @@ function clearOffered(entries) {
   return false;
 }
 
-// Topic check (0.4.2): above gateAt, every prompt gets one short line so Claude can spot a topic change itself
-// (no idle gap or cwd change needed). Pure. offeredAt = tokens when Claude last offered a clear (null if none).
-function decideTopicCheck(tokens, cfg, offeredAt) {
-  if (cfg.topicCheck === false || !tokens) return { check: false, offeredAt };
+// Topic check (0.4.2): above gateAt, one short line so Claude can spot a topic change itself (no idle gap or cwd
+// change needed). Since 0.4.5 it waits for topicCheckStepTokens (50k) of growth after each line: every line stays in
+// the context and is re-read on every later call. Pure. offeredAt = tokens when Claude last offered a clear,
+// checkedAt = tokens at the last line (null if none).
+function decideTopicCheck(tokens, cfg, offeredAt, checkedAt) {
+  if (typeof checkedAt !== 'number') checkedAt = null;
+  if (cfg.topicCheck === false || !tokens) return { check: false, offeredAt, checkedAt };
   if (typeof offeredAt === 'number' && tokens < offeredAt) offeredAt = null; // context shrank: compacted or cleared
-  if (tokens < pace.thresholds(cfg).gateAt) return { check: false, offeredAt };
+  if (checkedAt !== null && tokens < checkedAt) checkedAt = null;
+  if (tokens < pace.thresholds(cfg).gateAt) return { check: false, offeredAt, checkedAt };
   const grow = cfg.renotifyGrowthTokens || 100000;
-  if (typeof offeredAt === 'number' && tokens < offeredAt + grow) return { check: false, offeredAt };
-  return { check: true, offeredAt };
+  if (typeof offeredAt === 'number' && tokens < offeredAt + grow) return { check: false, offeredAt, checkedAt };
+  const step = cfg.topicCheckStepTokens == null ? 50000 : cfg.topicCheckStepTokens;
+  if (checkedAt !== null && tokens < checkedAt + step) return { check: false, offeredAt, checkedAt };
+  return { check: true, offeredAt, checkedAt: tokens };
 }
 
 function topicCheckMessage(lang, tokens, file) {
@@ -116,9 +122,11 @@ function run(raw) {
   let offeredAt = rec && rec.offeredAt;
   if (typeof offeredAt === 'number' && tokens < offeredAt) offeredAt = null;
   if (typeof offeredAt !== 'number' && clearOffered(entries)) offeredAt = tokens;
-  const tc = (d.gate || h.hint) ? { check: false, offeredAt } : decideTopicCheck(tokens, cfg, offeredAt);
+  const checkedAt = rec && rec.checkedAt;
+  const tc = (d.gate || h.hint) ? { check: false, offeredAt, checkedAt } : decideTopicCheck(tokens, cfg, offeredAt, checkedAt);
   const next = { cwd: input.cwd || (rec && rec.cwd), gatedAt: d.gate ? tokens : (rec && rec.gatedAt), hintAt: h.hintAt,
-    offeredAt: typeof tc.offeredAt === 'number' ? tc.offeredAt : null, ts: Date.now() };
+    offeredAt: typeof tc.offeredAt === 'number' ? tc.offeredAt : null,
+    checkedAt: typeof tc.checkedAt === 'number' ? tc.checkedAt : null, ts: Date.now() };
   book[sid] = next;
   const keys = Object.keys(book);
   if (keys.length > 50) keys.sort((x, y) => book[x].ts - book[y].ts).slice(0, keys.length - 50).forEach((k) => delete book[k]);

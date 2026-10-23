@@ -44,7 +44,7 @@ Then run `/token-stamina:setup` once. Since 0.4.5 you do not have to remember: t
 - `scripts/topic-gate.js` (UserPromptSubmit): above `gateAtTokens` (200k) after `idleGapSec` (1h) idle or a cwd change, adds one line asking Claude to write a handoff and offer a fresh start if the request is unrelated. Once per 100k growth.
 - Hooks cannot run `/compact` or `/clear`; plain `/compact` (or a `command:compact` keybinding, see `/token-stamina:setup`) is enough because the note is restored.
 
-Auto-compact point: `/token-stamina:setup` lets you pick 300k / 400k (recommended) / 600k / Claude Code default via `scripts/setup-compact.js --window <n|default> [--dry-run]`. It backs up settings.json, sets `env.CLAUDE_CODE_AUTO_COMPACT_WINDOW`, and records `compactWindowTokens`; hint thresholds then scale (40% / 95% / 50% of the window) unless set explicitly.
+Auto-compact point: `/token-stamina:autocompact` (or step 6 of `/token-stamina:setup`) lets you pick 300k / 400k (recommended) / 600k / Claude Code default via `scripts/setup-compact.js --window <n|default> [--dry-run]`. It backs up settings.json, sets `env.CLAUDE_CODE_AUTO_COMPACT_WINDOW`, and records `compactWindowTokens`; hint thresholds then scale (40% / 95% / 50% of the window) unless set explicitly.
 
 Hooks skip headless runs (`CLAUDE_CODE_ENTRYPOINT` starting with `sdk`) and any cwd matching `excludeCwd` in `~/.claude/token-stamina/config.json` (case-insensitive substrings), so automation that drives Claude Code (bots, scripts) never gets Token Stamina lines in its prompts.
 
@@ -59,7 +59,7 @@ Compact hint (v0.3.5): Claude cannot see its own context size, so `topic-gate.js
 - **Excluded** (only counted): auto compacts, manual compacts or clears with no hint, clears recorded before `from_session` existed ("unlinked"), and anything whose usage cannot be resolved.
 
 ## v0.4.2: topic-check line (trial)
-Above the topic-gate threshold (`gateAtTokens`, 200k by default), every prompt gets one short line asking Claude to offer a clear (with "Clear" / "Keep going" buttons and a handoff note) if the request is a different topic. No idle gap or folder change is needed, and no LLM is called: Claude judges the topic while reading the prompt anyway. After Claude offers a clear, the line stays quiet until the context grows by `renotifyGrowthTokens`. `"topicCheck": false` turns it off. `/token-stamina:savings` reports the line's own cost (it is re-read on later calls) and subtracts it from the total, next to the compacts and clears that followed such a line.
+Above the topic-gate threshold (`gateAtTokens`, 200k by default), a prompt gets one short line asking Claude to offer a clear (with "Clear" / "Keep going" buttons and a handoff note) if the request is a different topic. No idle gap or folder change is needed, and no LLM is called: Claude judges the topic while reading the prompt anyway. Since 0.4.5 the line waits for the context to grow by `topicCheckStepTokens` (50k) before it comes back, because each line stays in the context and is re-read on every later call (`0` = every prompt, as before). After Claude offers a clear, the line stays quiet until the context grows by `renotifyGrowthTokens`. `"topicCheck": false` turns it off. `/token-stamina:savings` reports the line's own cost (it is re-read on later calls) and subtracts it from the total, next to the compacts and clears that followed such a line.
 
 
 ## Privacy and what runs on your machine

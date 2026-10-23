@@ -61,6 +61,7 @@
   "turnCostYellowTokens": 100000,
   "handoff": true,
   "topicGate": true,
+  "topicCheckStepTokens": 50000,
   "gateAtTokens": 200000,
   "idleGapSec": 3600,
   "handoffMaxTokens": 1500,

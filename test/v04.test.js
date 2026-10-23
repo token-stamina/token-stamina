@@ -190,6 +190,13 @@ test('topic check (0.4.2): above gateAt every prompt, quiet after a clear offer 
   assert.equal(gate.decideTopicCheck(320000, c, 210000).check, true); // +100k
   assert.equal(gate.decideTopicCheck(210000, c, 300000).offeredAt, null); // shrank: reset
   assert.equal(gate.decideTopicCheck(250000, { gateAtTokens: 200000, topicCheck: false }, null).check, false);
+  // 0.4.5: after a line, wait for topicCheckStepTokens (50k) of growth
+  assert.equal(gate.decideTopicCheck(210000, c, null, null).checkedAt, 210000);
+  assert.equal(gate.decideTopicCheck(240000, c, null, 210000).check, false);
+  assert.equal(gate.decideTopicCheck(240000, c, null, 210000).checkedAt, 210000);
+  assert.equal(gate.decideTopicCheck(260000, c, null, 210000).check, true);
+  assert.equal(gate.decideTopicCheck(205000, c, null, 300000).check, true); // shrank (compact): start over
+  assert.equal(gate.decideTopicCheck(215000, Object.assign({ topicCheckStepTokens: 0 }, c), null, 210000).check, true); // 0 = every prompt
   const offer = asst('o1', 0, 'claude-opus-4', [1, 1, 0, 1]);
   offer.message.content.push({ type: 'tool_use', id: 't', name: 'mcp__ccd_turn__wrap_up', input: { actions: [{ message: '지금 세션 비워줘 (clear_session self)' }] } });
   assert.equal(gate.clearOffered([offer]), true);
