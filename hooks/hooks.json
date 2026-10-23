@@ -39,6 +39,16 @@
         ]
       },
       {
+        "matcher": "startup",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"${CLAUDE_PLUGIN_ROOT}/scripts/first-run.js\"",
+            "timeout": 5
+          }
+        ]
+      },
+      {
         "matcher": "compact|clear",
         "hooks": [
           {

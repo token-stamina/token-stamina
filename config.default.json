@@ -2,6 +2,7 @@
   "lang": "auto",
   "mode": "inject",
   "nudge": true,
+  "setupPrompt": true,
   "wrap": null,
   "yellowMargin": 10,
   "redAt": 90,

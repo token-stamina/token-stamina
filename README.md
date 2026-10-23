@@ -36,7 +36,7 @@ claude plugin marketplace add token-stamina/token-stamina
 claude plugin install token-stamina@token-stamina
 ```
 
-Then run `/token-stamina:setup` once.
+Then run `/token-stamina:setup` once. Since 0.4.5 you do not have to remember: the first time Claude Code starts with the plugin and no Token Stamina status line, Claude asks once whether to run setup now, and you answer yes or no. It never asks again either way (`scripts/first-run.js`, SessionStart `startup`; `"setupPrompt": false` turns it off).
 
 ## v0.3: handoff
 - `scripts/handoff.js` (Stop): writes `~/.claude/token-stamina/handoff/<session>.md` and `latest-<cwdhash>.md` (last 3 requests, commits, edited files, todos; capped by `handoffMaxTokens`; pruned after 7 days). No LLM.
@@ -71,8 +71,9 @@ Token Stamina works locally. Its scripts open **no network connections**, send n
 - For `/token-stamina:audit`: the text of your always-loaded files (`CLAUDE.md`, `CLAUDE.local.md`, `.claude/CLAUDE.md` in the folder and its parents, and the project `MEMORY.md`), used only to count characters; the plugin list (`claude plugin list`, or `settings.json` `enabledPlugins` and `plugins/installed_plugins.json`); and MCP server **names** from `~/.claude.json` and `.mcp.json` files (no keys or values are copied).
 
 **What it writes**
-- Its own files live under `~/.claude/token-stamina/` (override with `TOKEN_STAMINA_HOME`): `state.json`; `events.jsonl` (append-only and never pruned: session ids, token counts, which hint fired, subagent model decisions); per-session bookkeeping (`topic-gate.json` including the working folder, `boundary.json`, `nudge.json`, `lang.json` with a language per session; each keeps the last 50 sessions); caches (`audit-cache.json` with transcript paths and MCP/skill names, `compact-point.json`); `config.json` (your settings); `handoff/`.
+- Its own files live under `~/.claude/token-stamina/` (override with `TOKEN_STAMINA_HOME`): `state.json`; `events.jsonl` (append-only and never pruned: session ids, token counts, which hint fired, subagent model decisions); per-session bookkeeping (`topic-gate.json` including the working folder, `boundary.json`, `nudge.json`, `lang.json`, `first-run.json` (when the one-time setup question was asked) with a language per session; each keeps the last 50 sessions); caches (`audit-cache.json` with transcript paths and MCP/skill names, `compact-point.json`); `config.json` (your settings); `handoff/`.
 - `handoff/` notes hold **text from your session**: the working folder path and session id, up to the last 3 requests (clipped to 200 characters each), commit subjects (or the start of the commit command when no subject can be parsed), edited file paths and to-do items, capped by `handoffMaxTokens`. A `<session>.json` sidecar keeps up to 40 commit subjects and file paths. When the context is large, Token Stamina also asks Claude to write its own note (`<session>.claude.md`, free text, no cap). Notes are restored into the conversation after `/compact` or `/clear`. Files older than 7 days are deleted the next time the Stop hook runs. `"handoff": false` stops writing and restoring notes but does not delete existing ones; to stop Claude-written notes too, also set `"topicGate": false`, `"topicCheck": false` and `"inlineCompactHint": false`.
+- The one-time setup question only reads `statusLine` in `~/.claude/settings.json` to see whether setup already ran.
 - Outside that folder, only `/token-stamina:setup` changes anything, and only after you agree. Claude edits `statusLine` in `~/.claude/settings.json` (no automatic backup; copy the file first if you want one). `scripts/setup-compact.js` sets `env.CLAUDE_CODE_AUTO_COMPACT_WINDOW` after saving `~/.claude/settings.json.bak-token-stamina-<timestamp>`. If you accept, a `/compact` keybinding is added to `~/.claude/keybindings.json`.
 
 **Commands it runs**
