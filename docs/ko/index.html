@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Token Stamina — Claude Code 주간 한도, 리셋 전에 바닥나지 않게</title>
-<meta name="description" content="Token Stamina는 Claude Code 사용량을 이번 주에 지난 시간과 비교해요. 앞서가면 하위 에이전트를 더 싼 모델로 돌리고, 일이 끝나면 압축을 권해요. 내 컴퓨터에서만 돌고 LLM을 부르지 않아요.">
+<meta name="description" content="Token Stamina는 Claude Code 사용량을 이번 주에 지난 시간과 비교합니다. 앞서가면 하위 에이전트를 더 싼 모델로 돌리고, 일이 끝나면 압축을 권합니다. 내 컴퓨터에서만 돌고 LLM을 부르지 않습니다.">
 <link rel="alternate" hreflang="en" href="https://tokenstamina.com/">
 <link rel="alternate" hreflang="ko" href="https://tokenstamina.com/ko/">
 <meta property="og:title" content="Token Stamina">
@@ -186,22 +186,22 @@ body { word-break: keep-all; overflow-wrap: break-word; }
 
 <div class="hero">
   <h1>주간 한도, 리셋 전에 바닥나지 않게.</h1>
-  <p class="lede">Token Stamina는 Claude Code 플러그인이에요. 주간·5시간 한도를 얼마나 썼는지와 그 기간이 얼마나 지났는지를 비교해요. 앞서가고 있으면 하위 에이전트를 더 싼 모델로 돌리고, 압축하면 좋을 때를 알려 줘요. 그렇지 않으면 아무것도 안 해요. <strong>LLM을 부르지 않고, 네트워크 요청도 보내지 않아요.</strong></p>
+  <p class="lede">Token Stamina는 Claude Code 플러그인입니다. 주간·5시간 한도를 얼마나 썼는지와 그 기간이 얼마나 지났는지를 비교합니다. 앞서가고 있으면 하위 에이전트를 더 싼 모델로 돌리고, 압축하면 좋을 때를 알려 줍니다. 그렇지 않으면 아무것도 안 합니다. <strong>LLM을 부르지 않고, 네트워크 요청도 보내지 않습니다.</strong></p>
 
   <div class="vs">
     <div class="case">
       <p class="when"><span class="dot" style="background:var(--green)"></span>화요일, 속도 맞음</p>
       <p class="meter mono">이번 주 43% 지남 · 한도 41% 씀</p>
-      <p>아무것도 바뀌지 않아요. 상태줄에 초록 점만 보여요.</p>
+      <p>아무것도 바뀌지 않습니다. 상태줄에 초록 점만 보입니다.</p>
     </div>
     <div class="case hot">
       <p class="when"><span class="dot" style="background:var(--red)"></span>화요일, 앞서감</p>
       <p class="meter mono">이번 주 43% 지남 · 한도 62% 씀</p>
       <ul>
-        <li><span class="tag">자동</span>모델을 지정하지 않은 하위 에이전트는 Haiku나 Sonnet으로 돌아요.</li>
-        <li><span class="tag">자동</span>압축하기 전에 하던 일 메모를 남기고, 압축 뒤에 다시 넣어요.</li>
-        <li><span class="tag">한 번 클릭</span>커밋하거나 답이 끝나면, 커밋 제목을 채운 <code>/compact</code>를 권해요.</li>
-        <li><span class="tag">한 번</span>등급이 바뀌면 한 줄로 알려 줘요.</li>
+        <li><span class="tag">자동</span>모델을 지정하지 않은 하위 에이전트는 Haiku나 Sonnet으로 실행됩니다.</li>
+        <li><span class="tag">자동</span>압축하기 전에 하던 일 메모를 남기고, 압축 뒤에 다시 넣습니다.</li>
+        <li><span class="tag">한 번 클릭</span>커밋하거나 답이 끝나면, 커밋 제목을 채운 <code>/compact</code>를 권합니다.</li>
+        <li><span class="tag">한 번</span>등급이 바뀌면 한 줄로 알려 줍니다.</li>
       </ul>
     </div>
   </div>
@@ -210,30 +210,30 @@ body { word-break: keep-all; overflow-wrap: break-word; }
 <section>
   <h2><span class="n">01</span>앞서가고 있을 때 하는 일</h2>
   <ol class="does">
-    <li><b>하위 에이전트 모델.</b> <span class="tag">자동</span> 등급이 빨강인 동안, 모델을 지정하지 않은 하위 에이전트 호출은 단순한 일이면 Haiku로, 아니면 Sonnet으로 가요. 모델을 지정했거나, 포크이거나, 검토·설계처럼 판단이 필요한 일로 보이면 건드리지 않아요. 제안만 하도록 바꾸거나 끌 수도 있어요.</li>
-    <li><b>인계 메모.</b> <span class="tag">자동</span> 압축하거나 비우기 전에 최근 요청 몇 개, 커밋, 고친 파일, 할 일 목록을 저장해 두고 새 대화에 다시 넣어요. 메모는 대화 기록에서 뽑아 만들 뿐 모델이 쓰지 않아요. 그래서 일찍 압축해도 어디까지 했는지 다시 설명할 필요가 없어요.</li>
-    <li><b>압축 제안.</b> <span class="tag">한 번 클릭</span> 대화가 커졌고 방금 뭔가를 끝냈으면(커밋, 수정, 답변) 커밋 제목을 채운 <code>/compact</code>를 권해요. 대화가 그보다 훨씬 크면 새 세션을 권해요.</li>
-    <li><b>자동 압축 시점.</b> <span class="tag">한 번 설정</span> setup에서 Claude Code의 자동 압축 시점을 앞당길 수 있어요. 긴 세션이 호출할 때마다 아주 큰 맥락을 다시 읽지 않게요.</li>
-    <li><b>등급 변화.</b> <span class="tag">한 번</span> 등급이 바뀌면 Claude에게 짧은 한 줄이 가고, Claude가 그걸 사용자의 언어로 전해요. 다른 프롬프트에는 아무것도 붙지 않아요.</li>
+    <li><b>하위 에이전트 모델.</b> <span class="tag">자동</span> 등급이 빨강인 동안, 모델을 지정하지 않은 하위 에이전트 호출은 단순한 일이면 Haiku로, 아니면 Sonnet으로 갑니다. 모델을 지정했거나, 포크이거나, 검토·설계처럼 판단이 필요한 일로 보이면 건드리지 않습니다. 제안만 하도록 바꾸거나 끌 수도 있습니다.</li>
+    <li><b>인계 메모.</b> <span class="tag">자동</span> 압축하거나 비우기 전에 최근 요청 몇 개, 커밋, 고친 파일, 할 일 목록을 저장해 두고 새 대화에 다시 넣습니다. 메모는 대화 기록에서 뽑아 만들 뿐 모델이 쓰지 않습니다. 그래서 일찍 압축해도 어디까지 했는지 다시 설명할 필요가 없습니다.</li>
+    <li><b>압축 제안.</b> <span class="tag">한 번 클릭</span> 대화가 커졌고 방금 뭔가를 끝냈으면(커밋, 수정, 답변) 커밋 제목을 채운 <code>/compact</code>를 권합니다. 대화가 그보다 훨씬 크면 새 세션을 권합니다.</li>
+    <li><b>자동 압축 시점.</b> <span class="tag">한 번 설정</span> setup에서 Claude Code의 자동 압축 시점을 앞당길 수 있습니다. 그러면 긴 세션이 호출할 때마다 아주 큰 맥락을 다시 읽지 않습니다.</li>
+    <li><b>등급 변화.</b> <span class="tag">한 번</span> 등급이 바뀌면 Claude에게 짧은 한 줄이 가고, Claude가 그걸 사용자의 언어로 전합니다. 다른 프롬프트에는 아무것도 붙지 않습니다.</li>
   </ol>
-  <p class="small">메인 대화의 모델을 바꾸거나, 요청을 막거나, 스스로 압축하지는 않아요. Claude Code가 플러그인이 <code>/compact</code>를 실행하지 못하게 막아 두었거든요. <code>/token-stamina:audit</code>는 모든 대화에 실리는 것들(CLAUDE.md 파일, 플러그인, 안 쓰는 MCP 서버 등)을 보여 줘요. 보여 주기만 하고 아무것도 바꾸지 않아요.</p>
+  <p class="small">메인 대화의 모델을 바꾸거나, 요청을 막거나, 스스로 압축하지는 않습니다. Claude Code가 플러그인의 <code>/compact</code> 실행을 막아 두었기 때문입니다. <code>/token-stamina:audit</code>는 모든 대화에 실리는 것들(CLAUDE.md 파일, 플러그인, 안 쓰는 MCP 서버 등)을 보여 줍니다. 보여 주기만 하고 아무것도 바꾸지 않습니다.</p>
 </section>
 
 <section id="pace">
-  <h2><span class="n">02</span>등급은 이렇게 정해요</h2>
-  <p>상태줄에는 Claude Code가 이미 넘겨주는 숫자와 등급이 보여요.</p>
+  <h2><span class="n">02</span>등급은 이렇게 정합니다</h2>
+  <p>상태줄에는 Claude Code가 이미 넘겨주는 숫자와 등급이 보입니다.</p>
   <div class="term" aria-label="Example status line">
     <div class="bar" aria-hidden="true"><i></i><i></i><i></i></div>
 <pre><span class="dim">~/work/api</span>  main  <span class="dim">│</span>  7d 84% · today 5.3% <span class="y">●</span> · reset Mon 15:00 · ctx 41%</pre>
   </div>
   <dl class="anno">
     <dt><code>7d 84%</code></dt><dd>주간 한도 사용량(Claude Code가 알려 주는 값)</dd>
-    <dt><code>today 5.3%</code></dt><dd>지금부터 하루에 이만큼씩 쓰면 리셋까지 버텨요</dd>
+    <dt><code>today 5.3%</code></dt><dd>지금부터 하루에 이만큼씩 쓰면 리셋까지 버틸 수 있습니다</dd>
     <dt><code>●</code></dt><dd>등급: 초록·노랑·빨강</dd>
     <dt><code>reset Mon 15:00</code></dt><dd>주간 한도가 리셋되는 시각</dd>
     <dt><code>ctx 41%</code></dt><dd>지금 대화가 얼마나 찼는지</dd>
   </dl>
-  <p style="margin-top:1.6rem">토요일에 60%를 썼으면 괜찮아요. 월요일에 60%면 문제예요. 그래서 등급은 사용량을 시간과 비교해요. 지난 시간만큼 이하로 썼으면 초록, 10포인트까지 넘으면 노랑, 10포인트보다 더 넘거나 언제든 90%를 넘으면 빨강이에요. 주간과 5시간 한도를 따로 매기고, 둘 중 나쁜 쪽이 보여요.</p>
+  <p style="margin-top:1.6rem">토요일에 60%를 썼으면 괜찮습니다. 월요일에 60%면 문제입니다. 그래서 등급은 사용량을 시간과 비교합니다. 지난 시간만큼 이하로 썼으면 초록, 10포인트까지 넘으면 노랑, 10포인트보다 더 넘거나 언제든 90%를 넘으면 빨강입니다. 주간과 5시간 한도를 따로 매기고, 둘 중 나쁜 쪽이 보입니다.</p>
 
   <div class="pace">
     <label><span>이번 주 지난 시간</span><input id="el" type="range" min="0" max="100" value="43"><output id="elv">43%</output></label>
@@ -250,9 +250,9 @@ body { word-break: keep-all; overflow-wrap: break-word; }
 claude plugin install token-stamina@token-stamina</pre><button type="button">복사</button></div>
   <p class="step"><span class="n">2</span>그다음 Claude Code에서:</p>
   <div class="cmd"><pre>/token-stamina:setup</pre><button type="button">복사</button></div>
-  <p class="small">플러그인은 상태줄을 스스로 등록할 수 없어서, setup이 <code>~/.claude/settings.json</code>을 고치기 전에 먼저 물어봐요. 이미 쓰는 상태줄이 있으면 그대로 두고 덧붙일 수 있어요.</p>  <details class="small">
+  <p class="small">플러그인은 상태줄을 스스로 등록할 수 없어서, setup이 <code>~/.claude/settings.json</code>을 고치기 전에 먼저 물어봅니다. 이미 쓰는 상태줄이 있으면 그대로 두고 덧붙일 수 있습니다.</p>  <details class="small">
     <summary>1단계를 Claude Code 안에서 하려면</summary>
-    <p>하나씩 실행한 다음 setup을 실행하세요.</p>
+    <p>하나씩 실행한 다음 setup을 실행합니다.</p>
     <div class="cmd"><pre>/plugin marketplace add token-stamina/token-stamina</pre><button type="button">복사</button></div>
     <div class="cmd"><pre>/plugin install token-stamina@token-stamina</pre><button type="button">복사</button></div>
   </details>
@@ -262,19 +262,19 @@ claude plugin install token-stamina@token-stamina</pre><button type="button">복
   <h2><span class="n">04</span>내 컴퓨터에서 하는 일</h2>
   <dl class="priv">
     <dt>읽는 것</dt>
-    <dd>Claude Code가 상태줄에 넘겨주는 사용량 숫자와 <code>~/.claude/projects</code> 아래 세션 기록이에요. 사용량을 합산하고 인계 메모를 만드는 데 써요.</dd>
+    <dd>Claude Code가 상태줄에 넘겨주는 사용량 숫자와 <code>~/.claude/projects</code> 아래 세션 기록입니다. 사용량을 합산하고 인계 메모를 만드는 데 씁니다.</dd>
     <dt>쓰는 것</dt>
-    <dd><code>~/.claude/token-stamina/</code> 안에만 써요. setup 때 동의하면 설정 파일도 고쳐요. 인계 메모는 7일 뒤 지워져요.</dd>
+    <dd><code>~/.claude/token-stamina/</code> 안에만 씁니다. setup 때 동의하면 설정 파일도 고칩니다. 인계 메모는 7일 뒤 지워집니다.</dd>
     <dt>하지 않는 것</dt>
-    <dd>스크립트는 네트워크 요청, 사용 통계 전송, 모델 호출을 하지 않아요. 다만 실행하는 명령 두 개는 스스로 인터넷에 접속할 수 있어요. 점검할 때 쓰는 <code>claude plugin list</code>와, 감싸 달라고 지정한 상태줄 명령이에요.</dd>
+    <dd>스크립트는 네트워크 요청, 사용 통계 전송, 모델 호출을 하지 않습니다. 다만 실행하는 명령 두 개는 스스로 인터넷에 접속할 수 있습니다. 점검할 때 쓰는 <code>claude plugin list</code>와, 감싸 달라고 지정한 상태줄 명령입니다.</dd>
   </dl>
-  <p class="small" style="margin-top:1.2rem">파일별 전체 목록은 <a href="https://github.com/token-stamina/token-stamina#privacy-and-what-runs-on-your-machine">README</a>(영어)에 있어요. 모두 지우려면 플러그인을 제거하고 그 폴더를 지우세요.</p>
+  <p class="small" style="margin-top:1.2rem">파일별 전체 목록은 <a href="https://github.com/token-stamina/token-stamina#privacy-and-what-runs-on-your-machine">README</a>(영어)에 있습니다. 모두 지우려면 플러그인을 제거하고 그 폴더를 지우면 됩니다.</p>
 </section>
 
 <hr>
 
 <section style="padding-top:2rem">
-  <p class="fine">Token Stamina는 독립 커뮤니티 프로젝트예요. Anthropic과 제휴 관계가 아니고, Anthropic의 보증이나 후원도 받지 않아요. "Claude"와 "Claude Code"는 Anthropic, PBC의 상표이고, 여기서는 이 플러그인이 무엇과 함께 쓰이는지 밝히는 데만 써요. 7d·5h 수치는 Claude Code에서 오고, 등급·하루 몫·절약 수치는 내 컴퓨터에서 낸 추정치예요. 청구 금액이 아니에요.</p>
+  <p class="fine">Token Stamina는 독립 커뮤니티 프로젝트입니다. Anthropic과 제휴 관계가 아니고, Anthropic의 보증이나 후원도 받지 않습니다. "Claude"와 "Claude Code"는 Anthropic, PBC의 상표이고, 여기서는 이 플러그인이 무엇과 함께 쓰이는지 밝히는 데만 씁니다. 7d·5h 수치는 Claude Code에서 오고, 등급·하루 몫·절약 수치는 내 컴퓨터에서 낸 추정치입니다. 청구 금액이 아닙니다.</p>
 </section>
 
 <footer>
@@ -298,9 +298,9 @@ claude plugin install token-stamina@token-stamina</pre><button type="button">복
     else { g = 'green'; color = 'var(--green)'; }
     elv.textContent = e + '%'; usv.textContent = u + '%';
     bar.style.width = u + '%'; bar.style.background = color; tick.style.left = 'calc(' + e + '% - 1px)';
-    if (g === 'green') msg = '속도 맞음, ' + (e - u) + '포인트 여유. 아무것도 바뀌지 않아요.';
-    else if (g === 'yellow') msg = d + '포인트 넘음. 한 줄 알림 말고는 아직 바뀌는 게 없어요.';
-    else msg = (u >= 90 ? '한도 90% 넘음.' : d + '포인트 넘음.') + ' 모델을 지정하지 않은 하위 에이전트는 더 싼 모델로 가고, 다음에 끝나는 작업에 압축 제안이 붙어요.';
+    if (g === 'green') msg = '속도 맞음, ' + (e - u) + '포인트 여유. 아무것도 바뀌지 않습니다.';
+    else if (g === 'yellow') msg = d + '포인트 넘음. 한 줄 알림 말고는 아직 바뀌는 것이 없습니다.';
+    else msg = (u >= 90 ? '한도 90% 넘음.' : d + '포인트 넘음.') + ' 모델을 지정하지 않은 하위 에이전트는 더 싼 모델로 가고, 다음에 끝나는 작업에 압축 제안이 붙습니다.';
     out.innerHTML = '<span class="dot" style="background:' + color + '"></span><b>' + ({ green: '초록', yellow: '노랑', red: '빨강' })[g] + '.</b> ' + msg;
   }
   el.addEventListener('input', draw); us.addEventListener('input', draw); draw();
