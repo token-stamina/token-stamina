@@ -1,0 +1,320 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Token Stamina — Claude Code 주간 한도, 리셋 전에 바닥나지 않게</title>
+<meta name="description" content="Token Stamina는 Claude Code 사용량을 이번 주에 지난 시간과 비교해요. 앞서가면 하위 에이전트를 더 싼 모델로 돌리고, 일이 끝나면 압축을 권해요. 내 컴퓨터에서만 돌고 LLM을 부르지 않아요.">
+<link rel="alternate" hreflang="en" href="https://tokenstamina.com/">
+<link rel="alternate" hreflang="ko" href="https://tokenstamina.com/ko/">
+<meta property="og:title" content="Token Stamina">
+<meta property="og:description" content="Claude Code 주간 한도, 리셋 전에 바닥나지 않게. 로컬 전용, LLM 호출 없음.">
+<meta property="og:url" content="https://tokenstamina.com/ko/">
+<link rel="icon" href="/logo.svg" type="image/svg+xml">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans+KR:wght@400;500;600&family=IBM+Plex+Sans:ital,wght@0,400;0,500;0,600;1,400&display=swap" rel="stylesheet">
+<style>
+:root {
+  --paper: #f5f2eb;
+  --ink: #1d1c1a;
+  --ink-2: #5a564e;
+  --rule: #d9d3c7;
+  --term: #1b1a18;
+  --term-ink: #e9e4d8;
+  --term-dim: #8f897c;
+  --green: #4f8a4a;
+  --yellow: #c99a1e;
+  --red: #b8483a;
+  --link: #1d1c1a;
+  --code-bg: #ebe6db;
+  color-scheme: light;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --paper: #171614;
+    --ink: #e8e3d7;
+    --ink-2: #a39d90;
+    --rule: #34312c;
+    --term: #0e0d0c;
+    --term-ink: #e9e4d8;
+    --term-dim: #7d776b;
+    --link: #e8e3d7;
+    --code-bg: #24221f;
+    color-scheme: dark;
+  }
+}
+* { box-sizing: border-box; }
+html { -webkit-text-size-adjust: 100%; }
+body {
+  margin: 0;
+  background: var(--paper);
+  color: var(--ink);
+  font: 17px/1.7 "IBM Plex Sans KR", "IBM Plex Sans", "Apple SD Gothic Neo", "Malgun Gothic", system-ui, -apple-system, "Segoe UI", sans-serif;
+}
+.wrap { max-width: 44rem; margin: 0 auto; padding: 0 1.25rem; }
+a { color: var(--link); text-decoration-thickness: 1px; text-underline-offset: 3px; }
+a:hover { text-decoration-thickness: 2px; }
+code, pre, .mono { font-family: "IBM Plex Mono", ui-monospace, "Cascadia Mono", Consolas, monospace; }
+code { font-size: .88em; background: var(--code-bg); padding: .1em .35em; border-radius: 3px; }
+
+header.top {
+  display: flex; align-items: baseline; justify-content: space-between; gap: 1rem; flex-wrap: wrap;
+  padding-block: 1.4rem 0;
+}
+.mark { font-family: "IBM Plex Mono", monospace; font-weight: 500; font-size: .95rem; text-decoration: none; letter-spacing: -.01em; display: inline-flex; align-items: center; gap: .55rem; }
+.mark .logo { width: 26px; height: 26px; display: block; }
+.mark span { color: var(--ink-2); }
+nav a { font-size: .9rem; margin-left: 1.1rem; color: var(--ink-2); text-decoration: none; }
+nav a:hover { color: var(--ink); text-decoration: underline; }
+
+.hero { padding-block: 4.5rem 1rem; }
+h1 {
+  font-size: clamp(2rem, 5.2vw, 2.9rem); line-height: 1.12; letter-spacing: -.025em;
+  font-weight: 600; margin: 0 0 1.2rem; max-width: 18ch;
+}
+.lede { font-size: 1.15rem; color: var(--ink-2); margin: 0; max-width: 36rem; }
+.lede strong { color: var(--ink); font-weight: 500; }
+
+/* the status line, as it actually looks */
+.term {
+  margin: 2.6rem 0 0; background: var(--term); color: var(--term-ink);
+  border-radius: 6px; padding: .2rem 0 0; overflow-x: auto;
+}
+.term .bar { display: flex; gap: .4rem; padding: .55rem .8rem; }
+.term .bar i { width: 9px; height: 9px; border-radius: 50%; background: #3a3732; display: block; }
+.term pre { margin: 0; padding: .3rem 1.1rem 1.1rem; font-size: .92rem; line-height: 1.7; white-space: pre; }
+.term .dim { color: var(--term-dim); }
+.term .y { color: #e3b53c; }
+.anno { list-style: none; padding: 0; margin: 1rem 0 0; font-size: .92rem; color: var(--ink-2); display: grid; grid-template-columns: max-content 1fr; gap: .25rem 1rem; }
+.anno code { background: none; padding: 0; color: var(--ink); }
+
+section { padding-block: 3.2rem 0; }
+h2 { font-size: 1.3rem; letter-spacing: -.01em; margin: 0 0 1rem; font-weight: 600; }
+h2 .n { font-family: "IBM Plex Mono", monospace; font-weight: 400; color: var(--ink-2); font-size: .85rem; margin-right: .6rem; vertical-align: .12em; }
+p { margin: 0 0 1rem; }
+hr { border: 0; border-top: 1px solid var(--rule); margin: 3.2rem 0 0; }
+
+/* pace toy */
+.pace { border: 1px solid var(--rule); border-radius: 6px; padding: 1.2rem 1.2rem 1rem; margin-top: 1.4rem; }
+.pace label { display: grid; grid-template-columns: 9.5rem 1fr 3.2rem; align-items: center; gap: .8rem; font-size: .92rem; margin-bottom: .6rem; }
+.pace output { font-family: "IBM Plex Mono", monospace; text-align: right; font-size: .9rem; }
+.pace input[type=range] { width: 100%; accent-color: var(--ink); }
+.track { position: relative; height: 10px; background: var(--code-bg); border-radius: 2px; margin: 1rem 0 .4rem; }
+.track .used { position: absolute; inset: 0 auto 0 0; border-radius: 2px; background: var(--green); transition: background .15s; }
+.track .tick { position: absolute; top: -5px; bottom: -5px; width: 2px; background: var(--ink); }
+.verdict { font-size: .95rem; margin: .7rem 0 0; min-height: 3.2em; }
+.verdict b { font-weight: 600; }
+.dot { display: inline-block; width: .62em; height: .62em; border-radius: 50%; margin-right: .35em; vertical-align: .05em; }
+
+ol.does { padding-left: 1.2rem; margin: 0; }
+ol.does li { margin-bottom: 1rem; padding-left: .3rem; }
+ol.does li::marker { font-family: "IBM Plex Mono", monospace; color: var(--ink-2); font-size: .9em; }
+ol.does b { font-weight: 600; }
+.tag {
+  font: 500 .7rem/1 "IBM Plex Mono", monospace; text-transform: uppercase; letter-spacing: .04em;
+  border: 1px solid var(--rule); color: var(--ink-2); border-radius: 3px; padding: .2em .4em; margin-right: .4em;
+  vertical-align: .12em; white-space: nowrap;
+}
+
+/* on pace vs ahead of pace */
+.vs { display: grid; grid-template-columns: 1fr 1.35fr; gap: 1rem; margin-top: 2.4rem; }
+.case { border: 1px solid var(--rule); border-radius: 6px; padding: 1rem 1.1rem; font-size: .95rem; }
+.case.hot { border-color: var(--ink-2); }
+.case p { margin: 0 0 .6rem; }
+.case .when { font-weight: 600; }
+.case .meter { font-size: .82rem; color: var(--ink-2); }
+.case ul { list-style: none; padding: 0; margin: 0; }
+.case li { margin: 0 0 .5rem; padding-left: 0; }
+.case li .tag { display: inline-block; min-width: 5.6em; text-align: center; }
+
+/* install */
+.cmd { display: flex; align-items: stretch; border: 1px solid var(--rule); border-radius: 5px; margin: 0 0 .6rem; overflow: hidden; }
+.cmd pre { margin: 0; padding: .7rem .9rem; flex: 1; overflow-x: auto; font-size: .9rem; background: var(--code-bg); }
+.cmd button {
+  font: 500 .8rem "IBM Plex Mono", monospace; border: 0; border-left: 1px solid var(--rule);
+  background: transparent; color: var(--ink-2); padding: 0 .9rem; cursor: pointer;
+}
+.cmd button:hover { color: var(--ink); }
+.small { font-size: .9rem; color: var(--ink-2); }
+.step { margin: 1.2rem 0 .5rem; }
+.step .n {
+  display: inline-block; width: 1.5em; height: 1.5em; line-height: 1.5em; text-align: center; border-radius: 50%;
+  background: var(--ink); color: var(--paper); font: 500 .8rem/1.5em "IBM Plex Mono", monospace; margin-right: .55rem; vertical-align: .1em;
+}
+details.small { margin-top: 1.2rem; }
+details.small summary { cursor: pointer; color: var(--ink); }
+details.small p { margin: .6rem 0; }
+
+dl.priv { margin: 0; }
+dl.priv dt { font-weight: 600; margin-top: 1rem; }
+dl.priv dd { margin: .2rem 0 0; color: var(--ink-2); }
+
+.fine { font-size: .88rem; color: var(--ink-2); border-left: 2px solid var(--rule); padding-left: 1rem; }
+
+footer { padding-block: 4rem 3rem; font-size: .88rem; color: var(--ink-2); display: flex; flex-wrap: wrap; gap: .4rem 1.4rem; }
+footer a { color: var(--ink-2); }
+
+@media (max-width: 560px) {
+  body { font-size: 16px; }
+  .hero { padding-block: 3rem .5rem; }
+  .pace label { grid-template-columns: 1fr 3rem; }
+  .pace label span { grid-column: 1 / -1; }
+  .anno { grid-template-columns: 1fr; gap: 0 0; }
+  .anno dd { margin: 0 0 .5rem; }
+  nav a { margin-left: 0; margin-right: 1rem; }
+  .vs { grid-template-columns: 1fr; }
+}
+/* Korean: break between words, and keep Hangul out of the mono face (it has no Hangul) */
+body { word-break: keep-all; overflow-wrap: break-word; }
+.tag, .case .meter { font-family: "IBM Plex Sans KR", "IBM Plex Sans", sans-serif; letter-spacing: 0; text-transform: none; }
+.tag { font-size: .72rem; font-weight: 500; }
+.case li .tag { min-width: 4.6em; }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<header class="top">
+  <a class="mark" href="/ko/"><svg class="logo" viewBox="0 0 64 64" aria-hidden="true"><rect width="64" height="64" rx="14" fill="#1d1c1a"/><rect x="10" y="24" width="40" height="16" rx="3" fill="none" stroke="#e9e4d8" stroke-width="3"/><rect x="51.5" y="28.5" width="3.5" height="7" rx="1.2" fill="#e9e4d8"/><rect x="14" y="28" width="20" height="8" rx="1" fill="#6fae63"/><rect x="37" y="18" width="3" height="28" rx="1.5" fill="#e3b53c"/></svg>token<span>·</span>stamina</a>
+  <nav>
+    <a href="#install">설치</a>
+    <a href="#privacy">개인정보</a>
+    <a href="https://github.com/token-stamina/token-stamina">GitHub</a>
+  </nav>
+</header>
+
+<div class="hero">
+  <h1>주간 한도, 리셋 전에 바닥나지 않게.</h1>
+  <p class="lede">Token Stamina는 Claude Code 플러그인이에요. 주간·5시간 한도를 얼마나 썼는지와 그 기간이 얼마나 지났는지를 비교해요. 앞서가고 있으면 하위 에이전트를 더 싼 모델로 돌리고, 압축하면 좋을 때를 알려 줘요. 그렇지 않으면 아무것도 안 해요. <strong>LLM을 부르지 않고, 네트워크 요청도 보내지 않아요.</strong></p>
+
+  <div class="vs">
+    <div class="case">
+      <p class="when"><span class="dot" style="background:var(--green)"></span>화요일, 속도 맞음</p>
+      <p class="meter mono">이번 주 43% 지남 · 한도 41% 씀</p>
+      <p>아무것도 바뀌지 않아요. 상태줄에 초록 점만 보여요.</p>
+    </div>
+    <div class="case hot">
+      <p class="when"><span class="dot" style="background:var(--red)"></span>화요일, 앞서감</p>
+      <p class="meter mono">이번 주 43% 지남 · 한도 62% 씀</p>
+      <ul>
+        <li><span class="tag">자동</span>모델을 지정하지 않은 하위 에이전트는 Haiku나 Sonnet으로 돌아요.</li>
+        <li><span class="tag">자동</span>압축하기 전에 하던 일 메모를 남기고, 압축 뒤에 다시 넣어요.</li>
+        <li><span class="tag">한 번 클릭</span>커밋하거나 답이 끝나면, 커밋 제목을 채운 <code>/compact</code>를 권해요.</li>
+        <li><span class="tag">한 번</span>등급이 바뀌면 한 줄로 알려 줘요.</li>
+      </ul>
+    </div>
+  </div>
+</div>
+
+<section>
+  <h2><span class="n">01</span>앞서가고 있을 때 하는 일</h2>
+  <ol class="does">
+    <li><b>하위 에이전트 모델.</b> <span class="tag">자동</span> 등급이 빨강인 동안, 모델을 지정하지 않은 하위 에이전트 호출은 단순한 일이면 Haiku로, 아니면 Sonnet으로 가요. 모델을 지정했거나, 포크이거나, 검토·설계처럼 판단이 필요한 일로 보이면 건드리지 않아요. 제안만 하도록 바꾸거나 끌 수도 있어요.</li>
+    <li><b>인계 메모.</b> <span class="tag">자동</span> 압축하거나 비우기 전에 최근 요청 몇 개, 커밋, 고친 파일, 할 일 목록을 저장해 두고 새 대화에 다시 넣어요. 메모는 대화 기록에서 뽑아 만들 뿐 모델이 쓰지 않아요. 그래서 일찍 압축해도 어디까지 했는지 다시 설명할 필요가 없어요.</li>
+    <li><b>압축 제안.</b> <span class="tag">한 번 클릭</span> 대화가 커졌고 방금 뭔가를 끝냈으면(커밋, 수정, 답변) 커밋 제목을 채운 <code>/compact</code>를 권해요. 대화가 그보다 훨씬 크면 새 세션을 권해요.</li>
+    <li><b>자동 압축 시점.</b> <span class="tag">한 번 설정</span> setup에서 Claude Code의 자동 압축 시점을 앞당길 수 있어요. 긴 세션이 호출할 때마다 아주 큰 맥락을 다시 읽지 않게요.</li>
+    <li><b>등급 변화.</b> <span class="tag">한 번</span> 등급이 바뀌면 Claude에게 짧은 한 줄이 가고, Claude가 그걸 사용자의 언어로 전해요. 다른 프롬프트에는 아무것도 붙지 않아요.</li>
+  </ol>
+  <p class="small">메인 대화의 모델을 바꾸거나, 요청을 막거나, 스스로 압축하지는 않아요. Claude Code가 플러그인이 <code>/compact</code>를 실행하지 못하게 막아 두었거든요. <code>/token-stamina:audit</code>는 모든 대화에 실리는 것들(CLAUDE.md 파일, 플러그인, 안 쓰는 MCP 서버 등)을 보여 줘요. 보여 주기만 하고 아무것도 바꾸지 않아요.</p>
+</section>
+
+<section id="pace">
+  <h2><span class="n">02</span>등급은 이렇게 정해요</h2>
+  <p>상태줄에는 Claude Code가 이미 넘겨주는 숫자와 등급이 보여요.</p>
+  <div class="term" aria-label="Example status line">
+    <div class="bar" aria-hidden="true"><i></i><i></i><i></i></div>
+<pre><span class="dim">~/work/api</span>  main  <span class="dim">│</span>  7d 84% · today 5.3% <span class="y">●</span> · reset Mon 15:00 · ctx 41%</pre>
+  </div>
+  <dl class="anno">
+    <dt><code>7d 84%</code></dt><dd>주간 한도 사용량(Claude Code가 알려 주는 값)</dd>
+    <dt><code>today 5.3%</code></dt><dd>지금부터 하루에 이만큼씩 쓰면 리셋까지 버텨요</dd>
+    <dt><code>●</code></dt><dd>등급: 초록·노랑·빨강</dd>
+    <dt><code>reset Mon 15:00</code></dt><dd>주간 한도가 리셋되는 시각</dd>
+    <dt><code>ctx 41%</code></dt><dd>지금 대화가 얼마나 찼는지</dd>
+  </dl>
+  <p style="margin-top:1.6rem">토요일에 60%를 썼으면 괜찮아요. 월요일에 60%면 문제예요. 그래서 등급은 사용량을 시간과 비교해요. 지난 시간만큼 이하로 썼으면 초록, 10포인트까지 넘으면 노랑, 10포인트보다 더 넘거나 언제든 90%를 넘으면 빨강이에요. 주간과 5시간 한도를 따로 매기고, 둘 중 나쁜 쪽이 보여요.</p>
+
+  <div class="pace">
+    <label><span>이번 주 지난 시간</span><input id="el" type="range" min="0" max="100" value="43"><output id="elv">43%</output></label>
+    <label><span>한도 사용량</span><input id="us" type="range" min="0" max="100" value="62"><output id="usv">62%</output></label>
+    <div class="track" aria-hidden="true"><div class="used" id="bar"></div><div class="tick" id="tick"></div></div>
+    <p class="verdict" id="verdict" aria-live="polite"></p>
+  </div>
+</section>
+
+<section id="install">
+  <h2><span class="n">03</span>설치</h2>
+  <p class="step"><span class="n">1</span>터미널에서:</p>
+  <div class="cmd"><pre>claude plugin marketplace add token-stamina/token-stamina
+claude plugin install token-stamina@token-stamina</pre><button type="button">복사</button></div>
+  <p class="step"><span class="n">2</span>그다음 Claude Code에서:</p>
+  <div class="cmd"><pre>/token-stamina:setup</pre><button type="button">복사</button></div>
+  <p class="small">플러그인은 상태줄을 스스로 등록할 수 없어서, setup이 <code>~/.claude/settings.json</code>을 고치기 전에 먼저 물어봐요. 이미 쓰는 상태줄이 있으면 그대로 두고 덧붙일 수 있어요. 안내 문구는 한국어·영어·일본어로 나와요.</p>
+  <details class="small">
+    <summary>1단계를 Claude Code 안에서 하려면</summary>
+    <p>하나씩 실행한 다음 setup을 실행하세요.</p>
+    <div class="cmd"><pre>/plugin marketplace add token-stamina/token-stamina</pre><button type="button">복사</button></div>
+    <div class="cmd"><pre>/plugin install token-stamina@token-stamina</pre><button type="button">복사</button></div>
+  </details>
+</section>
+
+<section id="privacy">
+  <h2><span class="n">04</span>내 컴퓨터에서 하는 일</h2>
+  <dl class="priv">
+    <dt>읽는 것</dt>
+    <dd>Claude Code가 상태줄에 넘겨주는 사용량 숫자와 <code>~/.claude/projects</code> 아래 세션 기록이에요. 사용량을 합산하고 인계 메모를 만드는 데 써요.</dd>
+    <dt>쓰는 것</dt>
+    <dd><code>~/.claude/token-stamina/</code> 안에만 써요. setup 때 동의하면 설정 파일도 고쳐요. 인계 메모는 7일 뒤 지워져요.</dd>
+    <dt>하지 않는 것</dt>
+    <dd>스크립트는 네트워크 요청, 사용 통계 전송, 모델 호출을 하지 않아요. 다만 실행하는 명령 두 개는 스스로 인터넷에 접속할 수 있어요. 점검할 때 쓰는 <code>claude plugin list</code>와, 감싸 달라고 지정한 상태줄 명령이에요.</dd>
+  </dl>
+  <p class="small" style="margin-top:1.2rem">파일별 전체 목록은 <a href="https://github.com/token-stamina/token-stamina#privacy-and-what-runs-on-your-machine">README</a>(영어)에 있어요. 모두 지우려면 플러그인을 제거하고 그 폴더를 지우세요.</p>
+</section>
+
+<hr>
+
+<section style="padding-top:2rem">
+  <p class="fine">Token Stamina는 독립 커뮤니티 프로젝트예요. Anthropic과 제휴 관계가 아니고, Anthropic의 보증이나 후원도 받지 않아요. "Claude"와 "Claude Code"는 Anthropic, PBC의 상표이고, 여기서는 이 플러그인이 무엇과 함께 쓰이는지 밝히는 데만 써요. 7d·5h 수치는 Claude Code에서 오고, 등급·하루 몫·절약 수치는 내 컴퓨터에서 낸 추정치예요. 청구 금액이 아니에요.</p>
+</section>
+
+<footer>
+  <span>MIT 라이선스 · 무료</span>
+  <a href="https://ko-fi.com/tokenstamina">Ko-fi로 후원하기</a>
+  <a href="/" hreflang="en" lang="en">English</a>
+  <a href="https://github.com/token-stamina/token-stamina">소스</a>
+  <a href="https://github.com/token-stamina/token-stamina/issues">문제 신고</a></footer>
+
+</div>
+<script>
+(function () {
+  var el = document.getElementById('el'), us = document.getElementById('us');
+  var elv = document.getElementById('elv'), usv = document.getElementById('usv');
+  var bar = document.getElementById('bar'), tick = document.getElementById('tick'), out = document.getElementById('verdict');
+  var css = getComputedStyle(document.documentElement);
+  function draw() {
+    var e = +el.value, u = +us.value, d = u - e, g, color, msg;
+    if (u >= 90 || d > 10) { g = 'red'; color = 'var(--red)'; }
+    else if (d > 0) { g = 'yellow'; color = 'var(--yellow)'; }
+    else { g = 'green'; color = 'var(--green)'; }
+    elv.textContent = e + '%'; usv.textContent = u + '%';
+    bar.style.width = u + '%'; bar.style.background = color; tick.style.left = 'calc(' + e + '% - 1px)';
+    if (g === 'green') msg = '속도 맞음, ' + (e - u) + '포인트 여유. 아무것도 바뀌지 않아요.';
+    else if (g === 'yellow') msg = d + '포인트 넘음. 한 줄 알림 말고는 아직 바뀌는 게 없어요.';
+    else msg = (u >= 90 ? '한도 90% 넘음.' : d + '포인트 넘음.') + ' 모델을 지정하지 않은 하위 에이전트는 더 싼 모델로 가고, 다음에 끝나는 작업에 압축 제안이 붙어요.';
+    out.innerHTML = '<span class="dot" style="background:' + color + '"></span><b>' + ({ green: '초록', yellow: '노랑', red: '빨강' })[g] + '.</b> ' + msg;
+  }
+  el.addEventListener('input', draw); us.addEventListener('input', draw); draw();
+
+  document.querySelectorAll('.cmd button').forEach(function (b) {
+    b.addEventListener('click', function () {
+      var t = b.previousElementSibling.textContent;
+      (navigator.clipboard ? navigator.clipboard.writeText(t) : Promise.reject()).then(function () {
+        b.textContent = '복사됨'; setTimeout(function () { b.textContent = '복사'; }, 1400);
+      }, function () { b.textContent = '직접 선택'; });
+    });
+  });
+})();
+</script>
+</body>
+</html>
