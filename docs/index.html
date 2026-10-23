@@ -184,7 +184,7 @@ footer a { color: var(--ink-2); }
 
 <div class="hero">
   <h1>Make your weekly limit last until the reset.</h1>
-  <p class="lede">Token Stamina is a Claude Code plugin. It compares how much of your weekly and 5-hour limit you've used with how much of the window has passed. If you're ahead, it moves subagents to cheaper models and tells you when a compact would help. If you're not, it does nothing. <strong>It makes no LLM calls and no network requests.</strong></p>
+  <p class="lede">Token Stamina is a Claude Code plugin. It compares how much of your weekly and 5-hour limit you've used with how much of the window has passed. If you're ahead, it moves subagents to cheaper models and tells you when a compact would help. If you're not, it does nothing. <strong>It makes no LLM calls. Its only network request is a once-a-day version check, which you can turn off.</strong></p>
 
   <div class="vs">
     <div class="case">
@@ -264,7 +264,7 @@ claude plugin install token-stamina@token-stamina</pre><button type="button">cop
     <dt>Writes</dt>
     <dd>Only to <code>~/.claude/token-stamina/</code>, and to your settings file during setup if you agree. Handoff notes are deleted after seven days.</dd>
     <dt>Never</dt>
-    <dd>Its scripts make no network requests, send no telemetry and call no model. Two commands it can start may go online: <code>claude plugin list</code> during an audit, and a status line command you've asked it to wrap.</dd>
+    <dd>Its scripts send no telemetry and call no model. Their only network request is the update check: once a day at most, one download of the published version number from GitHub, so it can tell you when a new version is out (<code>"updateCheck": false</code> turns it off). Two commands it can start may go online: <code>claude plugin list</code> during an audit, and a status line command you've asked it to wrap.</dd>
   </dl>
   <p class="small" style="margin-top:1.2rem">The full file-by-file list is in the <a href="https://github.com/token-stamina/token-stamina#privacy-and-what-runs-on-your-machine">README</a>. To remove everything, uninstall the plugin and delete that folder.</p>
 </section>

@@ -1,6 +1,6 @@
 # Token Stamina
 
-Token Stamina paces Claude Code usage against your weekly (7d) and 5-hour limits. It makes no LLM calls and sends nothing over the network.
+Token Stamina paces Claude Code usage against your weekly (7d) and 5-hour limits. It makes no LLM calls; its only network request is a once-a-day version check (`"updateCheck": false` turns it off).
 
 > **Unofficial.** Token Stamina is an independent, community-made plugin for Claude Code. It is not affiliated with, endorsed by, or sponsored by Anthropic. "Claude" and "Claude Code" are trademarks of Anthropic, PBC and are used only to say what this plugin works with. The 7d/5h percentages are passed through from Claude Code's status line input. Everything Token Stamina derives from them (grades, today's share, exhaustion time) and every savings figure is a local estimate based on assumptions, not a bill or an official usage number.
 
@@ -38,6 +38,19 @@ claude plugin install token-stamina@token-stamina
 
 Then run `/token-stamina:setup` once. Since 0.4.5 you do not have to remember: the first time Claude Code starts with the plugin and no Token Stamina status line, Claude asks once whether to run setup now, and you answer yes or no. It never asks again either way (`scripts/first-run.js`, SessionStart `startup`; `"setupPrompt": false` turns it off).
 
+### Updating
+
+Claude Code does not auto-update third-party marketplaces unless you turn it on: `/plugin` → Marketplaces → `token-stamina` → enable auto-update. To update by hand:
+
+```
+claude plugin marketplace update token-stamina
+claude plugin update token-stamina@token-stamina
+```
+
+then restart Claude Code. Since 0.4.6 you are told once per release when a newer version is out: at startup, at most once a day, `scripts/update-check.js` reads the version in this repository's `.claude-plugin/plugin.json` from GitHub in the background, and the next startup shows one line if it is newer than yours. `"updateCheck": false` turns this off.
+
+The status line set up by 0.4.6 runs a small launcher, `~/.claude/token-stamina/token-stamina-statusline.js`, that always runs the installed version, so updates reach the status line too. If yours was set up by 0.4.5 or older it points at one version folder; Claude offers once to switch it (`scripts/setup-statusline.js`).
+
 ## v0.3: handoff
 - `scripts/handoff.js` (Stop): writes `~/.claude/token-stamina/handoff/<session>.md` and `latest-<cwdhash>.md` (last 3 requests, commits, edited files, todos; capped by `handoffMaxTokens`; pruned after 7 days). No LLM.
 - `handoff.js` (SessionStart, matcher `compact|clear`): injects that note into the fresh conversation. A Claude-written `<session>.claude.md` newer than the last prompt wins. After `/clear` only a Claude-written note from the last hour is restored (the auto note is skipped, since clearing usually means a new topic).
@@ -63,7 +76,7 @@ Above the topic-gate threshold (`gateAtTokens`, 200k by default), a prompt gets 
 
 
 ## Privacy and what runs on your machine
-Token Stamina works locally. Its scripts open **no network connections**, send no telemetry, and call no LLM. Two things it starts can use the network on their own: `claude plugin list` (audit only) and your own `wrap` command. Hint lines and restored handoff notes are added to the conversation, so Claude Code sends them to the model like any other context.
+Token Stamina works locally. It sends no telemetry and calls no LLM. Its only network connection is the update check: at most once a day, one HTTPS GET of `https://raw.githubusercontent.com/token-stamina/token-stamina/main/.claude-plugin/plugin.json`, which sends nothing beyond the request itself (GitHub sees your IP address, as with any download); `"updateCheck": false` turns it off. Two things it starts can use the network on their own: `claude plugin list` (audit only) and your own `wrap` command. Hint lines and restored handoff notes are added to the conversation, so Claude Code sends them to the model like any other context.
 
 **What it reads**
 - `~/.claude/projects/**/*.jsonl` (your session transcripts): for usage totals per model (`report`, `savings`, including subagent transcripts), the current context size, what the last turn did (commit, edit, final answer), whether a clear was already offered, MCP/skill usage counts (`audit`), the first call's size (fixed-cost estimate), and the auto-compact point (up to 40 recent transcripts under 64 MB, read in full). Only derived numbers and names are kept (see `audit-cache.json` and `compact-point.json` below), plus the handoff note.
@@ -73,11 +86,12 @@ Token Stamina works locally. Its scripts open **no network connections**, send n
 **What it writes**
 - Its own files live under `~/.claude/token-stamina/` (override with `TOKEN_STAMINA_HOME`): `state.json`; `events.jsonl` (append-only and never pruned: session ids, token counts, which hint fired, subagent model decisions); per-session bookkeeping (`topic-gate.json` including the working folder, `boundary.json`, `nudge.json`, `lang.json`, `first-run.json` (when the one-time setup question was asked) with a language per session; each keeps the last 50 sessions); caches (`audit-cache.json` with transcript paths and MCP/skill names, `compact-point.json`); `config.json` (your settings); `handoff/`.
 - `handoff/` notes hold **text from your session**: the working folder path and session id, up to the last 3 requests (clipped to 200 characters each), commit subjects (or the start of the commit command when no subject can be parsed), edited file paths and to-do items, capped by `handoffMaxTokens`. A `<session>.json` sidecar keeps up to 40 commit subjects and file paths. When the context is large, Token Stamina also asks Claude to write its own note (`<session>.claude.md`, free text, no cap). Notes are restored into the conversation after `/compact` or `/clear`. Files older than 7 days are deleted the next time the Stop hook runs. `"handoff": false` stops writing and restoring notes but does not delete existing ones; to stop Claude-written notes too, also set `"topicGate": false`, `"topicCheck": false` and `"inlineCompactHint": false`.
-- The one-time setup question only reads `statusLine` in `~/.claude/settings.json` to see whether setup already ran.
-- Outside that folder, only `/token-stamina:setup` changes anything, and only after you agree. Claude edits `statusLine` in `~/.claude/settings.json` (no automatic backup; copy the file first if you want one). `scripts/setup-compact.js` sets `env.CLAUDE_CODE_AUTO_COMPACT_WINDOW` after saving `~/.claude/settings.json.bak-token-stamina-<timestamp>`. If you accept, a `/compact` keybinding is added to `~/.claude/keybindings.json`.
+- The one-time setup question only reads `statusLine` in `~/.claude/settings.json` to see whether setup already ran. The update check stores the newest published version and when it checked in `update-check.json`, and the last announced version in `first-run.json`. At startup the launcher `token-stamina-statusline.js` is rewritten if it exists and is out of date.
+- Outside that folder, only `/token-stamina:setup` changes anything, and only after you agree. `scripts/setup-statusline.js` points `statusLine` in `~/.claude/settings.json` at the launcher after saving `~/.claude/settings.json.bak-token-stamina-<timestamp>`. `scripts/setup-compact.js` sets `env.CLAUDE_CODE_AUTO_COMPACT_WINDOW` after saving `~/.claude/settings.json.bak-token-stamina-<timestamp>`. If you accept, a `/compact` keybinding is added to `~/.claude/keybindings.json`.
 
 **Commands it runs**
 - `claude plugin list --json` and `claude plugin details <id>` (audit only, with a shell; the plugin id is checked against a strict character set first).
+- `node scripts/update-check.js` (at startup, at most once a day, detached in the background, no shell).
 - If you set `wrap` in the config, the status line runs **that command, with a shell, on every status refresh**, passing it Claude Code's status line input. Treat `wrap` like any startup script: only put a command there that you trust.
 
 To remove everything: uninstall the plugin, delete `~/.claude/token-stamina/` (or your `TOKEN_STAMINA_HOME`), remove `statusLine` and `env.CLAUDE_CODE_AUTO_COMPACT_WINDOW` from `~/.claude/settings.json` (or restore a `settings.json.bak-token-stamina-*` backup), and drop the keybinding if you added one.

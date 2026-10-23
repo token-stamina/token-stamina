@@ -3,6 +3,7 @@
   "mode": "inject",
   "nudge": true,
   "setupPrompt": true,
+  "updateCheck": true,
   "wrap": null,
   "yellowMargin": 10,
   "redAt": 90,

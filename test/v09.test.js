@@ -16,7 +16,18 @@ function hook(userHome, input, extraEnv) {
   const env = Object.assign({}, process.env, { USERPROFILE: userHome, HOME: userHome, CLAUDE_PLUGIN_ROOT: '/plug' });
   delete env.TOKEN_STAMINA_HOME; delete env.CLAUDE_CODE_ENTRYPOINT;
   Object.assign(env, extraEnv || {});
+  noUpdateCheck(userHome);
   return execFileSync(process.execPath, [FR], { env, input: JSON.stringify(input), encoding: 'utf8' });
+}
+// Keep the hook off the network in tests: the update check is covered in v10.
+function noUpdateCheck(userHome) {
+  const f = path.join(userHome, '.claude', 'token-stamina', 'config.json');
+  let c = {};
+  try { c = JSON.parse(fs.readFileSync(f, 'utf8')); } catch (e) { /* none yet */ }
+  if (c.updateCheck !== undefined) return;
+  c.updateCheck = false;
+  fs.mkdirSync(path.dirname(f), { recursive: true });
+  fs.writeFileSync(f, JSON.stringify(c));
 }
 function writeSettings(userHome, obj) {
   fs.mkdirSync(path.join(userHome, '.claude'), { recursive: true });
@@ -45,7 +56,9 @@ test('decide: only startup, only once, not when registered or turned off', () =>
   assert.strictEqual(fr.decide({ hook_event_name: 'UserPromptSubmit' }, {}, cfg, {}), null);
   assert.strictEqual(fr.decide(start('startup'), {}, cfg, { asked: '2026-10-24T00:00:00Z' }), null);
   assert.strictEqual(fr.decide(start('startup'), {}, { lang: 'en', setupPrompt: false }, {}), null);
-  assert.strictEqual(fr.decide(start('startup'), { statusLine: { command: 'node "${CLAUDE_PLUGIN_ROOT}/scripts/statusline.js"' } }, cfg, {}), null);
+  assert.strictEqual(fr.decide(start('startup'), { statusLine: { command: 'node "/h/.claude/token-stamina/token-stamina-statusline.js"' } }, cfg, {}), null);
+  // registered through the plugin root variable: no setup question, but the one-time switch to the launcher (0.4.6)
+  assert.strictEqual(fr.decide(start('startup'), { statusLine: { command: 'node "${CLAUDE_PLUGIN_ROOT}/scripts/statusline.js"' } }, cfg, {}).kind, 'migrate');
 });
 
 test('fresh install: asks once with the setup file path, then stays quiet', () => {
