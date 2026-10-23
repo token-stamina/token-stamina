@@ -135,6 +135,14 @@ ol.does b { font-weight: 600; }
 }
 .cmd button:hover { color: var(--ink); }
 .small { font-size: .9rem; color: var(--ink-2); }
+.step { margin: 1.2rem 0 .5rem; }
+.step .n {
+  display: inline-block; width: 1.5em; height: 1.5em; line-height: 1.5em; text-align: center; border-radius: 50%;
+  background: var(--ink); color: var(--paper); font: 500 .8rem/1.5em "IBM Plex Mono", monospace; margin-right: .55rem; vertical-align: .1em;
+}
+details.small { margin-top: 1.2rem; }
+details.small summary { cursor: pointer; color: var(--ink); }
+details.small p { margin: .6rem 0; }
 
 dl.priv { margin: 0; }
 dl.priv dt { font-weight: 600; margin-top: 1rem; }
@@ -230,11 +238,19 @@ footer a { color: var(--ink-2); }
 
 <section id="install">
   <h2><span class="n">03</span>Install</h2>
-  <p>In Claude Code:</p>
-  <div class="cmd"><pre>/plugin marketplace add token-stamina/token-stamina</pre><button type="button">copy</button></div>
-  <div class="cmd"><pre>/plugin install token-stamina@token-stamina</pre><button type="button">copy</button></div>
+  <p>Two steps.</p>
+  <p class="step"><span class="n">1</span>In your terminal, install the plugin:</p>
+  <div class="cmd"><pre>claude plugin marketplace add token-stamina/token-stamina
+claude plugin install token-stamina@token-stamina</pre><button type="button">copy</button></div>
+  <p class="step"><span class="n">2</span>Start Claude Code and run setup:</p>
   <div class="cmd"><pre>/token-stamina:setup</pre><button type="button">copy</button></div>
   <p class="small">Plugins can't register the status line by themselves, so setup asks before it edits <code>~/.claude/settings.json</code>. If you already have a status line, Token Stamina can wrap it instead of replacing it. Messages come in English, Korean and Japanese.</p>
+  <details class="small">
+    <summary>Rather do step 1 inside Claude Code?</summary>
+    <p>Type these one at a time, then run setup as above:</p>
+    <div class="cmd"><pre>/plugin marketplace add token-stamina/token-stamina</pre><button type="button">copy</button></div>
+    <div class="cmd"><pre>/plugin install token-stamina@token-stamina</pre><button type="button">copy</button></div>
+  </details>
 </section>
 
 <section id="privacy">
