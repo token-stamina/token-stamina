@@ -1,0 +1,260 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Token Stamina — a pace meter for Claude Code limits</title>
+<meta name="description" content="Token Stamina shows your weekly and 5-hour Claude Code usage against how much of the window has passed, and steps in only when you are ahead of pace. No LLM calls, nothing sent over the network.">
+<meta property="og:title" content="Token Stamina">
+<meta property="og:description" content="A pace meter for Claude Code's weekly and 5-hour limits. Local, no LLM calls.">
+<meta property="og:url" content="https://tokenstamina.com/">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:ital,wght@0,400;0,500;0,600;1,400&display=swap" rel="stylesheet">
+<style>
+:root {
+  --paper: #f5f2eb;
+  --ink: #1d1c1a;
+  --ink-2: #5a564e;
+  --rule: #d9d3c7;
+  --term: #1b1a18;
+  --term-ink: #e9e4d8;
+  --term-dim: #8f897c;
+  --green: #4f8a4a;
+  --yellow: #c99a1e;
+  --red: #b8483a;
+  --link: #1d1c1a;
+  --code-bg: #ebe6db;
+  color-scheme: light;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --paper: #171614;
+    --ink: #e8e3d7;
+    --ink-2: #a39d90;
+    --rule: #34312c;
+    --term: #0e0d0c;
+    --term-ink: #e9e4d8;
+    --term-dim: #7d776b;
+    --link: #e8e3d7;
+    --code-bg: #24221f;
+    color-scheme: dark;
+  }
+}
+* { box-sizing: border-box; }
+html { -webkit-text-size-adjust: 100%; }
+body {
+  margin: 0;
+  background: var(--paper);
+  color: var(--ink);
+  font: 17px/1.6 "IBM Plex Sans", system-ui, -apple-system, "Segoe UI", sans-serif;
+}
+.wrap { max-width: 44rem; margin: 0 auto; padding: 0 1.25rem; }
+a { color: var(--link); text-decoration-thickness: 1px; text-underline-offset: 3px; }
+a:hover { text-decoration-thickness: 2px; }
+code, pre, .mono { font-family: "IBM Plex Mono", ui-monospace, "Cascadia Mono", Consolas, monospace; }
+code { font-size: .88em; background: var(--code-bg); padding: .1em .35em; border-radius: 3px; }
+
+header.top {
+  display: flex; align-items: baseline; justify-content: space-between; gap: 1rem; flex-wrap: wrap;
+  padding-block: 1.4rem 0;
+}
+.mark { font-family: "IBM Plex Mono", monospace; font-weight: 500; font-size: .95rem; text-decoration: none; letter-spacing: -.01em; }
+.mark span { color: var(--ink-2); }
+nav a { font-size: .9rem; margin-left: 1.1rem; color: var(--ink-2); text-decoration: none; }
+nav a:hover { color: var(--ink); text-decoration: underline; }
+
+.hero { padding-block: 4.5rem 1rem; }
+h1 {
+  font-size: clamp(2rem, 5.2vw, 2.9rem); line-height: 1.12; letter-spacing: -.025em;
+  font-weight: 600; margin: 0 0 1.2rem; max-width: 18ch;
+}
+.lede { font-size: 1.15rem; color: var(--ink-2); margin: 0; max-width: 36rem; }
+.lede strong { color: var(--ink); font-weight: 500; }
+
+/* the status line, as it actually looks */
+.term {
+  margin: 2.6rem 0 0; background: var(--term); color: var(--term-ink);
+  border-radius: 6px; padding: .2rem 0 0; overflow-x: auto;
+}
+.term .bar { display: flex; gap: .4rem; padding: .55rem .8rem; }
+.term .bar i { width: 9px; height: 9px; border-radius: 50%; background: #3a3732; display: block; }
+.term pre { margin: 0; padding: .3rem 1.1rem 1.1rem; font-size: .92rem; line-height: 1.7; white-space: pre; }
+.term .dim { color: var(--term-dim); }
+.term .y { color: #e3b53c; }
+.anno { list-style: none; padding: 0; margin: 1rem 0 0; font-size: .92rem; color: var(--ink-2); display: grid; grid-template-columns: max-content 1fr; gap: .25rem 1rem; }
+.anno code { background: none; padding: 0; color: var(--ink); }
+
+section { padding-block: 3.2rem 0; }
+h2 { font-size: 1.3rem; letter-spacing: -.01em; margin: 0 0 1rem; font-weight: 600; }
+h2 .n { font-family: "IBM Plex Mono", monospace; font-weight: 400; color: var(--ink-2); font-size: .85rem; margin-right: .6rem; vertical-align: .12em; }
+p { margin: 0 0 1rem; }
+hr { border: 0; border-top: 1px solid var(--rule); margin: 3.2rem 0 0; }
+
+/* pace toy */
+.pace { border: 1px solid var(--rule); border-radius: 6px; padding: 1.2rem 1.2rem 1rem; margin-top: 1.4rem; }
+.pace label { display: grid; grid-template-columns: 9.5rem 1fr 3.2rem; align-items: center; gap: .8rem; font-size: .92rem; margin-bottom: .6rem; }
+.pace output { font-family: "IBM Plex Mono", monospace; text-align: right; font-size: .9rem; }
+.pace input[type=range] { width: 100%; accent-color: var(--ink); }
+.track { position: relative; height: 10px; background: var(--code-bg); border-radius: 2px; margin: 1rem 0 .4rem; }
+.track .used { position: absolute; inset: 0 auto 0 0; border-radius: 2px; background: var(--green); transition: background .15s; }
+.track .tick { position: absolute; top: -5px; bottom: -5px; width: 2px; background: var(--ink); }
+.verdict { font-size: .95rem; margin: .7rem 0 0; min-height: 3.2em; }
+.verdict b { font-weight: 600; }
+.dot { display: inline-block; width: .62em; height: .62em; border-radius: 50%; margin-right: .35em; vertical-align: .05em; }
+
+ol.does { padding-left: 1.2rem; margin: 0; }
+ol.does li { margin-bottom: 1rem; padding-left: .3rem; }
+ol.does li::marker { font-family: "IBM Plex Mono", monospace; color: var(--ink-2); font-size: .9em; }
+ol.does b { font-weight: 600; }
+
+/* install */
+.cmd { display: flex; align-items: stretch; border: 1px solid var(--rule); border-radius: 5px; margin: 0 0 .6rem; overflow: hidden; }
+.cmd pre { margin: 0; padding: .7rem .9rem; flex: 1; overflow-x: auto; font-size: .9rem; background: var(--code-bg); }
+.cmd button {
+  font: 500 .8rem "IBM Plex Mono", monospace; border: 0; border-left: 1px solid var(--rule);
+  background: transparent; color: var(--ink-2); padding: 0 .9rem; cursor: pointer;
+}
+.cmd button:hover { color: var(--ink); }
+.small { font-size: .9rem; color: var(--ink-2); }
+
+dl.priv { margin: 0; }
+dl.priv dt { font-weight: 600; margin-top: 1rem; }
+dl.priv dd { margin: .2rem 0 0; color: var(--ink-2); }
+
+.fine { font-size: .88rem; color: var(--ink-2); border-left: 2px solid var(--rule); padding-left: 1rem; }
+
+footer { padding-block: 4rem 3rem; font-size: .88rem; color: var(--ink-2); display: flex; flex-wrap: wrap; gap: .4rem 1.4rem; }
+footer a { color: var(--ink-2); }
+
+@media (max-width: 560px) {
+  body { font-size: 16px; }
+  .hero { padding-block: 3rem .5rem; }
+  .pace label { grid-template-columns: 1fr 3rem; }
+  .pace label span { grid-column: 1 / -1; }
+  .anno { grid-template-columns: 1fr; gap: 0 0; }
+  .anno dd { margin: 0 0 .5rem; }
+  nav a { margin-left: 0; margin-right: 1rem; }
+}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<header class="top">
+  <a class="mark" href="/">token<span>·</span>stamina</a>
+  <nav>
+    <a href="#install">Install</a>
+    <a href="#privacy">Privacy</a>
+    <a href="https://github.com/token-stamina/token-stamina">GitHub</a>
+  </nav>
+</header>
+
+<div class="hero">
+  <h1>Find out you're over pace on Tuesday, not on Friday.</h1>
+  <p class="lede">Token Stamina is a small plugin for Claude Code. It compares how much of your weekly and 5-hour limits you've used with how much of each window has gone by, and it only gets in the way when you're ahead of pace. <strong>It makes no LLM calls and opens no network connections.</strong></p>
+
+  <div class="term" aria-label="Example status line">
+    <div class="bar" aria-hidden="true"><i></i><i></i><i></i></div>
+<pre><span class="dim">~/work/api</span>  main  <span class="dim">│</span>  7d 84% · today 5.3% <span class="y">●</span> · reset Mon 15:00 · ctx 41%</pre>
+  </div>
+  <dl class="anno">
+    <dt><code>7d 84%</code></dt><dd>share of the weekly limit used, straight from Claude Code</dd>
+    <dt><code>today 5.3%</code></dt><dd>how much you can spend per day from here and still last until the reset</dd>
+    <dt><code>●</code></dt><dd>the pace grade: green, yellow or red</dd>
+    <dt><code>reset Mon 15:00</code></dt><dd>when the weekly window rolls over</dd>
+    <dt><code>ctx 41%</code></dt><dd>how full the current conversation is</dd>
+  </dl>
+</div>
+
+<section id="pace">
+  <h2><span class="n">01</span>How the grade works</h2>
+  <p>A percentage on its own doesn't tell you much. 60% used is fine on Saturday and a problem on Monday. So the grade looks at both numbers: if you've used no more than the share of the week that has passed, you're green. Up to ten points ahead is yellow. Beyond that, or past 90% at any time, is red. The weekly and 5-hour windows are graded separately, and the worse of the two is the one you see.</p>
+
+  <div class="pace">
+    <label><span>Week elapsed</span><input id="el" type="range" min="0" max="100" value="43"><output id="elv">43%</output></label>
+    <label><span>Limit used</span><input id="us" type="range" min="0" max="100" value="49"><output id="usv">49%</output></label>
+    <div class="track" aria-hidden="true"><div class="used" id="bar"></div><div class="tick" id="tick"></div></div>
+    <p class="verdict" id="verdict" aria-live="polite"></p>
+  </div>
+</section>
+
+<section>
+  <h2><span class="n">02</span>What it does when you're over pace</h2>
+  <ol class="does">
+    <li><b>Cheaper subagents, only when red.</b> If a subagent call doesn't name a model, Token Stamina routes it to Haiku for simple work or Sonnet otherwise. Calls that name a model, forks, and anything that looks like a judgment task are left alone. You can switch this to suggestions only, or off.</li>
+    <li><b>One line when the grade changes.</b> Not on every prompt. Claude sees a short note and passes it on in your language.</li>
+    <li><b>A hint at the end of a task.</b> Once the conversation is large and a piece of work is done (a commit, an edit, an answer), it suggests <code>/compact</code> with the commit subjects already filled in, or a fresh session if you've gone very far.</li>
+    <li><b>A note that survives the compact.</b> Before you compact or clear, it writes down the last few requests, commits, edited files and to-dos, and puts them back afterwards. No model writes the note; it's assembled from your transcript.</li>
+  </ol>
+  <p class="small">There's also <code>/token-stamina:audit</code>, which lists what is loaded into every conversation (CLAUDE.md files, plugins, MCP servers you never use) and changes nothing.</p>
+</section>
+
+<section id="install">
+  <h2><span class="n">03</span>Install</h2>
+  <p>In Claude Code:</p>
+  <div class="cmd"><pre>/plugin marketplace add token-stamina/token-stamina</pre><button type="button">copy</button></div>
+  <div class="cmd"><pre>/plugin install token-stamina@token-stamina</pre><button type="button">copy</button></div>
+  <div class="cmd"><pre>/token-stamina:setup</pre><button type="button">copy</button></div>
+  <p class="small">Plugins can't register the status line by themselves, so setup asks before it edits <code>~/.claude/settings.json</code>. If you already have a status line, Token Stamina can wrap it instead of replacing it. Messages come in English, Korean and Japanese.</p>
+</section>
+
+<section id="privacy">
+  <h2><span class="n">04</span>What runs on your machine</h2>
+  <dl class="priv">
+    <dt>Reads</dt>
+    <dd>The usage numbers Claude Code passes to the status line, and your local session transcripts under <code>~/.claude/projects</code>, to add up usage and build the handoff note.</dd>
+    <dt>Writes</dt>
+    <dd>Only to <code>~/.claude/token-stamina/</code>, plus your settings file during setup if you agree. Handoff notes older than seven days are deleted.</dd>
+    <dt>Never</dt>
+    <dd>Network requests, telemetry, or calls to any model from its own scripts. Two things it starts can go online on their own: <code>claude plugin list</code> during an audit, and a status line command you choose to wrap.</dd>
+  </dl>
+  <p class="small" style="margin-top:1.2rem">The full list, file by file, is in the <a href="https://github.com/token-stamina/token-stamina#privacy-and-what-runs-on-your-machine">README</a>. To remove everything, uninstall the plugin and delete that folder.</p>
+</section>
+
+<hr>
+
+<section style="padding-top:2rem">
+  <p class="fine">Token Stamina is an independent community project. It is not affiliated with, endorsed by or sponsored by Anthropic. "Claude" and "Claude Code" are trademarks of Anthropic, PBC, used here only to say what the plugin works with. The 7d and 5h figures come from Claude Code; the grade, the per-day share and any savings figure are local estimates, not billing.</p>
+</section>
+
+<footer>
+  <span>MIT licensed · free</span>
+  <a href="https://github.com/token-stamina/token-stamina">Source</a>
+  <a href="https://github.com/token-stamina/token-stamina/issues">Report a problem</a>
+  <span>Formerly Token Pacer</span>
+</footer>
+
+</div>
+<script>
+(function () {
+  var el = document.getElementById('el'), us = document.getElementById('us');
+  var elv = document.getElementById('elv'), usv = document.getElementById('usv');
+  var bar = document.getElementById('bar'), tick = document.getElementById('tick'), out = document.getElementById('verdict');
+  var css = getComputedStyle(document.documentElement);
+  function draw() {
+    var e = +el.value, u = +us.value, d = u - e, g, color, msg;
+    if (u >= 90 || d > 10) { g = 'red'; color = 'var(--red)'; }
+    else if (d > 0) { g = 'yellow'; color = 'var(--yellow)'; }
+    else { g = 'green'; color = 'var(--green)'; }
+    elv.textContent = e + '%'; usv.textContent = u + '%';
+    bar.style.width = u + '%'; bar.style.background = color; tick.style.left = 'calc(' + e + '% - 1px)';
+    if (g === 'green') msg = 'On pace. You have ' + (e - u) + ' points of headroom against the clock.';
+    else if (g === 'yellow') msg = d + ' points ahead of the clock. Nothing changes yet; you get one line saying so.';
+    else msg = (u >= 90 ? 'Past 90% of the limit.' : d + ' points ahead of the clock.') + ' Unpinned subagents move to cheaper models until you’re back under.';
+    out.innerHTML = '<span class="dot" style="background:' + color + '"></span><b>' + g[0].toUpperCase() + g.slice(1) + '.</b> ' + msg;
+  }
+  el.addEventListener('input', draw); us.addEventListener('input', draw); draw();
+
+  document.querySelectorAll('.cmd button').forEach(function (b) {
+    b.addEventListener('click', function () {
+      var t = b.previousElementSibling.textContent;
+      (navigator.clipboard ? navigator.clipboard.writeText(t) : Promise.reject()).then(function () {
+        b.textContent = 'copied'; setTimeout(function () { b.textContent = 'copy'; }, 1400);
+      }, function () { b.textContent = 'select'; });
+    });
+  });
+})();
+</script>
+</body>
+</html>
