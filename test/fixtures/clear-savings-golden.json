@@ -1,0 +1,1542 @@
+[
+{
+"messages": 10000,
+"turns": 0,
+"mode": "clear",
+"idle": false,
+"text": "새 세션 권장(주제 전환)"
+},
+{
+"messages": 10000,
+"turns": 0,
+"mode": "clear",
+"idle": true,
+"text": "새 세션 권장(주제 전환)"
+},
+{
+"messages": 10000,
+"turns": 0,
+"mode": "compact",
+"idle": false,
+"text": "새 세션 권장(주제 전환)"
+},
+{
+"messages": 10000,
+"turns": 0,
+"mode": "compact",
+"idle": true,
+"text": "새 세션 권장(주제 전환)"
+},
+{
+"messages": 10000,
+"turns": 3,
+"mode": "clear",
+"idle": false,
+"text": "카드 없음(절감 작음)"
+},
+{
+"messages": 10000,
+"turns": 3,
+"mode": "clear",
+"idle": true,
+"text": "카드 없음(절감 작음)"
+},
+{
+"messages": 10000,
+"turns": 3,
+"mode": "compact",
+"idle": false,
+"text": "카드 없음(절감 작음)"
+},
+{
+"messages": 10000,
+"turns": 3,
+"mode": "compact",
+"idle": true,
+"text": "카드 없음(절감 작음)"
+},
+{
+"messages": 10000,
+"turns": 4,
+"mode": "clear",
+"idle": false,
+"text": "카드 없음(절감 작음)"
+},
+{
+"messages": 10000,
+"turns": 4,
+"mode": "clear",
+"idle": true,
+"text": "카드 없음(절감 작음)"
+},
+{
+"messages": 10000,
+"turns": 4,
+"mode": "compact",
+"idle": false,
+"text": "카드 없음(절감 작음)"
+},
+{
+"messages": 10000,
+"turns": 4,
+"mode": "compact",
+"idle": true,
+"text": "카드 없음(절감 작음)"
+},
+{
+"messages": 10000,
+"turns": 10,
+"mode": "clear",
+"idle": false,
+"text": "카드 없음(절감 작음)"
+},
+{
+"messages": 10000,
+"turns": 10,
+"mode": "clear",
+"idle": true,
+"text": "카드 없음(절감 작음)"
+},
+{
+"messages": 10000,
+"turns": 10,
+"mode": "compact",
+"idle": false,
+"text": "카드 없음(절감 작음)"
+},
+{
+"messages": 10000,
+"turns": 10,
+"mode": "compact",
+"idle": true,
+"text": "카드 없음(절감 작음)"
+},
+{
+"messages": 10000,
+"turns": 30,
+"mode": "clear",
+"idle": false,
+"text": "카드 없음(절감 작음)"
+},
+{
+"messages": 10000,
+"turns": 30,
+"mode": "clear",
+"idle": true,
+"text": "카드 없음(절감 작음)"
+},
+{
+"messages": 10000,
+"turns": 30,
+"mode": "compact",
+"idle": false,
+"text": "카드 없음(절감 작음)"
+},
+{
+"messages": 10000,
+"turns": 30,
+"mode": "compact",
+"idle": true,
+"text": "카드 없음(절감 작음)"
+},
+{
+"messages": 20000,
+"turns": 0,
+"mode": "clear",
+"idle": false,
+"text": "새 세션 권장(주제 전환)"
+},
+{
+"messages": 20000,
+"turns": 0,
+"mode": "clear",
+"idle": true,
+"text": "새 세션 권장(주제 전환)"
+},
+{
+"messages": 20000,
+"turns": 0,
+"mode": "compact",
+"idle": false,
+"text": "새 세션 권장(주제 전환)"
+},
+{
+"messages": 20000,
+"turns": 0,
+"mode": "compact",
+"idle": true,
+"text": "새 세션 권장(주제 전환)"
+},
+{
+"messages": 20000,
+"turns": 3,
+"mode": "clear",
+"idle": false,
+"text": "카드 없음(절감 작음)"
+},
+{
+"messages": 20000,
+"turns": 3,
+"mode": "clear",
+"idle": true,
+"text": "카드 없음(절감이 0 아래로 걸치거나 캐시 재작성 비용이 더 큼)"
+},
+{
+"messages": 20000,
+"turns": 3,
+"mode": "compact",
+"idle": false,
+"text": "카드 없음(절감 작음)"
+},
+{
+"messages": 20000,
+"turns": 3,
+"mode": "compact",
+"idle": true,
+"text": "카드 없음(절감이 0 아래로 걸치거나 캐시 재작성 비용이 더 큼)"
+},
+{
+"messages": 20000,
+"turns": 4,
+"mode": "clear",
+"idle": false,
+"text": "카드 없음(절감 작음)"
+},
+{
+"messages": 20000,
+"turns": 4,
+"mode": "clear",
+"idle": true,
+"text": "카드 없음(절감이 0 아래로 걸치거나 캐시 재작성 비용이 더 큼)"
+},
+{
+"messages": 20000,
+"turns": 4,
+"mode": "compact",
+"idle": false,
+"text": "카드 없음(절감 작음)"
+},
+{
+"messages": 20000,
+"turns": 4,
+"mode": "compact",
+"idle": true,
+"text": "카드 없음(절감이 0 아래로 걸치거나 캐시 재작성 비용이 더 큼)"
+},
+{
+"messages": 20000,
+"turns": 10,
+"mode": "clear",
+"idle": false,
+"text": "카드 없음(절감 작음)"
+},
+{
+"messages": 20000,
+"turns": 10,
+"mode": "clear",
+"idle": true,
+"text": "카드 없음(절감이 0 아래로 걸치거나 캐시 재작성 비용이 더 큼)"
+},
+{
+"messages": 20000,
+"turns": 10,
+"mode": "compact",
+"idle": false,
+"text": "카드 없음(절감 작음)"
+},
+{
+"messages": 20000,
+"turns": 10,
+"mode": "compact",
+"idle": true,
+"text": "카드 없음(절감이 0 아래로 걸치거나 캐시 재작성 비용이 더 큼)"
+},
+{
+"messages": 20000,
+"turns": 30,
+"mode": "clear",
+"idle": false,
+"text": "카드 없음(절감 작음)"
+},
+{
+"messages": 20000,
+"turns": 30,
+"mode": "clear",
+"idle": true,
+"text": "카드 없음(절감이 0 아래로 걸치거나 캐시 재작성 비용이 더 큼)"
+},
+{
+"messages": 20000,
+"turns": 30,
+"mode": "compact",
+"idle": false,
+"text": "카드 없음(절감 작음)"
+},
+{
+"messages": 20000,
+"turns": 30,
+"mode": "compact",
+"idle": true,
+"text": "카드 없음(절감이 0 아래로 걸치거나 캐시 재작성 비용이 더 큼)"
+},
+{
+"messages": 39999,
+"turns": 0,
+"mode": "clear",
+"idle": false,
+"text": "새 세션 권장(주제 전환)"
+},
+{
+"messages": 39999,
+"turns": 0,
+"mode": "clear",
+"idle": true,
+"text": "새 세션 권장(주제 전환)"
+},
+{
+"messages": 39999,
+"turns": 0,
+"mode": "compact",
+"idle": false,
+"text": "새 세션 권장(주제 전환)"
+},
+{
+"messages": 39999,
+"turns": 0,
+"mode": "compact",
+"idle": true,
+"text": "새 세션 권장(주제 전환)"
+},
+{
+"messages": 39999,
+"turns": 3,
+"mode": "clear",
+"idle": false,
+"text": "카드 없음(절감 작음)"
+},
+{
+"messages": 39999,
+"turns": 3,
+"mode": "clear",
+"idle": true,
+"text": "(예상) 지금 비우면 이후 3턴 동안 약 12~48만 토큰 덜 읽음 — 쉬었다 재개라 지금이 유리"
+},
+{
+"messages": 39999,
+"turns": 3,
+"mode": "compact",
+"idle": false,
+"text": "카드 없음(절감 작음)"
+},
+{
+"messages": 39999,
+"turns": 3,
+"mode": "compact",
+"idle": true,
+"text": "(예상) 지금 압축하면 이후 3턴 동안 약 12~48만 토큰 덜 읽음 — 쉬었다 재개라 지금이 유리"
+},
+{
+"messages": 39999,
+"turns": 4,
+"mode": "clear",
+"idle": false,
+"text": "카드 없음(절감 작음)"
+},
+{
+"messages": 39999,
+"turns": 4,
+"mode": "clear",
+"idle": true,
+"text": "(예상) 지금 비우면 이후 4턴 동안 약 16~64만 토큰 덜 읽음 — 쉬었다 재개라 지금이 유리"
+},
+{
+"messages": 39999,
+"turns": 4,
+"mode": "compact",
+"idle": false,
+"text": "카드 없음(절감 작음)"
+},
+{
+"messages": 39999,
+"turns": 4,
+"mode": "compact",
+"idle": true,
+"text": "(예상) 지금 압축하면 이후 4턴 동안 약 16~64만 토큰 덜 읽음 — 쉬었다 재개라 지금이 유리"
+},
+{
+"messages": 39999,
+"turns": 10,
+"mode": "clear",
+"idle": false,
+"text": "카드 없음(절감 작음)"
+},
+{
+"messages": 39999,
+"turns": 10,
+"mode": "clear",
+"idle": true,
+"text": "(예상) 지금 비우면 이후 10턴 동안 약 40~160만 토큰 덜 읽음 — 쉬었다 재개라 지금이 유리"
+},
+{
+"messages": 39999,
+"turns": 10,
+"mode": "compact",
+"idle": false,
+"text": "카드 없음(절감 작음)"
+},
+{
+"messages": 39999,
+"turns": 10,
+"mode": "compact",
+"idle": true,
+"text": "(예상) 지금 압축하면 이후 10턴 동안 약 40~160만 토큰 덜 읽음 — 쉬었다 재개라 지금이 유리"
+},
+{
+"messages": 39999,
+"turns": 30,
+"mode": "clear",
+"idle": false,
+"text": "카드 없음(절감 작음)"
+},
+{
+"messages": 39999,
+"turns": 30,
+"mode": "clear",
+"idle": true,
+"text": "(예상) 지금 비우면 이후 30턴 동안 약 54~135만 토큰 덜 읽음 — 쉬었다 재개라 지금이 유리, 그 사이 자동 압축 1회 포함"
+},
+{
+"messages": 39999,
+"turns": 30,
+"mode": "compact",
+"idle": false,
+"text": "카드 없음(절감 작음)"
+},
+{
+"messages": 39999,
+"turns": 30,
+"mode": "compact",
+"idle": true,
+"text": "(예상) 지금 압축하면 이후 30턴 동안 약 54~135만 토큰 덜 읽음 — 쉬었다 재개라 지금이 유리, 그 사이 자동 압축 1회 포함"
+},
+{
+"messages": 40000,
+"turns": 0,
+"mode": "clear",
+"idle": false,
+"text": "새 세션 권장(주제 전환)"
+},
+{
+"messages": 40000,
+"turns": 0,
+"mode": "clear",
+"idle": true,
+"text": "새 세션 권장(주제 전환)"
+},
+{
+"messages": 40000,
+"turns": 0,
+"mode": "compact",
+"idle": false,
+"text": "새 세션 권장(주제 전환)"
+},
+{
+"messages": 40000,
+"turns": 0,
+"mode": "compact",
+"idle": true,
+"text": "새 세션 권장(주제 전환)"
+},
+{
+"messages": 40000,
+"turns": 3,
+"mode": "clear",
+"idle": false,
+"text": "카드 없음(절감 작음)"
+},
+{
+"messages": 40000,
+"turns": 3,
+"mode": "clear",
+"idle": true,
+"text": "(예상) 지금 비우면 이후 3턴 동안 약 12~48만 토큰 덜 읽음 — 쉬었다 재개라 지금이 유리"
+},
+{
+"messages": 40000,
+"turns": 3,
+"mode": "compact",
+"idle": false,
+"text": "카드 없음(절감 작음)"
+},
+{
+"messages": 40000,
+"turns": 3,
+"mode": "compact",
+"idle": true,
+"text": "(예상) 지금 압축하면 이후 3턴 동안 약 12~48만 토큰 덜 읽음 — 쉬었다 재개라 지금이 유리"
+},
+{
+"messages": 40000,
+"turns": 4,
+"mode": "clear",
+"idle": false,
+"text": "카드 없음(절감이 0 아래로 걸치거나 캐시 재작성 비용이 더 큼)"
+},
+{
+"messages": 40000,
+"turns": 4,
+"mode": "clear",
+"idle": true,
+"text": "(예상) 지금 비우면 이후 4턴 동안 약 16~64만 토큰 덜 읽음 — 쉬었다 재개라 지금이 유리"
+},
+{
+"messages": 40000,
+"turns": 4,
+"mode": "compact",
+"idle": false,
+"text": "카드 없음(절감이 0 아래로 걸치거나 캐시 재작성 비용이 더 큼)"
+},
+{
+"messages": 40000,
+"turns": 4,
+"mode": "compact",
+"idle": true,
+"text": "(예상) 지금 압축하면 이후 4턴 동안 약 16~64만 토큰 덜 읽음 — 쉬었다 재개라 지금이 유리"
+},
+{
+"messages": 40000,
+"turns": 10,
+"mode": "clear",
+"idle": false,
+"text": "카드 없음(절감이 0 아래로 걸치거나 캐시 재작성 비용이 더 큼)"
+},
+{
+"messages": 40000,
+"turns": 10,
+"mode": "clear",
+"idle": true,
+"text": "(예상) 지금 비우면 이후 10턴 동안 약 40~160만 토큰 덜 읽음 — 쉬었다 재개라 지금이 유리"
+},
+{
+"messages": 40000,
+"turns": 10,
+"mode": "compact",
+"idle": false,
+"text": "카드 없음(절감이 0 아래로 걸치거나 캐시 재작성 비용이 더 큼)"
+},
+{
+"messages": 40000,
+"turns": 10,
+"mode": "compact",
+"idle": true,
+"text": "(예상) 지금 압축하면 이후 10턴 동안 약 40~160만 토큰 덜 읽음 — 쉬었다 재개라 지금이 유리"
+},
+{
+"messages": 40000,
+"turns": 30,
+"mode": "clear",
+"idle": false,
+"text": "(예상) 지금 비우면 이후 30턴 동안 약 54~135만 토큰 덜 읽음 — 대부분 캐시 읽기(단가 약 1/10), 그 사이 자동 압축 1회 포함"
+},
+{
+"messages": 40000,
+"turns": 30,
+"mode": "clear",
+"idle": true,
+"text": "(예상) 지금 비우면 이후 30턴 동안 약 54~135만 토큰 덜 읽음 — 쉬었다 재개라 지금이 유리, 그 사이 자동 압축 1회 포함"
+},
+{
+"messages": 40000,
+"turns": 30,
+"mode": "compact",
+"idle": false,
+"text": "(예상) 지금 압축하면 이후 30턴 동안 약 54~135만 토큰 덜 읽음 — 대부분 캐시 읽기(단가 약 1/10), 그 사이 자동 압축 1회 포함"
+},
+{
+"messages": 40000,
+"turns": 30,
+"mode": "compact",
+"idle": true,
+"text": "(예상) 지금 압축하면 이후 30턴 동안 약 54~135만 토큰 덜 읽음 — 쉬었다 재개라 지금이 유리, 그 사이 자동 압축 1회 포함"
+},
+{
+"messages": 60000,
+"turns": 0,
+"mode": "clear",
+"idle": false,
+"text": "새 세션 권장(주제 전환)"
+},
+{
+"messages": 60000,
+"turns": 0,
+"mode": "clear",
+"idle": true,
+"text": "새 세션 권장(주제 전환)"
+},
+{
+"messages": 60000,
+"turns": 0,
+"mode": "compact",
+"idle": false,
+"text": "새 세션 권장(주제 전환)"
+},
+{
+"messages": 60000,
+"turns": 0,
+"mode": "compact",
+"idle": true,
+"text": "새 세션 권장(주제 전환)"
+},
+{
+"messages": 60000,
+"turns": 3,
+"mode": "clear",
+"idle": false,
+"text": "카드 없음(절감 작음)"
+},
+{
+"messages": 60000,
+"turns": 3,
+"mode": "clear",
+"idle": true,
+"text": "(예상) 지금 비우면 이후 3턴 동안 약 24~96만 토큰 덜 읽음 — 쉬었다 재개라 지금이 유리"
+},
+{
+"messages": 60000,
+"turns": 3,
+"mode": "compact",
+"idle": false,
+"text": "카드 없음(절감 작음)"
+},
+{
+"messages": 60000,
+"turns": 3,
+"mode": "compact",
+"idle": true,
+"text": "(예상) 지금 압축하면 이후 3턴 동안 약 24~96만 토큰 덜 읽음 — 쉬었다 재개라 지금이 유리"
+},
+{
+"messages": 60000,
+"turns": 4,
+"mode": "clear",
+"idle": false,
+"text": "카드 없음(절감이 0 아래로 걸치거나 캐시 재작성 비용이 더 큼)"
+},
+{
+"messages": 60000,
+"turns": 4,
+"mode": "clear",
+"idle": true,
+"text": "(예상) 지금 비우면 이후 4턴 동안 약 32~128만 토큰 덜 읽음 — 쉬었다 재개라 지금이 유리"
+},
+{
+"messages": 60000,
+"turns": 4,
+"mode": "compact",
+"idle": false,
+"text": "카드 없음(절감이 0 아래로 걸치거나 캐시 재작성 비용이 더 큼)"
+},
+{
+"messages": 60000,
+"turns": 4,
+"mode": "compact",
+"idle": true,
+"text": "(예상) 지금 압축하면 이후 4턴 동안 약 32~128만 토큰 덜 읽음 — 쉬었다 재개라 지금이 유리"
+},
+{
+"messages": 60000,
+"turns": 10,
+"mode": "clear",
+"idle": false,
+"text": "(예상) 지금 비우면 이후 10턴 동안 약 80~320만 토큰 덜 읽음 — 대부분 캐시 읽기(단가 약 1/10)"
+},
+{
+"messages": 60000,
+"turns": 10,
+"mode": "clear",
+"idle": true,
+"text": "(예상) 지금 비우면 이후 10턴 동안 약 80~320만 토큰 덜 읽음 — 쉬었다 재개라 지금이 유리"
+},
+{
+"messages": 60000,
+"turns": 10,
+"mode": "compact",
+"idle": false,
+"text": "(예상) 지금 압축하면 이후 10턴 동안 약 80~320만 토큰 덜 읽음 — 대부분 캐시 읽기(단가 약 1/10)"
+},
+{
+"messages": 60000,
+"turns": 10,
+"mode": "compact",
+"idle": true,
+"text": "(예상) 지금 압축하면 이후 10턴 동안 약 80~320만 토큰 덜 읽음 — 쉬었다 재개라 지금이 유리"
+},
+{
+"messages": 60000,
+"turns": 30,
+"mode": "clear",
+"idle": false,
+"text": "(예상) 지금 비우면 이후 30턴 동안 약 50~119만 토큰 덜 읽음 — 대부분 캐시 읽기(단가 약 1/10), 그 사이 자동 압축 1회 포함"
+},
+{
+"messages": 60000,
+"turns": 30,
+"mode": "clear",
+"idle": true,
+"text": "(예상) 지금 비우면 이후 30턴 동안 약 50~119만 토큰 덜 읽음 — 쉬었다 재개라 지금이 유리, 그 사이 자동 압축 1회 포함"
+},
+{
+"messages": 60000,
+"turns": 30,
+"mode": "compact",
+"idle": false,
+"text": "(예상) 지금 압축하면 이후 30턴 동안 약 50~119만 토큰 덜 읽음 — 대부분 캐시 읽기(단가 약 1/10), 그 사이 자동 압축 1회 포함"
+},
+{
+"messages": 60000,
+"turns": 30,
+"mode": "compact",
+"idle": true,
+"text": "(예상) 지금 압축하면 이후 30턴 동안 약 50~119만 토큰 덜 읽음 — 쉬었다 재개라 지금이 유리, 그 사이 자동 압축 1회 포함"
+},
+{
+"messages": 100000,
+"turns": 0,
+"mode": "clear",
+"idle": false,
+"text": "새 세션 권장(주제 전환)"
+},
+{
+"messages": 100000,
+"turns": 0,
+"mode": "clear",
+"idle": true,
+"text": "새 세션 권장(주제 전환)"
+},
+{
+"messages": 100000,
+"turns": 0,
+"mode": "compact",
+"idle": false,
+"text": "새 세션 권장(주제 전환)"
+},
+{
+"messages": 100000,
+"turns": 0,
+"mode": "compact",
+"idle": true,
+"text": "새 세션 권장(주제 전환)"
+},
+{
+"messages": 100000,
+"turns": 3,
+"mode": "clear",
+"idle": false,
+"text": "카드 없음(절감 작음)"
+},
+{
+"messages": 100000,
+"turns": 3,
+"mode": "clear",
+"idle": true,
+"text": "(예상) 지금 비우면 이후 3턴 동안 약 48~192만 토큰 덜 읽음 — 쉬었다 재개라 지금이 유리"
+},
+{
+"messages": 100000,
+"turns": 3,
+"mode": "compact",
+"idle": false,
+"text": "카드 없음(절감 작음)"
+},
+{
+"messages": 100000,
+"turns": 3,
+"mode": "compact",
+"idle": true,
+"text": "(예상) 지금 압축하면 이후 3턴 동안 약 48~192만 토큰 덜 읽음 — 쉬었다 재개라 지금이 유리"
+},
+{
+"messages": 100000,
+"turns": 4,
+"mode": "clear",
+"idle": false,
+"text": "(예상) 지금 비우면 이후 4턴 동안 약 64~256만 토큰 덜 읽음 — 대부분 캐시 읽기(단가 약 1/10)"
+},
+{
+"messages": 100000,
+"turns": 4,
+"mode": "clear",
+"idle": true,
+"text": "(예상) 지금 비우면 이후 4턴 동안 약 64~256만 토큰 덜 읽음 — 쉬었다 재개라 지금이 유리"
+},
+{
+"messages": 100000,
+"turns": 4,
+"mode": "compact",
+"idle": false,
+"text": "(예상) 지금 압축하면 이후 4턴 동안 약 64~256만 토큰 덜 읽음 — 대부분 캐시 읽기(단가 약 1/10)"
+},
+{
+"messages": 100000,
+"turns": 4,
+"mode": "compact",
+"idle": true,
+"text": "(예상) 지금 압축하면 이후 4턴 동안 약 64~256만 토큰 덜 읽음 — 쉬었다 재개라 지금이 유리"
+},
+{
+"messages": 100000,
+"turns": 10,
+"mode": "clear",
+"idle": false,
+"text": "(예상) 지금 비우면 이후 10턴 동안 약 160~640만 토큰 덜 읽음 — 대부분 캐시 읽기(단가 약 1/10)"
+},
+{
+"messages": 100000,
+"turns": 10,
+"mode": "clear",
+"idle": true,
+"text": "(예상) 지금 비우면 이후 10턴 동안 약 160~640만 토큰 덜 읽음 — 쉬었다 재개라 지금이 유리"
+},
+{
+"messages": 100000,
+"turns": 10,
+"mode": "compact",
+"idle": false,
+"text": "(예상) 지금 압축하면 이후 10턴 동안 약 160~640만 토큰 덜 읽음 — 대부분 캐시 읽기(단가 약 1/10)"
+},
+{
+"messages": 100000,
+"turns": 10,
+"mode": "compact",
+"idle": true,
+"text": "(예상) 지금 압축하면 이후 10턴 동안 약 160~640만 토큰 덜 읽음 — 쉬었다 재개라 지금이 유리"
+},
+{
+"messages": 100000,
+"turns": 30,
+"mode": "clear",
+"idle": false,
+"text": "(예상) 지금 비우면 이후 30턴 동안 약 42~87만 토큰 덜 읽음 — 대부분 캐시 읽기(단가 약 1/10), 그 사이 자동 압축 1회 포함"
+},
+{
+"messages": 100000,
+"turns": 30,
+"mode": "clear",
+"idle": true,
+"text": "(예상) 지금 비우면 이후 30턴 동안 약 42~87만 토큰 덜 읽음 — 쉬었다 재개라 지금이 유리, 그 사이 자동 압축 1회 포함"
+},
+{
+"messages": 100000,
+"turns": 30,
+"mode": "compact",
+"idle": false,
+"text": "(예상) 지금 압축하면 이후 30턴 동안 약 42~87만 토큰 덜 읽음 — 대부분 캐시 읽기(단가 약 1/10), 그 사이 자동 압축 1회 포함"
+},
+{
+"messages": 100000,
+"turns": 30,
+"mode": "compact",
+"idle": true,
+"text": "(예상) 지금 압축하면 이후 30턴 동안 약 42~87만 토큰 덜 읽음 — 쉬었다 재개라 지금이 유리, 그 사이 자동 압축 1회 포함"
+},
+{
+"messages": 150000,
+"turns": 0,
+"mode": "clear",
+"idle": false,
+"text": "새 세션 권장(주제 전환)"
+},
+{
+"messages": 150000,
+"turns": 0,
+"mode": "clear",
+"idle": true,
+"text": "새 세션 권장(주제 전환)"
+},
+{
+"messages": 150000,
+"turns": 0,
+"mode": "compact",
+"idle": false,
+"text": "새 세션 권장(주제 전환)"
+},
+{
+"messages": 150000,
+"turns": 0,
+"mode": "compact",
+"idle": true,
+"text": "새 세션 권장(주제 전환)"
+},
+{
+"messages": 150000,
+"turns": 3,
+"mode": "clear",
+"idle": false,
+"text": "카드 없음(절감 작음)"
+},
+{
+"messages": 150000,
+"turns": 3,
+"mode": "clear",
+"idle": true,
+"text": "(예상) 지금 비우면 이후 3턴 동안 약 78~312만 토큰 덜 읽음 — 쉬었다 재개라 지금이 유리"
+},
+{
+"messages": 150000,
+"turns": 3,
+"mode": "compact",
+"idle": false,
+"text": "카드 없음(절감 작음)"
+},
+{
+"messages": 150000,
+"turns": 3,
+"mode": "compact",
+"idle": true,
+"text": "(예상) 지금 압축하면 이후 3턴 동안 약 78~312만 토큰 덜 읽음 — 쉬었다 재개라 지금이 유리"
+},
+{
+"messages": 150000,
+"turns": 4,
+"mode": "clear",
+"idle": false,
+"text": "(예상) 지금 비우면 이후 4턴 동안 약 104~416만 토큰 덜 읽음 — 대부분 캐시 읽기(단가 약 1/10)"
+},
+{
+"messages": 150000,
+"turns": 4,
+"mode": "clear",
+"idle": true,
+"text": "(예상) 지금 비우면 이후 4턴 동안 약 104~416만 토큰 덜 읽음 — 쉬었다 재개라 지금이 유리"
+},
+{
+"messages": 150000,
+"turns": 4,
+"mode": "compact",
+"idle": false,
+"text": "(예상) 지금 압축하면 이후 4턴 동안 약 104~416만 토큰 덜 읽음 — 대부분 캐시 읽기(단가 약 1/10)"
+},
+{
+"messages": 150000,
+"turns": 4,
+"mode": "compact",
+"idle": true,
+"text": "(예상) 지금 압축하면 이후 4턴 동안 약 104~416만 토큰 덜 읽음 — 쉬었다 재개라 지금이 유리"
+},
+{
+"messages": 150000,
+"turns": 10,
+"mode": "clear",
+"idle": false,
+"text": "(예상) 지금 비우면 이후 10턴 동안 약 132~447만 토큰 덜 읽음 — 대부분 캐시 읽기(단가 약 1/10), 그 사이 자동 압축 1회 포함"
+},
+{
+"messages": 150000,
+"turns": 10,
+"mode": "clear",
+"idle": true,
+"text": "(예상) 지금 비우면 이후 10턴 동안 약 132~447만 토큰 덜 읽음 — 쉬었다 재개라 지금이 유리, 그 사이 자동 압축 1회 포함"
+},
+{
+"messages": 150000,
+"turns": 10,
+"mode": "compact",
+"idle": false,
+"text": "(예상) 지금 압축하면 이후 10턴 동안 약 132~447만 토큰 덜 읽음 — 대부분 캐시 읽기(단가 약 1/10), 그 사이 자동 압축 1회 포함"
+},
+{
+"messages": 150000,
+"turns": 10,
+"mode": "compact",
+"idle": true,
+"text": "(예상) 지금 압축하면 이후 10턴 동안 약 132~447만 토큰 덜 읽음 — 쉬었다 재개라 지금이 유리, 그 사이 자동 압축 1회 포함"
+},
+{
+"messages": 150000,
+"turns": 30,
+"mode": "clear",
+"idle": false,
+"text": "(예상) 지금 비우면 이후 30턴 동안 약 32~47만 토큰 덜 읽음 — 대부분 캐시 읽기(단가 약 1/10), 그 사이 자동 압축 1회 포함"
+},
+{
+"messages": 150000,
+"turns": 30,
+"mode": "clear",
+"idle": true,
+"text": "(예상) 지금 비우면 이후 30턴 동안 약 32~47만 토큰 덜 읽음 — 쉬었다 재개라 지금이 유리, 그 사이 자동 압축 1회 포함"
+},
+{
+"messages": 150000,
+"turns": 30,
+"mode": "compact",
+"idle": false,
+"text": "(예상) 지금 압축하면 이후 30턴 동안 약 32~47만 토큰 덜 읽음 — 대부분 캐시 읽기(단가 약 1/10), 그 사이 자동 압축 1회 포함"
+},
+{
+"messages": 150000,
+"turns": 30,
+"mode": "compact",
+"idle": true,
+"text": "(예상) 지금 압축하면 이후 30턴 동안 약 32~47만 토큰 덜 읽음 — 쉬었다 재개라 지금이 유리, 그 사이 자동 압축 1회 포함"
+},
+{
+"messages": 176000,
+"turns": 0,
+"mode": "clear",
+"idle": false,
+"text": "새 세션 권장(주제 전환)"
+},
+{
+"messages": 176000,
+"turns": 0,
+"mode": "clear",
+"idle": true,
+"text": "새 세션 권장(주제 전환)"
+},
+{
+"messages": 176000,
+"turns": 0,
+"mode": "compact",
+"idle": false,
+"text": "새 세션 권장(주제 전환)"
+},
+{
+"messages": 176000,
+"turns": 0,
+"mode": "compact",
+"idle": true,
+"text": "새 세션 권장(주제 전환)"
+},
+{
+"messages": 176000,
+"turns": 3,
+"mode": "clear",
+"idle": false,
+"text": "카드 없음(절감 작음)"
+},
+{
+"messages": 176000,
+"turns": 3,
+"mode": "clear",
+"idle": true,
+"text": "(예상) 지금 비우면 이후 3턴 동안 약 27만 토큰 덜 읽음 — 쉬었다 재개라 지금이 유리, 그 사이 자동 압축 1회 포함"
+},
+{
+"messages": 176000,
+"turns": 3,
+"mode": "compact",
+"idle": false,
+"text": "카드 없음(절감 작음)"
+},
+{
+"messages": 176000,
+"turns": 3,
+"mode": "compact",
+"idle": true,
+"text": "(예상) 지금 압축하면 이후 3턴 동안 약 27만 토큰 덜 읽음 — 쉬었다 재개라 지금이 유리, 그 사이 자동 압축 1회 포함"
+},
+{
+"messages": 176000,
+"turns": 4,
+"mode": "clear",
+"idle": false,
+"text": "(예상) 지금 비우면 이후 4턴 동안 약 27만 토큰 덜 읽음 — 대부분 캐시 읽기(단가 약 1/10), 그 사이 자동 압축 1회 포함"
+},
+{
+"messages": 176000,
+"turns": 4,
+"mode": "clear",
+"idle": true,
+"text": "(예상) 지금 비우면 이후 4턴 동안 약 27만 토큰 덜 읽음 — 쉬었다 재개라 지금이 유리, 그 사이 자동 압축 1회 포함"
+},
+{
+"messages": 176000,
+"turns": 4,
+"mode": "compact",
+"idle": false,
+"text": "(예상) 지금 압축하면 이후 4턴 동안 약 27만 토큰 덜 읽음 — 대부분 캐시 읽기(단가 약 1/10), 그 사이 자동 압축 1회 포함"
+},
+{
+"messages": 176000,
+"turns": 4,
+"mode": "compact",
+"idle": true,
+"text": "(예상) 지금 압축하면 이후 4턴 동안 약 27만 토큰 덜 읽음 — 쉬었다 재개라 지금이 유리, 그 사이 자동 압축 1회 포함"
+},
+{
+"messages": 176000,
+"turns": 10,
+"mode": "clear",
+"idle": false,
+"text": "(예상) 지금 비우면 이후 10턴 동안 약 27만 토큰 덜 읽음 — 대부분 캐시 읽기(단가 약 1/10), 그 사이 자동 압축 1회 포함"
+},
+{
+"messages": 176000,
+"turns": 10,
+"mode": "clear",
+"idle": true,
+"text": "(예상) 지금 비우면 이후 10턴 동안 약 27만 토큰 덜 읽음 — 쉬었다 재개라 지금이 유리, 그 사이 자동 압축 1회 포함"
+},
+{
+"messages": 176000,
+"turns": 10,
+"mode": "compact",
+"idle": false,
+"text": "(예상) 지금 압축하면 이후 10턴 동안 약 27만 토큰 덜 읽음 — 대부분 캐시 읽기(단가 약 1/10), 그 사이 자동 압축 1회 포함"
+},
+{
+"messages": 176000,
+"turns": 10,
+"mode": "compact",
+"idle": true,
+"text": "(예상) 지금 압축하면 이후 10턴 동안 약 27만 토큰 덜 읽음 — 쉬었다 재개라 지금이 유리, 그 사이 자동 압축 1회 포함"
+},
+{
+"messages": 176000,
+"turns": 30,
+"mode": "clear",
+"idle": false,
+"text": "(예상) 지금 비우면 이후 30턴 동안 약 27만 토큰 덜 읽음 — 대부분 캐시 읽기(단가 약 1/10), 그 사이 자동 압축 1회 포함"
+},
+{
+"messages": 176000,
+"turns": 30,
+"mode": "clear",
+"idle": true,
+"text": "(예상) 지금 비우면 이후 30턴 동안 약 27만 토큰 덜 읽음 — 쉬었다 재개라 지금이 유리, 그 사이 자동 압축 1회 포함"
+},
+{
+"messages": 176000,
+"turns": 30,
+"mode": "compact",
+"idle": false,
+"text": "(예상) 지금 압축하면 이후 30턴 동안 약 27만 토큰 덜 읽음 — 대부분 캐시 읽기(단가 약 1/10), 그 사이 자동 압축 1회 포함"
+},
+{
+"messages": 176000,
+"turns": 30,
+"mode": "compact",
+"idle": true,
+"text": "(예상) 지금 압축하면 이후 30턴 동안 약 27만 토큰 덜 읽음 — 쉬었다 재개라 지금이 유리, 그 사이 자동 압축 1회 포함"
+},
+{
+"messages": 176700,
+"turns": 0,
+"mode": "clear",
+"idle": false,
+"text": "새 세션 권장(주제 전환)"
+},
+{
+"messages": 176700,
+"turns": 0,
+"mode": "clear",
+"idle": true,
+"text": "새 세션 권장(주제 전환)"
+},
+{
+"messages": 176700,
+"turns": 0,
+"mode": "compact",
+"idle": false,
+"text": "새 세션 권장(주제 전환)"
+},
+{
+"messages": 176700,
+"turns": 0,
+"mode": "compact",
+"idle": true,
+"text": "새 세션 권장(주제 전환)"
+},
+{
+"messages": 176700,
+"turns": 3,
+"mode": "clear",
+"idle": false,
+"text": "입력 오류: 이미 자동 압축 시점을 넘은 크기"
+},
+{
+"messages": 176700,
+"turns": 3,
+"mode": "clear",
+"idle": true,
+"text": "입력 오류: 이미 자동 압축 시점을 넘은 크기"
+},
+{
+"messages": 176700,
+"turns": 3,
+"mode": "compact",
+"idle": false,
+"text": "입력 오류: 이미 자동 압축 시점을 넘은 크기"
+},
+{
+"messages": 176700,
+"turns": 3,
+"mode": "compact",
+"idle": true,
+"text": "입력 오류: 이미 자동 압축 시점을 넘은 크기"
+},
+{
+"messages": 176700,
+"turns": 4,
+"mode": "clear",
+"idle": false,
+"text": "입력 오류: 이미 자동 압축 시점을 넘은 크기"
+},
+{
+"messages": 176700,
+"turns": 4,
+"mode": "clear",
+"idle": true,
+"text": "입력 오류: 이미 자동 압축 시점을 넘은 크기"
+},
+{
+"messages": 176700,
+"turns": 4,
+"mode": "compact",
+"idle": false,
+"text": "입력 오류: 이미 자동 압축 시점을 넘은 크기"
+},
+{
+"messages": 176700,
+"turns": 4,
+"mode": "compact",
+"idle": true,
+"text": "입력 오류: 이미 자동 압축 시점을 넘은 크기"
+},
+{
+"messages": 176700,
+"turns": 10,
+"mode": "clear",
+"idle": false,
+"text": "입력 오류: 이미 자동 압축 시점을 넘은 크기"
+},
+{
+"messages": 176700,
+"turns": 10,
+"mode": "clear",
+"idle": true,
+"text": "입력 오류: 이미 자동 압축 시점을 넘은 크기"
+},
+{
+"messages": 176700,
+"turns": 10,
+"mode": "compact",
+"idle": false,
+"text": "입력 오류: 이미 자동 압축 시점을 넘은 크기"
+},
+{
+"messages": 176700,
+"turns": 10,
+"mode": "compact",
+"idle": true,
+"text": "입력 오류: 이미 자동 압축 시점을 넘은 크기"
+},
+{
+"messages": 176700,
+"turns": 30,
+"mode": "clear",
+"idle": false,
+"text": "입력 오류: 이미 자동 압축 시점을 넘은 크기"
+},
+{
+"messages": 176700,
+"turns": 30,
+"mode": "clear",
+"idle": true,
+"text": "입력 오류: 이미 자동 압축 시점을 넘은 크기"
+},
+{
+"messages": 176700,
+"turns": 30,
+"mode": "compact",
+"idle": false,
+"text": "입력 오류: 이미 자동 압축 시점을 넘은 크기"
+},
+{
+"messages": 176700,
+"turns": 30,
+"mode": "compact",
+"idle": true,
+"text": "입력 오류: 이미 자동 압축 시점을 넘은 크기"
+},
+{
+"messages": 177000,
+"turns": 0,
+"mode": "clear",
+"idle": false,
+"text": "새 세션 권장(주제 전환)"
+},
+{
+"messages": 177000,
+"turns": 0,
+"mode": "clear",
+"idle": true,
+"text": "새 세션 권장(주제 전환)"
+},
+{
+"messages": 177000,
+"turns": 0,
+"mode": "compact",
+"idle": false,
+"text": "새 세션 권장(주제 전환)"
+},
+{
+"messages": 177000,
+"turns": 0,
+"mode": "compact",
+"idle": true,
+"text": "새 세션 권장(주제 전환)"
+},
+{
+"messages": 177000,
+"turns": 3,
+"mode": "clear",
+"idle": false,
+"text": "입력 오류: 이미 자동 압축 시점을 넘은 크기"
+},
+{
+"messages": 177000,
+"turns": 3,
+"mode": "clear",
+"idle": true,
+"text": "입력 오류: 이미 자동 압축 시점을 넘은 크기"
+},
+{
+"messages": 177000,
+"turns": 3,
+"mode": "compact",
+"idle": false,
+"text": "입력 오류: 이미 자동 압축 시점을 넘은 크기"
+},
+{
+"messages": 177000,
+"turns": 3,
+"mode": "compact",
+"idle": true,
+"text": "입력 오류: 이미 자동 압축 시점을 넘은 크기"
+},
+{
+"messages": 177000,
+"turns": 4,
+"mode": "clear",
+"idle": false,
+"text": "입력 오류: 이미 자동 압축 시점을 넘은 크기"
+},
+{
+"messages": 177000,
+"turns": 4,
+"mode": "clear",
+"idle": true,
+"text": "입력 오류: 이미 자동 압축 시점을 넘은 크기"
+},
+{
+"messages": 177000,
+"turns": 4,
+"mode": "compact",
+"idle": false,
+"text": "입력 오류: 이미 자동 압축 시점을 넘은 크기"
+},
+{
+"messages": 177000,
+"turns": 4,
+"mode": "compact",
+"idle": true,
+"text": "입력 오류: 이미 자동 압축 시점을 넘은 크기"
+},
+{
+"messages": 177000,
+"turns": 10,
+"mode": "clear",
+"idle": false,
+"text": "입력 오류: 이미 자동 압축 시점을 넘은 크기"
+},
+{
+"messages": 177000,
+"turns": 10,
+"mode": "clear",
+"idle": true,
+"text": "입력 오류: 이미 자동 압축 시점을 넘은 크기"
+},
+{
+"messages": 177000,
+"turns": 10,
+"mode": "compact",
+"idle": false,
+"text": "입력 오류: 이미 자동 압축 시점을 넘은 크기"
+},
+{
+"messages": 177000,
+"turns": 10,
+"mode": "compact",
+"idle": true,
+"text": "입력 오류: 이미 자동 압축 시점을 넘은 크기"
+},
+{
+"messages": 177000,
+"turns": 30,
+"mode": "clear",
+"idle": false,
+"text": "입력 오류: 이미 자동 압축 시점을 넘은 크기"
+},
+{
+"messages": 177000,
+"turns": 30,
+"mode": "clear",
+"idle": true,
+"text": "입력 오류: 이미 자동 압축 시점을 넘은 크기"
+},
+{
+"messages": 177000,
+"turns": 30,
+"mode": "compact",
+"idle": false,
+"text": "입력 오류: 이미 자동 압축 시점을 넘은 크기"
+},
+{
+"messages": 177000,
+"turns": 30,
+"mode": "compact",
+"idle": true,
+"text": "입력 오류: 이미 자동 압축 시점을 넘은 크기"
+},
+{
+"messages": 250000,
+"turns": 0,
+"mode": "clear",
+"idle": false,
+"text": "새 세션 권장(주제 전환)"
+},
+{
+"messages": 250000,
+"turns": 0,
+"mode": "clear",
+"idle": true,
+"text": "새 세션 권장(주제 전환)"
+},
+{
+"messages": 250000,
+"turns": 0,
+"mode": "compact",
+"idle": false,
+"text": "새 세션 권장(주제 전환)"
+},
+{
+"messages": 250000,
+"turns": 0,
+"mode": "compact",
+"idle": true,
+"text": "새 세션 권장(주제 전환)"
+},
+{
+"messages": 250000,
+"turns": 3,
+"mode": "clear",
+"idle": false,
+"text": "입력 오류: 이미 자동 압축 시점을 넘은 크기"
+},
+{
+"messages": 250000,
+"turns": 3,
+"mode": "clear",
+"idle": true,
+"text": "입력 오류: 이미 자동 압축 시점을 넘은 크기"
+},
+{
+"messages": 250000,
+"turns": 3,
+"mode": "compact",
+"idle": false,
+"text": "입력 오류: 이미 자동 압축 시점을 넘은 크기"
+},
+{
+"messages": 250000,
+"turns": 3,
+"mode": "compact",
+"idle": true,
+"text": "입력 오류: 이미 자동 압축 시점을 넘은 크기"
+},
+{
+"messages": 250000,
+"turns": 4,
+"mode": "clear",
+"idle": false,
+"text": "입력 오류: 이미 자동 압축 시점을 넘은 크기"
+},
+{
+"messages": 250000,
+"turns": 4,
+"mode": "clear",
+"idle": true,
+"text": "입력 오류: 이미 자동 압축 시점을 넘은 크기"
+},
+{
+"messages": 250000,
+"turns": 4,
+"mode": "compact",
+"idle": false,
+"text": "입력 오류: 이미 자동 압축 시점을 넘은 크기"
+},
+{
+"messages": 250000,
+"turns": 4,
+"mode": "compact",
+"idle": true,
+"text": "입력 오류: 이미 자동 압축 시점을 넘은 크기"
+},
+{
+"messages": 250000,
+"turns": 10,
+"mode": "clear",
+"idle": false,
+"text": "입력 오류: 이미 자동 압축 시점을 넘은 크기"
+},
+{
+"messages": 250000,
+"turns": 10,
+"mode": "clear",
+"idle": true,
+"text": "입력 오류: 이미 자동 압축 시점을 넘은 크기"
+},
+{
+"messages": 250000,
+"turns": 10,
+"mode": "compact",
+"idle": false,
+"text": "입력 오류: 이미 자동 압축 시점을 넘은 크기"
+},
+{
+"messages": 250000,
+"turns": 10,
+"mode": "compact",
+"idle": true,
+"text": "입력 오류: 이미 자동 압축 시점을 넘은 크기"
+},
+{
+"messages": 250000,
+"turns": 30,
+"mode": "clear",
+"idle": false,
+"text": "입력 오류: 이미 자동 압축 시점을 넘은 크기"
+},
+{
+"messages": 250000,
+"turns": 30,
+"mode": "clear",
+"idle": true,
+"text": "입력 오류: 이미 자동 압축 시점을 넘은 크기"
+},
+{
+"messages": 250000,
+"turns": 30,
+"mode": "compact",
+"idle": false,
+"text": "입력 오류: 이미 자동 압축 시점을 넘은 크기"
+},
+{
+"messages": 250000,
+"turns": 30,
+"mode": "compact",
+"idle": true,
+"text": "입력 오류: 이미 자동 압축 시점을 넘은 크기"
+}
+]

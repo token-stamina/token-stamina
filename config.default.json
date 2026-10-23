@@ -1,0 +1,67 @@
+{
+  "lang": "auto",
+  "mode": "inject",
+  "nudge": true,
+  "wrap": null,
+  "yellowMargin": 10,
+  "redAt": 90,
+  "floors": {
+    "5h": {
+      "yellow": 25,
+      "red": 50
+    },
+    "7d": {
+      "yellow": 0,
+      "red": 0
+    }
+  },
+  "fiveHourShowAt": 80,
+  "stateMaxAgeSec": 21600,
+  "judgmentKeywords": [
+    "design",
+    "architecture",
+    "review",
+    "audit",
+    "strategy",
+    "security",
+    "decide",
+    "plan",
+    "설계",
+    "리뷰",
+    "검수",
+    "전략",
+    "감사",
+    "판단",
+    "결정"
+  ],
+  "simpleKeywords": [
+    "list",
+    "find",
+    "grep",
+    "glob",
+    "count",
+    "aggregate",
+    "format",
+    "rename",
+    "summarize logs",
+    "collect",
+    "목록",
+    "찾기",
+    "집계",
+    "포맷",
+    "수집",
+    "정리"
+  ],
+  "boundary": false,
+  "inlineCompactHint": true,
+  "compactAtTokens": 150000,
+  "newSessionAtTokens": 400000,
+  "renotifyGrowthTokens": 100000,
+  "turnCostYellowTokens": 100000,
+  "handoff": true,
+  "topicGate": true,
+  "gateAtTokens": 200000,
+  "idleGapSec": 3600,
+  "handoffMaxTokens": 1500,
+  "excludeCwd": []
+}

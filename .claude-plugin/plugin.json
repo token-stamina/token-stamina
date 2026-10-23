@@ -1,0 +1,19 @@
+{
+  "name": "token-stamina",
+  "displayName": "Token Stamina",
+  "version": "0.4.4",
+  "description": "Unofficial add-on for Claude Code that paces usage against the weekly and 5-hour limits: status segment, subagent model downgrade when you are over pace, and pace nudges, compact hints at work boundaries and a fixed-cost audit. No LLM calls.",
+  "author": {
+    "name": "Token Stamina"
+  },
+  "license": "MIT",
+  "keywords": [
+    "usage",
+    "rate-limit",
+    "tokens",
+    "subagent",
+    "statusline"
+  ],
+  "homepage": "https://github.com/token-stamina/token-stamina",
+  "repository": "https://github.com/token-stamina/token-stamina"
+}

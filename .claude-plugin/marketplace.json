@@ -1,0 +1,16 @@
+{
+  "name": "token-stamina",
+  "owner": {
+    "name": "Token Stamina"
+  },
+  "metadata": {
+    "description": "Unofficial community plugin. Token Stamina paces Claude Code usage against the weekly and 5-hour limits."
+  },
+  "plugins": [
+    {
+      "name": "token-stamina",
+      "source": "./",
+      "description": "Unofficial community plugin: pace Claude Code usage against weekly and 5-hour limits."
+    }
+  ]
+}
