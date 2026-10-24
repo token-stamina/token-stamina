@@ -63,7 +63,7 @@
     <li><b>Auto-compact point.</b> <span class="tag">set once</span> Setup can lower Claude Code's automatic compact point, so a long session doesn't keep re-reading a very large context on every call.</li>
     <li><b>Grade change.</b> <span class="tag">once</span> When the grade changes, Claude gets one short line and tells you, in your language. Nothing is added while the grade stays the same.</li>
   </ol>
-  <p class="small">It doesn't change the model of your main conversation, block requests, or compact by itself. Claude Code doesn't let plugins run <code>/compact</code>. <code>/token-stamina:audit</code> lists what gets loaded into every conversation, such as CLAUDE.md files, plugins and MCP servers you never use. It only reports and doesn't change anything.</p>
+  <p class="small">It doesn't change your main conversation's model or block requests. It doesn't compact by itself either: Claude Code doesn't let plugins run <code>/compact</code>. <code>/token-stamina:audit</code> lists what gets loaded into every conversation, such as CLAUDE.md files, plugins and MCP servers you never use. It only reports and doesn't change anything.</p>
 </section>
 
 <section id="pace" class="col">
@@ -140,7 +140,7 @@ window.TS_TEXT = {
     red: function (u, e) { return u >= 90 ? 'Over 90% of the limit.' : (u - e) + ' points over.'; }
   },
   copy: 'copy', copied: 'copied', select: 'select',
-  acts: {"green": [["", "Nothing changes. You get a green dot in the status line."]], "yellow": [["once", "One line when the grade changes."]], "red": [["auto", "Subagents with no model set run on Haiku or Sonnet."], ["auto", "Before a compact, a note of what you were doing is saved. It comes back after."], ["one click", "After a commit or a finished answer, you're offered <code>/compact</code> with the commit subjects filled in."], ["once", "One line when the grade changes."]]}
+  acts: {"green": [["", "Subagents keep their models. Compact hints still appear in long conversations. You get a green dot in the status line."]], "yellow": [["once", "One line when the grade changes."]], "red": [["auto", "Subagents with no model set run on Haiku or Sonnet."], ["auto", "A handoff note is saved at the end of each turn. It comes back after."], ["suggestion", "After a commit or a finished answer, you're offered <code>/compact</code> with the commit subjects filled in."], ["once", "One line when the grade changes."]]}
 };
 </script>
 <script src="demo.js"></script>
