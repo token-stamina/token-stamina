@@ -87,14 +87,15 @@
 
 <section id="install" class="col">
   <h2><span class="n">03</span>설치</h2>
-  <p class="step"><span class="n">1</span>터미널에서:</p>
-  <div class="cmd"><pre>claude plugin marketplace add token-stamina/token-stamina
-claude plugin install token-stamina@token-stamina</pre><button type="button">복사</button></div>
-  <p class="step"><span class="n">2</span>그다음 Claude Code에서:</p>
+  <p class="step"><span class="n">1</span>터미널에서 마켓플레이스를 추가합니다:</p>
+  <div class="cmd"><pre>claude plugin marketplace add token-stamina/token-stamina</pre><button type="button">복사</button></div>
+  <p class="step"><span class="n">2</span>이어서 플러그인을 설치합니다(마켓플레이스 추가만으로는 설치되지 않습니다):</p>
+  <div class="cmd"><pre>claude plugin install token-stamina@token-stamina</pre><button type="button">복사</button></div>
+  <p class="step"><span class="n">3</span>Claude Code 새 세션을 엽니다(이미 열려 있던 세션은 플러그인을 못 봅니다). Claude가 setup 실행을 한 번 물어보면 예라고 답하거나, 직접 실행합니다:</p>
   <div class="cmd"><pre>/token-stamina:setup</pre><button type="button">복사</button></div>
   <p class="small">플러그인은 상태줄을 스스로 등록할 수 없어서, setup이 <code>~/.claude/settings.json</code>을 고치기 전에 먼저 물어봅니다. 이미 쓰는 상태줄이 있으면 그대로 두고 덧붙일 수 있습니다.</p>  <details class="small">
-    <summary>1단계를 Claude Code 안에서 하려면</summary>
-    <p>하나씩 실행한 다음 setup을 실행합니다.</p>
+    <summary>1·2단계를 Claude Code 안에서 하려면</summary>
+    <p>하나씩 실행한 다음 새 세션을 열고 setup을 실행합니다.</p>
     <div class="cmd"><pre>/plugin marketplace add token-stamina/token-stamina</pre><button type="button">복사</button></div>
     <div class="cmd"><pre>/plugin install token-stamina@token-stamina</pre><button type="button">복사</button></div>
   </details>

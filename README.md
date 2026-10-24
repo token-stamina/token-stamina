@@ -29,14 +29,14 @@ In Claude Code 2.1.275 or later:
 /plugin install token-stamina --marketplace token-stamina/token-stamina
 ```
 
-On older versions, add the marketplace first:
+On older versions, add the marketplace first, then install the plugin (adding the marketplace alone does not install it). Run both:
 
 ```
 claude plugin marketplace add token-stamina/token-stamina
 claude plugin install token-stamina@token-stamina
 ```
 
-Then run `/token-stamina:setup` once. Since 0.4.5 you do not have to remember: the first time Claude Code starts with the plugin and no Token Stamina status line, Claude asks once whether to run setup now, and you answer yes or no. It never asks again either way (`scripts/first-run.js`, SessionStart `startup`; `"setupPrompt": false` turns it off).
+Then start a new Claude Code session (sessions already open do not see the plugin) and run `/token-stamina:setup` once. Since 0.4.5 you do not have to remember: the first time Claude Code starts with the plugin and no Token Stamina status line, Claude asks once whether to run setup now, and you answer yes or no. It never asks again either way (`scripts/first-run.js`, SessionStart `startup`; `"setupPrompt": false` turns it off).
 
 ### Updating
 

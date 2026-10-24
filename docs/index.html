@@ -87,14 +87,15 @@
 
 <section id="install" class="col">
   <h2><span class="n">03</span>Install</h2>
-  <p class="step"><span class="n">1</span>In a terminal:</p>
-  <div class="cmd"><pre>claude plugin marketplace add token-stamina/token-stamina
-claude plugin install token-stamina@token-stamina</pre><button type="button">copy</button></div>
-  <p class="step"><span class="n">2</span>Then in Claude Code:</p>
+  <p class="step"><span class="n">1</span>In a terminal, add the marketplace:</p>
+  <div class="cmd"><pre>claude plugin marketplace add token-stamina/token-stamina</pre><button type="button">copy</button></div>
+  <p class="step"><span class="n">2</span>Then install the plugin (adding the marketplace alone doesn't install it):</p>
+  <div class="cmd"><pre>claude plugin install token-stamina@token-stamina</pre><button type="button">copy</button></div>
+  <p class="step"><span class="n">3</span>Start a new Claude Code session (sessions already open don't see the plugin). Claude offers to run setup once; say yes, or run it yourself:</p>
   <div class="cmd"><pre>/token-stamina:setup</pre><button type="button">copy</button></div>
   <p class="small">A plugin can't set the status line by itself, so setup asks before it changes <code>~/.claude/settings.json</code>. If you already have a status line, it can keep yours and add to it.</p>  <details class="small">
-    <summary>Or do step 1 inside Claude Code</summary>
-    <p>Run these one at a time, then run setup:</p>
+    <summary>Or do steps 1 and 2 inside Claude Code</summary>
+    <p>Run these one at a time, then start a new session and run setup:</p>
     <div class="cmd"><pre>/plugin marketplace add token-stamina/token-stamina</pre><button type="button">copy</button></div>
     <div class="cmd"><pre>/plugin install token-stamina@token-stamina</pre><button type="button">copy</button></div>
   </details>
