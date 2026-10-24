@@ -51,6 +51,7 @@
   <div class="verdict-card">
     <p class="verdict" id="verdict" aria-live="polite"></p>
     <ul class="acts" id="acts"></ul>
+    <p class="always">Always on, at any grade: a handoff note saved at the end of each turn and restored after a compact or clear, and a <code>/compact</code> suggestion when the conversation gets long.</p>
   </div>
 </div>
 
@@ -140,7 +141,7 @@ window.TS_TEXT = {
     red: function (u, e) { return u >= 90 ? 'Over 90% of the limit.' : (u - e) + ' points over.'; }
   },
   copy: 'copy', copied: 'copied', select: 'select',
-  acts: {"green": [["", "Subagents keep their models. Compact hints still appear in long conversations. You get a green dot in the status line."]], "yellow": [["once", "One line when the grade changes."]], "red": [["auto", "Subagents with no model set run on Haiku or Sonnet."], ["auto", "A handoff note is saved at the end of each turn. It comes back after."], ["suggestion", "After a commit or a finished answer, you're offered <code>/compact</code> with the commit subjects filled in."], ["once", "One line when the grade changes."]]}
+  acts: {"green": [["", "Subagents keep their models. You get a green dot in the status line."]], "yellow": [["once", "One line when the grade changes."]], "red": [["auto", "Subagents with no model set run on Haiku or Sonnet."], ["once", "One line when the grade changes."]]}
 };
 </script>
 <script src="demo.js"></script>

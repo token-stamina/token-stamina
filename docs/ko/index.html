@@ -51,6 +51,7 @@
   <div class="verdict-card">
     <p class="verdict" id="verdict" aria-live="polite"></p>
     <ul class="acts" id="acts"></ul>
+    <p class="always">등급과 상관없이 늘 동작합니다: 턴이 끝날 때마다 인계 메모를 저장해 압축·비우기 뒤에 다시 넣고, 대화가 길어지면 <code>/compact</code> 를 권합니다.</p>
   </div>
 </div>
 
@@ -140,7 +141,7 @@ window.TS_TEXT = {
     red: function (u, e) { return u >= 90 ? '한도 90% 넘음.' : (u - e) + '포인트 넘음.'; }
   },
   copy: '복사', copied: '복사됨', select: '직접 선택',
-  acts: {"green": [["", "하위 에이전트 모델은 그대로입니다. 대화가 길어지면 압축 제안은 그대로 뜹니다. 상태줄에 초록 점만 보입니다."]], "yellow": [["한 번", "등급이 바뀌면 한 줄로 알려 줍니다."]], "red": [["자동", "모델을 지정하지 않은 하위 에이전트는 Haiku나 Sonnet으로 실행됩니다."], ["자동", "턴이 끝날 때마다 인계 메모를 저장하고, 압축 뒤에 다시 넣습니다."], ["제안", "커밋하거나 답이 끝나면, 커밋 제목을 채운 <code>/compact</code>를 권합니다."], ["한 번", "등급이 바뀌면 한 줄로 알려 줍니다."]]}
+  acts: {"green": [["", "하위 에이전트 모델은 그대로입니다. 상태줄에 초록 점이 보입니다."]], "yellow": [["한 번", "등급이 바뀌면 한 줄로 알려 줍니다."]], "red": [["자동", "모델을 지정하지 않은 하위 에이전트는 Haiku나 Sonnet으로 실행됩니다."], ["한 번", "등급이 바뀌면 한 줄로 알려 줍니다."]]}
 };
 </script>
 <script src="/demo.js"></script>
