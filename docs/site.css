@@ -35,7 +35,7 @@ code { font-size: .88em; background: var(--panel-2); border: 1px solid var(--lin
 header.top { display: flex; flex-wrap: wrap; gap: 16px; justify-content: space-between; align-items: center; padding-top: 24px; }
 .mark { font: 700 15px var(--mono); color: var(--ink); text-decoration: none; display: inline-flex; align-items: center; gap: 10px; }
 .mark:hover { color: var(--ink); }
-.mark .gdot { width: 10px; height: 10px; }
+.mark .logo { width: 24px; height: 24px; flex: 0 0 auto; }
 nav { display: flex; gap: 24px; font-size: 14px; flex-wrap: wrap; }
 nav a { text-decoration: none; }
 
