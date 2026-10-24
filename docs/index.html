@@ -4,11 +4,11 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Token Stamina — make your Claude Code limit last until the reset</title>
-<meta name="description" content="Token Stamina compares your Claude Code usage with how much of the week has passed. When you're ahead, it moves subagents to cheaper models and suggests a compact after finished work. Local only, no LLM calls.">
+<meta name="description" content="Token Stamina shows your Claude Code weekly and 5-hour usage against time elapsed. Fall well behind pace and it moves subagents to cheaper models; in long conversations it tells you when to compact. Local only, no LLM calls.">
 <link rel="alternate" hreflang="en" href="https://tokenstamina.com/">
 <link rel="alternate" hreflang="ko" href="https://tokenstamina.com/ko/">
 <meta property="og:title" content="Token Stamina">
-<meta property="og:description" content="Make your Claude Code weekly limit last until the reset. Local, no LLM calls.">
+<meta property="og:description" content="Token Stamina shows your Claude Code weekly and 5-hour usage against time elapsed. Fall well behind pace and it moves subagents to cheaper models; in long conversations it tells you when to compact. Local only, no LLM calls.">
 <meta property="og:url" content="https://tokenstamina.com/">
 <link rel="icon" href="logo.svg" type="image/svg+xml">
 <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -55,13 +55,13 @@
 </div>
 
 <section class="col">
-  <h2><span class="n">01</span>When you're ahead of pace</h2>
+  <h2><span class="n">01</span>What it does</h2>
   <ol class="does">
     <li><b>Subagent model.</b> <span class="tag">auto</span> While the grade is red, a subagent call with no model set goes to Haiku if the task looks simple and to Sonnet otherwise. If the call names a model, is a fork, or looks like review or design work, it's left alone. You can change this to suggestions only, or turn it off.</li>
-    <li><b>Handoff note.</b> <span class="tag">auto</span> Before you compact or clear, it saves the last few requests, commits, edited files and to-dos, and adds them to the new conversation. The note is put together from your transcript; no model writes it. You can compact early and not have to explain again where you were.</li>
-    <li><b>Compact suggestion.</b> <span class="tag">one click</span> Once the conversation is large and you've just finished something (a commit, an edit, an answer), it suggests <code>/compact</code> with the commit subjects filled in. If the conversation is much larger than that, it suggests a new session instead.</li>
+    <li><b>Handoff note.</b> <span class="tag">auto</span> At the end of each turn it saves the last few requests, commits, edited files and to-dos, and adds them to the new conversation after you compact or clear. The note is put together from your transcript; no model writes it. You can compact early and not have to explain again where you were.</li>
+    <li><b>Compact suggestion.</b> <span class="tag">suggestion</span> Once the conversation is large and you've just finished something (a commit, an edit, an answer), it suggests <code>/compact</code> with the commit subjects filled in. If the conversation is much larger than that, it suggests a new session instead.</li>
     <li><b>Auto-compact point.</b> <span class="tag">set once</span> Setup can lower Claude Code's automatic compact point, so a long session doesn't keep re-reading a very large context on every call.</li>
-    <li><b>Grade change.</b> <span class="tag">once</span> When the grade changes, Claude gets one short line and tells you, in your language. Other prompts get nothing.</li>
+    <li><b>Grade change.</b> <span class="tag">once</span> When the grade changes, Claude gets one short line and tells you, in your language. Nothing is added while the grade stays the same.</li>
   </ol>
   <p class="small">It doesn't change the model of your main conversation, block requests, or compact by itself. Claude Code doesn't let plugins run <code>/compact</code>. <code>/token-stamina:audit</code> lists what gets loaded into every conversation, such as CLAUDE.md files, plugins and MCP servers you never use. It only reports and doesn't change anything.</p>
 </section>
@@ -80,7 +80,7 @@
     <dt><code>reset Mon 15:00</code></dt><dd>when the weekly window resets</dd>
     <dt><code>ctx 41%</code></dt><dd>how full this conversation is</dd>
   </dl>
-  <p style="margin-top:1.6rem">60% used on Saturday is fine. 60% on Monday isn't. So the grade compares usage with time. Green if usage is at or below the share of the week that's gone. Yellow if it's up to 10 points over. Red if it's more than 10 points over, or above 90% at any point. The weekly and 5-hour windows are graded separately and you see the worse one.</p>
+  <p style="margin-top:1.6rem">60% used with a day left is fine. 60% used on day two isn't. So the grade compares usage with time. Green if usage is at or below the share of the window that's gone. Yellow if it's up to 10 points over. Red if it's more than 10 points over, or at 90% or more at any point. The weekly and 5-hour windows are graded separately and you see the worse one.</p>
 
 </section>
 
@@ -107,7 +107,7 @@ claude plugin install token-stamina@token-stamina</pre><button type="button">cop
     <dt>Writes</dt>
     <dd>Only to <code>~/.claude/token-stamina/</code>, and to your settings file during setup if you agree. Handoff notes are deleted after seven days.</dd>
     <dt>Never</dt>
-    <dd>Its scripts send no telemetry and call no model. Their only network request is the update check: once a day at most, one download of the published version number from GitHub, so it can tell you when a new version is out (<code>"updateCheck": false</code> turns it off). Two commands it can start may go online: <code>claude plugin list</code> during an audit, and a status line command you've asked it to wrap.</dd>
+    <dd>Its scripts send no telemetry and call no model. Their only network request is the update check: once a day at most, one download of the published version number from GitHub, so it can tell you when a new version is out (<code>"updateCheck": false</code> turns it off). Two commands it can start may go online: <code>claude plugin list</code> during an audit, and a status line command you've asked it to wrap. Hint lines and handoff notes it adds to the conversation are sent to the model like the rest of your conversation.</dd>
   </dl>
   <p class="small" style="margin-top:1.2rem">The full file-by-file list is in the <a href="https://github.com/token-stamina/token-stamina#privacy-and-what-runs-on-your-machine">README</a>. To remove everything, uninstall the plugin and delete that folder.</p>
 </section>

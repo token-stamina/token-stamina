@@ -3,12 +3,12 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Token Stamina — Claude Code 주간 한도를 리셋까지 버티게</title>
-<meta name="description" content="Token Stamina는 Claude Code 사용량을 이번 주에 지난 시간과 비교합니다. 앞서가면 하위 에이전트를 더 싼 모델로 돌리고, 일이 끝나면 압축을 권합니다. 내 컴퓨터에서만 돌고 LLM을 부르지 않습니다.">
+<title>Token Stamina — Claude Code 주간 한도, 리셋 전에 바닥나지 않게</title>
+<meta name="description" content="Token Stamina는 Claude Code 주간·5시간 사용량을 지난 시간과 나란히 보여 줍니다. 속도보다 많이 앞서 쓰면 하위 에이전트를 더 싼 모델로 돌리고, 대화가 길어지면 압축할 때를 알려 줍니다. 내 컴퓨터에서만 돌고 LLM을 부르지 않습니다.">
 <link rel="alternate" hreflang="en" href="https://tokenstamina.com/">
 <link rel="alternate" hreflang="ko" href="https://tokenstamina.com/ko/">
 <meta property="og:title" content="Token Stamina">
-<meta property="og:description" content="Claude Code 주간 한도를 리셋까지 버티게. 로컬 전용, LLM 호출 없음.">
+<meta property="og:description" content="Token Stamina는 Claude Code 주간·5시간 사용량을 지난 시간과 나란히 보여 줍니다. 속도보다 많이 앞서 쓰면 하위 에이전트를 더 싼 모델로 돌리고, 대화가 길어지면 압축할 때를 알려 줍니다. 내 컴퓨터에서만 돌고 LLM을 부르지 않습니다.">
 <meta property="og:url" content="https://tokenstamina.com/ko/">
 <link rel="icon" href="/logo.svg" type="image/svg+xml">
 <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -29,8 +29,8 @@
 </header>
 
 <div class="hero">
-  <h1>주간 한도를 리셋까지 버티게.</h1>
-  <p class="lede">Token Stamina 는 Claude Code 플러그인이에요. 주간·5시간 한도를 얼마나 썼는지, 각 창의 시간이 얼마나 지났는지를 상태줄에 나란히 보여 줘요. 속도보다 많이 앞서 쓰면 하위 에이전트를 더 싼 모델로 돌리고, 대화가 길어지면 압축할 때를 알려 줘요. <strong>LLM 을 부르지 않아요. 네트워크 요청은 하루 한 번 버전 확인뿐이고, 끌 수 있어요.</strong></p>
+  <h1>주간 한도, 리셋 전에 바닥나지 않게.</h1>
+  <p class="lede">Token Stamina 는 Claude Code 플러그인입니다. 주간·5시간 한도를 얼마나 썼는지, 각 창의 시간이 얼마나 지났는지를 상태줄에 나란히 보여 줍니다. 속도보다 많이 앞서 쓰면 하위 에이전트를 더 싼 모델로 돌리고, 대화가 길어지면 압축할 때를 알려 줍니다. <strong>LLM을 부르지 않습니다. 네트워크 요청은 하루 한 번 새 버전을 확인하는 것뿐이며, 끌 수 있습니다.</strong></p>
 </div>
 
 <div class="win" aria-label="Example status line">
@@ -55,15 +55,15 @@
 </div>
 
 <section class="col">
-  <h2><span class="n">01</span>앞서가고 있을 때 하는 일</h2>
+  <h2><span class="n">01</span>하는 일</h2>
   <ol class="does">
     <li><b>하위 에이전트 모델.</b> <span class="tag">자동</span> 등급이 빨강인 동안, 모델을 지정하지 않은 하위 에이전트 호출은 단순한 일이면 Haiku로, 아니면 Sonnet으로 갑니다. 모델을 지정했거나, 포크이거나, 검토·설계처럼 판단이 필요한 일로 보이면 건드리지 않습니다. 제안만 하도록 바꾸거나 끌 수도 있습니다.</li>
-    <li><b>인계 메모.</b> <span class="tag">자동</span> 압축하거나 비우기 전에 최근 요청 몇 개, 커밋, 고친 파일, 할 일 목록을 저장해 두고 새 대화에 다시 넣습니다. 메모는 대화 기록에서 뽑아 만들 뿐 모델이 쓰지 않습니다. 그래서 일찍 압축해도 어디까지 했는지 다시 설명할 필요가 없습니다.</li>
-    <li><b>압축 제안.</b> <span class="tag">한 번 클릭</span> 대화가 커졌고 방금 뭔가를 끝냈으면(커밋, 수정, 답변) 커밋 제목을 채운 <code>/compact</code>를 권합니다. 대화가 그보다 훨씬 크면 새 세션을 권합니다.</li>
+    <li><b>인계 메모.</b> <span class="tag">자동</span> 턴이 끝날 때마다 최근 요청 몇 개, 커밋, 고친 파일, 할 일 목록을 저장해 두고, 압축하거나 비운 뒤 새 대화에 다시 넣습니다. 메모는 대화 기록에서 뽑아 만들 뿐 모델이 쓰지 않습니다. 그래서 일찍 압축해도 어디까지 했는지 다시 설명할 필요가 없습니다.</li>
+    <li><b>압축 제안.</b> <span class="tag">제안</span> 대화가 커졌고 방금 뭔가를 끝냈으면(커밋, 수정, 답변) 커밋 제목을 채운 <code>/compact</code>를 권합니다. 대화가 그보다 훨씬 크면 새 세션을 권합니다.</li>
     <li><b>자동 압축 시점.</b> <span class="tag">한 번 설정</span> setup에서 Claude Code의 자동 압축 시점을 앞당길 수 있습니다. 그러면 긴 세션이 호출할 때마다 아주 큰 맥락을 다시 읽지 않습니다.</li>
-    <li><b>등급 변화.</b> <span class="tag">한 번</span> 등급이 바뀌면 Claude에게 짧은 한 줄이 가고, Claude가 그걸 사용자의 언어로 전합니다. 다른 프롬프트에는 아무것도 붙지 않습니다.</li>
+    <li><b>등급 변화.</b> <span class="tag">한 번</span> 등급이 바뀌면 Claude에게 짧은 한 줄이 가고, Claude가 그걸 사용자의 언어로 전합니다. 등급이 그대로면 아무것도 붙지 않습니다.</li>
   </ol>
-  <p class="small">메인 대화의 모델을 바꾸거나, 요청을 막거나, 스스로 압축하지는 않습니다. Claude Code가 플러그인의 <code>/compact</code> 실행을 막아 두었기 때문입니다. <code>/token-stamina:audit</code>는 모든 대화에 실리는 것들(CLAUDE.md 파일, 플러그인, 안 쓰는 MCP 서버 등)을 보여 줍니다. 보여 주기만 하고 아무것도 바꾸지 않습니다.</p>
+  <p class="small">메인 대화의 모델을 바꾸거나 요청을 막지 않습니다. 스스로 압축하지도 않는데, Claude Code가 플러그인의 <code>/compact</code> 실행을 막아 두었기 때문입니다. <code>/token-stamina:audit</code>는 모든 대화에 실리는 것들(CLAUDE.md 파일, 플러그인, 안 쓰는 MCP 서버 등)을 보여 줍니다. 보여 주기만 하고 아무것도 바꾸지 않습니다.</p>
 </section>
 
 <section id="pace" class="col">
@@ -80,7 +80,7 @@
     <dt><code>reset Mon 15:00</code></dt><dd>주간 한도가 리셋되는 시각</dd>
     <dt><code>ctx 41%</code></dt><dd>지금 대화가 얼마나 찼는지</dd>
   </dl>
-  <p style="margin-top:1.6rem">토요일에 60%를 썼으면 괜찮습니다. 월요일에 60%면 문제입니다. 그래서 등급은 사용량을 시간과 비교합니다. 지난 시간만큼 이하로 썼으면 초록, 10포인트까지 넘으면 노랑, 10포인트보다 더 넘거나 언제든 90%를 넘으면 빨강입니다. 주간과 5시간 한도를 따로 매기고, 둘 중 나쁜 쪽이 보입니다.</p>
+  <p style="margin-top:1.6rem">리셋까지 하루 남기고 60%면 괜찮습니다. 이틀째에 60%면 문제입니다. 그래서 등급은 사용량을 시간과 비교합니다. 지난 시간만큼 이하로 썼으면 초록, 10포인트까지 넘으면 노랑, 10포인트보다 더 넘거나 언제든 90% 이상이면 빨강입니다. 주간과 5시간 한도를 따로 매기고, 둘 중 나쁜 쪽이 보입니다.</p>
 
 </section>
 
@@ -107,7 +107,7 @@ claude plugin install token-stamina@token-stamina</pre><button type="button">복
     <dt>쓰는 것</dt>
     <dd><code>~/.claude/token-stamina/</code> 안에만 씁니다. setup 때 동의하면 설정 파일도 고칩니다. 인계 메모는 7일 뒤 지워집니다.</dd>
     <dt>하지 않는 것</dt>
-    <dd>스크립트는 사용 통계 전송과 모델 호출을 하지 않습니다. 네트워크 요청은 업데이트 확인 하나뿐입니다. 하루에 많아야 한 번, GitHub에서 공개된 버전 번호만 받아 와 새 버전이 나오면 알려 줍니다(<code>"updateCheck": false</code>로 끕니다). 다만 실행하는 명령 두 개는 스스로 인터넷에 접속할 수 있습니다. 점검할 때 쓰는 <code>claude plugin list</code>와, 감싸 달라고 지정한 상태줄 명령입니다.</dd>
+    <dd>스크립트는 사용 통계 전송과 모델 호출을 하지 않습니다. 네트워크 요청은 업데이트 확인 하나뿐입니다. 하루에 많아야 한 번, GitHub에서 공개된 버전 번호만 받아 와 새 버전이 나오면 알려 줍니다(<code>"updateCheck": false</code>로 끕니다). 다만 실행하는 명령 두 개는 스스로 인터넷에 접속할 수 있습니다. 점검할 때 쓰는 <code>claude plugin list</code>와, 감싸 달라고 지정한 상태줄 명령입니다. 대화에 붙이는 힌트 줄과 인계 메모는 다른 대화 내용과 마찬가지로 모델에 전송됩니다.</dd>
   </dl>
   <p class="small" style="margin-top:1.2rem">파일별 전체 목록은 <a href="https://github.com/token-stamina/token-stamina#privacy-and-what-runs-on-your-machine">README</a>(영어)에 있습니다. 모두 지우려면 플러그인을 제거하고 그 폴더를 지우면 됩니다.</p>
 </section>
