@@ -77,7 +77,7 @@ function latestKnown() {
 function context(root) {
   const setup = path.join(root, 'commands', 'setup.md');
   return 'Token Stamina was just installed, but its status line is not registered, so it cannot see usage yet. ' +
-    'In your next reply, after handling what the user asked, ask them once in one short line whether to run Token Stamina setup now ' +
+    'In your next reply, after handling what the user asked, ask them once whether to run Token Stamina setup now, with the AskUserQuestion tool so they can click (two options: run setup now, not now; one short line instead if that tool is unavailable) ' +
     '(it explains each change and asks before editing any file). ' +
     `If they say yes, read ${setup} and follow its steps, using ${root} wherever it says \${CLAUDE_PLUGIN_ROOT}. ` +
     'If they say no or ignore it, drop it: this question will not come back, and they can run /token-stamina:setup any time.';
@@ -86,8 +86,8 @@ function context(root) {
 function migrateContext(root) {
   const script = path.join(root, 'scripts', 'setup-statusline.js');
   return 'The Token Stamina status line in ~/.claude/settings.json points at one plugin version folder, so it keeps running that version after updates. ' +
-    'In your next reply, after handling what the user asked, ask them once in one short line whether to switch it to the update-proof launcher. ' +
-    `If yes, run \`node "${script}" --dry-run\`, show the output, and after an explicit yes run it without --dry-run; then tell them to restart Claude Code. ` +
+    'In your next reply, after handling what the user asked, ask them once whether to switch it to the update-proof launcher, with the AskUserQuestion tool so they can click (switch now, not now; one short line instead if that tool is unavailable). ' +
+    `If yes, run \`node "${script}" --dry-run\`, show the output, and after an explicit yes (ask with AskUserQuestion again) run it without --dry-run; then tell them to restart Claude Code. ` +
     'If they say no or ignore it, drop it: this question will not come back.';
 }
 

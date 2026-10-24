@@ -1,9 +1,11 @@
 ---
 description: Register the Token Stamina status line (wrapping your existing one) and suggest subagent model defaults
-allowed-tools: Read, Edit, Bash(node:*)
+allowed-tools: Read, Edit, Bash(node:*), AskUserQuestion
 ---
 
 Set up Token Stamina. Plugins cannot register a main status line themselves, so this is done in user settings, and only after the user agrees.
+
+Ask every question that has fixed answers (yes or no, or a pick from a list) with the AskUserQuestion tool, so the user can click instead of typing. Put the recommended option first and mark it "(Recommended)". The tool takes 2 to 4 options and always adds a free-text "Other"; when there are more choices, leave the least likely ones to "Other" and name them in the question. If the tool is unavailable, ask in one short line.
 
 0. Language first. Ask which language Token Stamina should use for its status line and hints: Auto (follow the language you write in; recommended), English, 한국어 (Korean), 日本語 (Japanese) or 中文 (Chinese; screen lines stay English, hints for Claude follow Chinese). Ask in the language the user is writing in and make that language the recommended choice. After the pick, run `node "${CLAUDE_PLUGIN_ROOT}/scripts/setup-lang.js" --lang <auto|en|ko|ja|zh>` (it only sets `lang` in `~/.claude/token-stamina/config.json`, keeping other keys) and continue the rest of setup in that language. If the user skips, leave it unset (same as auto).
 1. Read `~/.claude/settings.json` and report the current `statusLine` (if any) and `env.CLAUDE_CODE_SUBAGENT_MODEL`.
