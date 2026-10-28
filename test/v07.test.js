@@ -1,4 +1,5 @@
 'use strict';
+require('./helpers/temp-home'); // isolated data folder before anything reads it
 // Language follow-along: detection, resolve order, hook output snapshots, fixed-lang regression.
 const test = require('node:test');
 const assert = require('node:assert');

@@ -1,4 +1,5 @@
 'use strict';
+require('./helpers/temp-home'); // isolated data folder before anything reads it
 // Estimated savings hint: the port must match the recorded prototype outputs exactly (constants, skip rules).
 const test = require('node:test');
 const assert = require('node:assert');
@@ -35,6 +36,14 @@ test('no-card scenarios give an empty hint line (no numbers)', () => {
   assert.strictEqual(cs.hintLine(200000, 'ko', 'compact', { savingsTurns: 3 }, REF), ''); // too few turns
 });
 
+test('no card unless the full-price-equivalent saving at the low end at least covers the clearing cost', () => {
+  // 10/23 case: ~94-376만 tokens re-read but only ~4-33만 full-price equivalent, low end below the 5만 rewrite
+  assert.strictEqual(cs.card(66984, 10).range, null);
+  assert.ok(cs.card(66984, 10).text.includes('비우는 비용'));
+  const r = cs.card(150000, 10);
+  assert.ok(r.range && r.range[2] >= cs.CACHE_REWRITE * 1.25, r.text);
+});
+
 test('unknown profile gives no numbers, never the reference values', () => {
   assert.strictEqual(cs.hintLine(200000, 'ko', 'compact', {}), '');
   assert.strictEqual(cs.hintLine(200000, 'ko', 'compact', {}, { fixed: 90000, threshold: null }), '');
@@ -43,7 +52,9 @@ test('unknown profile gives no numbers, never the reference values', () => {
 
 test('hint line carries (예상) and tokens, never money or limit percent', () => {
   const ko = cs.hintLine(200000, 'ko', 'compact', {}, REF);
-  assert.ok(ko.startsWith('(예상) 지금 압축하면') && ko.includes('토큰 덜 읽음'), ko);
+  assert.ok(ko.startsWith('(예상) 지금 압축하면') && ko.includes('정가 환산') && ko.includes('덜 읽는 양'), ko);
+  // full-price equivalent comes first, raw re-read tokens only in parentheses
+  assert.ok(ko.indexOf('정가 환산') < ko.indexOf('덜 읽는 양'), ko);
   assert.ok(!/\$|원|%/.test(ko.replace('1/10', '')), ko);
   const en = cs.hintLine(200000, 'en', 'clear', {}, REF);
   assert.ok(en.startsWith('(estimate)') && !/\$|%/.test(en.replace('1/10', '')), en);

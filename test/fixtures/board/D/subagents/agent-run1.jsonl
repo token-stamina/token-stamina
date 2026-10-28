@@ -1,0 +1,2 @@
+{"type":"assistant","timestamp":"2026-10-28T00:01:40.000Z","message":{"id":"r1","model":"claude-sonnet-4-6","role":"assistant","usage":{"input_tokens":10,"cache_creation_input_tokens":90,"cache_read_input_tokens":900,"output_tokens":100}}}
+{"type":"assistant","timestamp":"2026-10-28T00:02:40.000Z","message":{"id":"r2","model":"claude-sonnet-4-6","role":"assistant","usage":{"input_tokens":10,"cache_creation_input_tokens":90,"cache_read_input_tokens":900,"output_tokens":100}}}

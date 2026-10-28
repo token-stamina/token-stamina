@@ -56,15 +56,19 @@ function card(messages, turns, opts) {
   const a = simulate(messages, residual, growth, turns, 2, idle, fixed, threshold);
   const b = simulate(messages, residual, growth, turns, 8, idle, fixed, threshold);
   const lo = Math.min(a.tokens, b.tokens), hi = Math.max(a.tokens, b.tokens);
-  if (Math.min(a.cost, b.cost) <= 0 || lo < 10000) return { text: '카드 없음(절감이 0 아래로 걸치거나 캐시 재작성 비용이 더 큼)', range: null };
+  const cLo = Math.min(a.cost, b.cost), cHi = Math.max(a.cost, b.cost);
+  if (cLo <= 0 || lo < 10000) return { text: '카드 없음(절감이 0 아래로 걸치거나 캐시 재작성 비용이 더 큼)', range: null };
+  // Raw re-read tokens overstated the effect ~10x and the card showed too often: show it only when even the
+  // low end saves, at full-price equivalent, at least what clearing itself costs (the cache rewrite).
+  if (cLo < CACHE_REWRITE * WRITE) return { text: '카드 없음(정가 환산 절감이 비우는 비용보다 크게 앞서지 않음)', range: null };
   const c = a.compactions;
   const note = c ? `, 그 사이 자동 압축 ${c}회 포함` : '';
   const when = idle ? '쉬었다 재개라 지금이 유리' : '대부분 캐시 읽기(단가 약 1/10)';
   const verb = mode === 'compact' ? '압축하면' : '비우면';
-  const l = roundHalfEven(lo / 1e4), h = roundHalfEven(hi / 1e4);
-  const span = l === h ? `${l}만` : `${l}~${h}만`;
-  const text = `(예상) 지금 ${verb} 이후 ${turns}턴 동안 약 ${span} 토큰 덜 읽음 — ${when}${note}`;
-  return { text, range: [lo, hi, Math.min(a.cost, b.cost)], span, verb, when, note, turns };
+  const fmt = (x, y) => { const p = roundHalfEven(x / 1e4), q = roundHalfEven(y / 1e4); return p === q ? `${p}만` : `${p}~${q}만`; };
+  const span = fmt(lo, hi), cspan = fmt(cLo, cHi);
+  const text = `(예상) 지금 ${verb} 이후 ${turns}턴 동안 정가 환산 약 ${cspan} 토큰 절약 (덜 읽는 양 ${span} — ${when}${note})`;
+  return { text, range: [lo, hi, cLo, cHi], span, cspan, verb, when, note, turns };
 }
 
 // Hint sentence for the plugin's compact/clear hints, or '' when there is no card. ctxTokens = total context
@@ -191,9 +195,11 @@ function hintLine(ctxTokens, lang, mode, cfg, prof) {
   if (lang === 'ko') return r.text;
   const kv = mode === 'compact' ? 'compacting' : 'clearing';
   const m = (x) => (roundHalfEven(x / 1e5) / 10).toFixed(1) + 'M';
-  const span = r.range[0] / 1e4 >= 0 && r.span.includes('~') ? `${m(r.range[0])}–${m(r.range[1])}` : m(r.range[0]);
+  const k = (x) => roundHalfEven(x / 1e3) + 'k';
+  const span = r.span.includes('~') ? `${m(r.range[0])}–${m(r.range[1])}` : m(r.range[0]);
+  const cspan = r.cspan.includes('~') ? `${k(r.range[2])}–${k(r.range[3])}` : k(r.range[2]);
   const when = r.when.startsWith('쉬') ? 'resuming after idle' : 'mostly cache reads, ~1/10 price';
-  return `(estimate) ${kv} now saves about ${span} tokens of re-reading over the next ${turns} turns — ${when}${r.note ? ', incl. ' + r.note.replace(/\D/g, '') + ' auto-compact(s) in between' : ''}`;
+  return `(estimate) ${kv} now saves about ${cspan} full-price-equivalent tokens over the next ${turns} turns (${span} tokens less re-read — ${when}${r.note ? ', incl. ' + r.note.replace(/\D/g, '') + ' auto-compact(s) in between' : ''})`;
 }
 
 module.exports = { FIXED, THRESHOLD, SUMMARY, CACHE_REWRITE, MIN_MESSAGES, MIN_MESSAGES_IDLE, MIN_TURNS, DEFAULT_TURNS, simulate, card, hintLine, roundHalfEven,

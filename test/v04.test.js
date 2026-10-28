@@ -1,4 +1,5 @@
 'use strict';
+require('./helpers/temp-home'); // isolated data folder before anything reads it
 // Savings estimate: synthetic events + transcripts in temp folders only.
 const test = require('node:test');
 const assert = require('node:assert');

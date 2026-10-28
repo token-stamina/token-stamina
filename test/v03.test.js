@@ -1,4 +1,5 @@
 'use strict';
+require('./helpers/temp-home'); // isolated data folder before anything reads it
 // v0.3 features: handoff (Stop + SessionStart restore), topic gate, updated boundary wording.
 const test = require('node:test');
 const assert = require('node:assert');

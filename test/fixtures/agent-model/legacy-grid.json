@@ -1,0 +1,736 @@
+{
+ "note": "Snapshot of decide() at commit 483d3a0 (before fleet rows). Regenerate only if pre-fleet behaviour is meant to change.",
+ "now": 1800000000,
+ "cfg": {
+  "yellowMargin": 10,
+  "redAt": 90,
+  "floors": {
+   "5h": {
+    "yellow": 25,
+    "red": 50
+   },
+   "7d": {
+    "yellow": 0,
+    "red": 0
+   }
+  },
+  "stateMaxAgeSec": 21600,
+  "judgmentKeywords": [
+   "design",
+   "architecture",
+   "review",
+   "audit",
+   "strategy",
+   "security",
+   "decide",
+   "plan",
+   "설계",
+   "리뷰",
+   "검수",
+   "전략",
+   "감사",
+   "판단",
+   "결정"
+  ],
+  "simpleKeywords": [
+   "list",
+   "find",
+   "grep",
+   "glob",
+   "count",
+   "aggregate",
+   "format",
+   "rename",
+   "summarize logs",
+   "collect",
+   "목록",
+   "찾기",
+   "집계",
+   "포맷",
+   "수집",
+   "정리"
+  ]
+ },
+ "states": {
+  "red": {
+   "seven_day": {
+    "pct": 94,
+    "resets_at": 1800302400
+   },
+   "recorded_at": 1800000000
+  },
+  "yellow": {
+   "seven_day": {
+    "pct": 55,
+    "resets_at": 1800302400
+   },
+   "recorded_at": 1800000000
+  },
+  "green": {
+   "seven_day": {
+    "pct": 40,
+    "resets_at": 1800302400
+   },
+   "recorded_at": 1800000000
+  },
+  "stale": {
+   "seven_day": {
+    "pct": 94,
+    "resets_at": 1800302400
+   },
+   "recorded_at": 1799974800
+  },
+  "null": null
+ },
+ "inputs": {
+  "collect": "collect logs",
+  "design": "design review",
+  "thing": "do the thing"
+ },
+ "cases": [
+  {
+   "state": "red",
+   "input": "collect",
+   "mode": "inject",
+   "lang": "en",
+   "expect": {
+    "action": "inject",
+    "reason": "red_downgrade",
+    "model": "haiku",
+    "grade": "red",
+    "worst": "7d",
+    "message": "Token Stamina: usage is over pace (7d red), so model=\"haiku\" was set for this subagent. Pass an explicit model to override."
+   }
+  },
+  {
+   "state": "red",
+   "input": "collect",
+   "mode": "inject",
+   "lang": "ko",
+   "expect": {
+    "action": "inject",
+    "reason": "red_downgrade",
+    "model": "haiku",
+    "grade": "red",
+    "worst": "7d",
+    "message": "Token Stamina: 사용 속도가 빨라서(7d 빨강) 이 하위 에이전트에 model=\"haiku\" 을 지정했어요. 바꾸려면 model 을 명시해서 호출하세요."
+   }
+  },
+  {
+   "state": "red",
+   "input": "collect",
+   "mode": "suggest",
+   "lang": "en",
+   "expect": {
+    "action": "suggest",
+    "reason": "suggest_mode",
+    "model": "haiku",
+    "grade": "red",
+    "worst": "7d",
+    "message": "Token Stamina: usage is over pace (7d red). Consider model=\"haiku\" for this subagent."
+   }
+  },
+  {
+   "state": "red",
+   "input": "collect",
+   "mode": "suggest",
+   "lang": "ko",
+   "expect": {
+    "action": "suggest",
+    "reason": "suggest_mode",
+    "model": "haiku",
+    "grade": "red",
+    "worst": "7d",
+    "message": "Token Stamina: 사용 속도가 빨라요(7d 빨강). 이 하위 에이전트는 model=\"haiku\" 을 고려하세요."
+   }
+  },
+  {
+   "state": "red",
+   "input": "design",
+   "mode": "inject",
+   "lang": "en",
+   "expect": {
+    "action": "suggest",
+    "reason": "judgment:design",
+    "grade": "red",
+    "worst": "7d",
+    "message": "Token Stamina: usage is over pace (7d red). This looks like a judgment task so no model was forced; consider model=\"sonnet\" if it does not need the strongest model."
+   }
+  },
+  {
+   "state": "red",
+   "input": "design",
+   "mode": "inject",
+   "lang": "ko",
+   "expect": {
+    "action": "suggest",
+    "reason": "judgment:design",
+    "grade": "red",
+    "worst": "7d",
+    "message": "Token Stamina: 사용 속도가 빨라요(7d 빨강). 판단이 필요한 작업으로 보여 모델을 강제하지 않았어요. 가장 강한 모델이 필요 없다면 model=\"sonnet\" 을 고려하세요."
+   }
+  },
+  {
+   "state": "red",
+   "input": "design",
+   "mode": "suggest",
+   "lang": "en",
+   "expect": {
+    "action": "suggest",
+    "reason": "judgment:design",
+    "grade": "red",
+    "worst": "7d",
+    "message": "Token Stamina: usage is over pace (7d red). This looks like a judgment task so no model was forced; consider model=\"sonnet\" if it does not need the strongest model."
+   }
+  },
+  {
+   "state": "red",
+   "input": "design",
+   "mode": "suggest",
+   "lang": "ko",
+   "expect": {
+    "action": "suggest",
+    "reason": "judgment:design",
+    "grade": "red",
+    "worst": "7d",
+    "message": "Token Stamina: 사용 속도가 빨라요(7d 빨강). 판단이 필요한 작업으로 보여 모델을 강제하지 않았어요. 가장 강한 모델이 필요 없다면 model=\"sonnet\" 을 고려하세요."
+   }
+  },
+  {
+   "state": "red",
+   "input": "thing",
+   "mode": "inject",
+   "lang": "en",
+   "expect": {
+    "action": "inject",
+    "reason": "red_downgrade",
+    "model": "sonnet",
+    "grade": "red",
+    "worst": "7d",
+    "message": "Token Stamina: usage is over pace (7d red), so model=\"sonnet\" was set for this subagent. Pass an explicit model to override."
+   }
+  },
+  {
+   "state": "red",
+   "input": "thing",
+   "mode": "inject",
+   "lang": "ko",
+   "expect": {
+    "action": "inject",
+    "reason": "red_downgrade",
+    "model": "sonnet",
+    "grade": "red",
+    "worst": "7d",
+    "message": "Token Stamina: 사용 속도가 빨라서(7d 빨강) 이 하위 에이전트에 model=\"sonnet\" 을 지정했어요. 바꾸려면 model 을 명시해서 호출하세요."
+   }
+  },
+  {
+   "state": "red",
+   "input": "thing",
+   "mode": "suggest",
+   "lang": "en",
+   "expect": {
+    "action": "suggest",
+    "reason": "suggest_mode",
+    "model": "sonnet",
+    "grade": "red",
+    "worst": "7d",
+    "message": "Token Stamina: usage is over pace (7d red). Consider model=\"sonnet\" for this subagent."
+   }
+  },
+  {
+   "state": "red",
+   "input": "thing",
+   "mode": "suggest",
+   "lang": "ko",
+   "expect": {
+    "action": "suggest",
+    "reason": "suggest_mode",
+    "model": "sonnet",
+    "grade": "red",
+    "worst": "7d",
+    "message": "Token Stamina: 사용 속도가 빨라요(7d 빨강). 이 하위 에이전트는 model=\"sonnet\" 을 고려하세요."
+   }
+  },
+  {
+   "state": "yellow",
+   "input": "collect",
+   "mode": "inject",
+   "lang": "en",
+   "expect": {
+    "action": "pass",
+    "reason": "grade_yellow"
+   }
+  },
+  {
+   "state": "yellow",
+   "input": "collect",
+   "mode": "inject",
+   "lang": "ko",
+   "expect": {
+    "action": "pass",
+    "reason": "grade_yellow"
+   }
+  },
+  {
+   "state": "yellow",
+   "input": "collect",
+   "mode": "suggest",
+   "lang": "en",
+   "expect": {
+    "action": "pass",
+    "reason": "grade_yellow"
+   }
+  },
+  {
+   "state": "yellow",
+   "input": "collect",
+   "mode": "suggest",
+   "lang": "ko",
+   "expect": {
+    "action": "pass",
+    "reason": "grade_yellow"
+   }
+  },
+  {
+   "state": "yellow",
+   "input": "design",
+   "mode": "inject",
+   "lang": "en",
+   "expect": {
+    "action": "pass",
+    "reason": "grade_yellow"
+   }
+  },
+  {
+   "state": "yellow",
+   "input": "design",
+   "mode": "inject",
+   "lang": "ko",
+   "expect": {
+    "action": "pass",
+    "reason": "grade_yellow"
+   }
+  },
+  {
+   "state": "yellow",
+   "input": "design",
+   "mode": "suggest",
+   "lang": "en",
+   "expect": {
+    "action": "pass",
+    "reason": "grade_yellow"
+   }
+  },
+  {
+   "state": "yellow",
+   "input": "design",
+   "mode": "suggest",
+   "lang": "ko",
+   "expect": {
+    "action": "pass",
+    "reason": "grade_yellow"
+   }
+  },
+  {
+   "state": "yellow",
+   "input": "thing",
+   "mode": "inject",
+   "lang": "en",
+   "expect": {
+    "action": "pass",
+    "reason": "grade_yellow"
+   }
+  },
+  {
+   "state": "yellow",
+   "input": "thing",
+   "mode": "inject",
+   "lang": "ko",
+   "expect": {
+    "action": "pass",
+    "reason": "grade_yellow"
+   }
+  },
+  {
+   "state": "yellow",
+   "input": "thing",
+   "mode": "suggest",
+   "lang": "en",
+   "expect": {
+    "action": "pass",
+    "reason": "grade_yellow"
+   }
+  },
+  {
+   "state": "yellow",
+   "input": "thing",
+   "mode": "suggest",
+   "lang": "ko",
+   "expect": {
+    "action": "pass",
+    "reason": "grade_yellow"
+   }
+  },
+  {
+   "state": "green",
+   "input": "collect",
+   "mode": "inject",
+   "lang": "en",
+   "expect": {
+    "action": "pass",
+    "reason": "grade_green"
+   }
+  },
+  {
+   "state": "green",
+   "input": "collect",
+   "mode": "inject",
+   "lang": "ko",
+   "expect": {
+    "action": "pass",
+    "reason": "grade_green"
+   }
+  },
+  {
+   "state": "green",
+   "input": "collect",
+   "mode": "suggest",
+   "lang": "en",
+   "expect": {
+    "action": "pass",
+    "reason": "grade_green"
+   }
+  },
+  {
+   "state": "green",
+   "input": "collect",
+   "mode": "suggest",
+   "lang": "ko",
+   "expect": {
+    "action": "pass",
+    "reason": "grade_green"
+   }
+  },
+  {
+   "state": "green",
+   "input": "design",
+   "mode": "inject",
+   "lang": "en",
+   "expect": {
+    "action": "pass",
+    "reason": "grade_green"
+   }
+  },
+  {
+   "state": "green",
+   "input": "design",
+   "mode": "inject",
+   "lang": "ko",
+   "expect": {
+    "action": "pass",
+    "reason": "grade_green"
+   }
+  },
+  {
+   "state": "green",
+   "input": "design",
+   "mode": "suggest",
+   "lang": "en",
+   "expect": {
+    "action": "pass",
+    "reason": "grade_green"
+   }
+  },
+  {
+   "state": "green",
+   "input": "design",
+   "mode": "suggest",
+   "lang": "ko",
+   "expect": {
+    "action": "pass",
+    "reason": "grade_green"
+   }
+  },
+  {
+   "state": "green",
+   "input": "thing",
+   "mode": "inject",
+   "lang": "en",
+   "expect": {
+    "action": "pass",
+    "reason": "grade_green"
+   }
+  },
+  {
+   "state": "green",
+   "input": "thing",
+   "mode": "inject",
+   "lang": "ko",
+   "expect": {
+    "action": "pass",
+    "reason": "grade_green"
+   }
+  },
+  {
+   "state": "green",
+   "input": "thing",
+   "mode": "suggest",
+   "lang": "en",
+   "expect": {
+    "action": "pass",
+    "reason": "grade_green"
+   }
+  },
+  {
+   "state": "green",
+   "input": "thing",
+   "mode": "suggest",
+   "lang": "ko",
+   "expect": {
+    "action": "pass",
+    "reason": "grade_green"
+   }
+  },
+  {
+   "state": "stale",
+   "input": "collect",
+   "mode": "inject",
+   "lang": "en",
+   "expect": {
+    "action": "pass",
+    "reason": "stale_state"
+   }
+  },
+  {
+   "state": "stale",
+   "input": "collect",
+   "mode": "inject",
+   "lang": "ko",
+   "expect": {
+    "action": "pass",
+    "reason": "stale_state"
+   }
+  },
+  {
+   "state": "stale",
+   "input": "collect",
+   "mode": "suggest",
+   "lang": "en",
+   "expect": {
+    "action": "pass",
+    "reason": "stale_state"
+   }
+  },
+  {
+   "state": "stale",
+   "input": "collect",
+   "mode": "suggest",
+   "lang": "ko",
+   "expect": {
+    "action": "pass",
+    "reason": "stale_state"
+   }
+  },
+  {
+   "state": "stale",
+   "input": "design",
+   "mode": "inject",
+   "lang": "en",
+   "expect": {
+    "action": "pass",
+    "reason": "stale_state"
+   }
+  },
+  {
+   "state": "stale",
+   "input": "design",
+   "mode": "inject",
+   "lang": "ko",
+   "expect": {
+    "action": "pass",
+    "reason": "stale_state"
+   }
+  },
+  {
+   "state": "stale",
+   "input": "design",
+   "mode": "suggest",
+   "lang": "en",
+   "expect": {
+    "action": "pass",
+    "reason": "stale_state"
+   }
+  },
+  {
+   "state": "stale",
+   "input": "design",
+   "mode": "suggest",
+   "lang": "ko",
+   "expect": {
+    "action": "pass",
+    "reason": "stale_state"
+   }
+  },
+  {
+   "state": "stale",
+   "input": "thing",
+   "mode": "inject",
+   "lang": "en",
+   "expect": {
+    "action": "pass",
+    "reason": "stale_state"
+   }
+  },
+  {
+   "state": "stale",
+   "input": "thing",
+   "mode": "inject",
+   "lang": "ko",
+   "expect": {
+    "action": "pass",
+    "reason": "stale_state"
+   }
+  },
+  {
+   "state": "stale",
+   "input": "thing",
+   "mode": "suggest",
+   "lang": "en",
+   "expect": {
+    "action": "pass",
+    "reason": "stale_state"
+   }
+  },
+  {
+   "state": "stale",
+   "input": "thing",
+   "mode": "suggest",
+   "lang": "ko",
+   "expect": {
+    "action": "pass",
+    "reason": "stale_state"
+   }
+  },
+  {
+   "state": "null",
+   "input": "collect",
+   "mode": "inject",
+   "lang": "en",
+   "expect": {
+    "action": "pass",
+    "reason": "no_state"
+   }
+  },
+  {
+   "state": "null",
+   "input": "collect",
+   "mode": "inject",
+   "lang": "ko",
+   "expect": {
+    "action": "pass",
+    "reason": "no_state"
+   }
+  },
+  {
+   "state": "null",
+   "input": "collect",
+   "mode": "suggest",
+   "lang": "en",
+   "expect": {
+    "action": "pass",
+    "reason": "no_state"
+   }
+  },
+  {
+   "state": "null",
+   "input": "collect",
+   "mode": "suggest",
+   "lang": "ko",
+   "expect": {
+    "action": "pass",
+    "reason": "no_state"
+   }
+  },
+  {
+   "state": "null",
+   "input": "design",
+   "mode": "inject",
+   "lang": "en",
+   "expect": {
+    "action": "pass",
+    "reason": "no_state"
+   }
+  },
+  {
+   "state": "null",
+   "input": "design",
+   "mode": "inject",
+   "lang": "ko",
+   "expect": {
+    "action": "pass",
+    "reason": "no_state"
+   }
+  },
+  {
+   "state": "null",
+   "input": "design",
+   "mode": "suggest",
+   "lang": "en",
+   "expect": {
+    "action": "pass",
+    "reason": "no_state"
+   }
+  },
+  {
+   "state": "null",
+   "input": "design",
+   "mode": "suggest",
+   "lang": "ko",
+   "expect": {
+    "action": "pass",
+    "reason": "no_state"
+   }
+  },
+  {
+   "state": "null",
+   "input": "thing",
+   "mode": "inject",
+   "lang": "en",
+   "expect": {
+    "action": "pass",
+    "reason": "no_state"
+   }
+  },
+  {
+   "state": "null",
+   "input": "thing",
+   "mode": "inject",
+   "lang": "ko",
+   "expect": {
+    "action": "pass",
+    "reason": "no_state"
+   }
+  },
+  {
+   "state": "null",
+   "input": "thing",
+   "mode": "suggest",
+   "lang": "en",
+   "expect": {
+    "action": "pass",
+    "reason": "no_state"
+   }
+  },
+  {
+   "state": "null",
+   "input": "thing",
+   "mode": "suggest",
+   "lang": "ko",
+   "expect": {
+    "action": "pass",
+    "reason": "no_state"
+   }
+  }
+ ]
+}

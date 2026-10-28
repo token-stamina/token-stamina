@@ -8,8 +8,22 @@ const WEEK = 7 * 86400;
 const FIVE = 5 * 3600;
 const RANK = { green: 0, yellow: 1, red: 2 };
 
+// Data folder. TOKEN_STAMINA_HOME wins; the old name TOKEN_PACER_HOME is still honoured. By default the data lives in
+// ~/.claude/token-stamina; when only the old ~/.claude/token-pacer exists it is copied there once (the old folder is
+// left alone, so a not-yet-updated install keeps working).
+let migrationChecked = false;
 function home() {
-  return process.env.TOKEN_STAMINA_HOME || path.join(os.homedir(), '.claude', 'token-stamina');
+  if (process.env.TOKEN_STAMINA_HOME) return process.env.TOKEN_STAMINA_HOME;
+  if (process.env.TOKEN_PACER_HOME) return process.env.TOKEN_PACER_HOME;
+  const dir = path.join(os.homedir(), '.claude', 'token-stamina');
+  if (!migrationChecked) {
+    migrationChecked = true;
+    try {
+      const old = path.join(os.homedir(), '.claude', 'token-pacer');
+      if (!fs.existsSync(dir) && fs.existsSync(old)) fs.cpSync(old, dir, { recursive: true });
+    } catch (e) { /* best effort: start fresh */ }
+  }
+  return dir;
 }
 
 function num(x) {
@@ -51,20 +65,35 @@ function exhaustAt(w, windowSec, now) {
 }
 
 // Overall assessment. The worse window wins; a calm 5h never upgrades a bad 7d.
+// Freshness is per window: a window's own recorded_at (else the state's) older than stateMaxAgeSec is stale. When at
+// least one usable window is fresh, stale windows are left out entirely (d7/h5 null, listed in staleWindows), so an
+// old value can never set the grade next to a fresh one. When every usable window is stale, stale is true as before.
+// A time more than 120 s in the future (the clock went backwards since it was written) is unknown, so it counts as old.
 function assess(state, now, cfg) {
   if (!state) return { grade: null };
   const maxAge = (cfg && cfg.stateMaxAgeSec) || 21600;
-  const stale = num(state.recorded_at) !== null && now - state.recorded_at > maxAge;
-  const d7 = windowStats(state.seven_day, WEEK, now, cfg);
-  const h5 = windowStats(state.five_hour, FIVE, now, cfg);
-  if (!d7 && !h5) return { grade: null, stale };
+  const top = num(state.recorded_at);
+  const isOld = (t) => t !== null && (now - t > maxAge || t - now > 120);
+  const ageOf = (w) => (w && num(w.recorded_at) !== null ? w.recorded_at : top);
+  let d7 = windowStats(state.seven_day, WEEK, now, cfg);
+  let h5 = windowStats(state.five_hour, FIVE, now, cfg);
+  if (!d7 && !h5) return { grade: null, stale: isOld(top) };
+  const old7 = !!d7 && isOld(ageOf(state.seven_day));
+  const old5 = !!h5 && isOld(ageOf(state.five_hour));
+  const staleWindows = [];
+  let stale = false;
+  if ((!d7 || old7) && (!h5 || old5)) stale = true;
+  else {
+    if (old7) { d7 = null; staleWindows.push('7d'); }
+    if (old5) { h5 = null; staleWindows.push('5h'); }
+  }
   let grade = 'green', worst = null;
   for (const [name, s] of [['7d', d7], ['5h', h5]]) {
     if (s && RANK[s.grade] > RANK[grade]) { grade = s.grade; worst = name; }
   }
   if (!worst) worst = d7 ? '7d' : '5h';
   return {
-    grade, worst, stale, d7, h5,
+    grade, worst, stale, d7, h5, staleWindows,
     quota: d7 ? dailyQuota(d7.used, d7.remainingSec) : null,
     exhaust5h: h5 ? exhaustAt(state.five_hour, FIVE, now) : null,
   };

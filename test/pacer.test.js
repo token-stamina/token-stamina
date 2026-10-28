@@ -1,4 +1,5 @@
 'use strict';
+require('./helpers/temp-home'); // isolated data folder before anything reads it
 const test = require('node:test');
 const assert = require('node:assert');
 const fs = require('fs');
@@ -80,7 +81,7 @@ const call = (ti, extra) => Object.assign({ tool_name: 'Agent', tool_input: ti, 
 const noDef = { definitionHasModel: () => false };
 
 test('agent-model: passes when model given / fork / definition model', () => {
-  assert.equal(agent.decide(call({ prompt: 'x', model: 'opus' }), red, cfg, NOW, noDef).reason, 'has_model');
+  assert.equal(agent.decide(call({ prompt: 'x', model: 'sonnet' }), red, cfg, NOW, noDef).reason, 'has_model');
   assert.equal(agent.decide(call({ prompt: 'x', subagent_type: 'fork' }), red, cfg, NOW, noDef).reason, 'fork');
   assert.equal(agent.decide(call({ prompt: 'x', subagent_type: 'mine' }), red, cfg, NOW, { definitionHasModel: () => true }).reason, 'definition_model');
 });

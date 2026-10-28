@@ -96,7 +96,7 @@ function decide(input, settings, cfg, book, versions) {
   if (input.hook_event_name !== 'SessionStart' || (input.source && input.source !== 'startup')) return null;
   book = book || {};
   let kind = null;
-  if (cfg.setupPrompt !== false) {
+  if (cfg.setupPrompt !== false && cfg.setupNudge !== false) {
     if (!registered(settings)) { if (!book.asked) kind = 'setup'; }
     else if (stale(settings) && !book.migrateAsked) kind = 'migrate';
   }
@@ -125,6 +125,9 @@ function run(raw, now) {
   const cfg = langmod.withLang(pace.loadConfig(), input);
   const file = path.join(pace.home(), 'first-run.json');
   const book = pace.readJson(file, {}) || {};
+  // 0.4.5-era branch builds kept the one-time question in setup-nudge.json: already asked there counts as asked here.
+  const legacy = pace.readJson(path.join(pace.home(), 'setup-nudge.json'), null);
+  if (legacy && legacy.shown && !book.asked) book.asked = typeof legacy.ts === 'number' ? new Date(legacy.ts).toISOString() : 'legacy';
   const root = process.env.CLAUDE_PLUGIN_ROOT || path.join(__dirname, '..');
   const launcher = require('./setup-statusline');
   try { if (fs.existsSync(launcher.launcherPath())) launcher.writeLauncher(root); } catch (e) { /* keep the old one */ }

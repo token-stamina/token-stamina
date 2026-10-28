@@ -1,4 +1,5 @@
 'use strict';
+require('./helpers/temp-home'); // isolated data folder before anything reads it
 // v0.2 features: boundary hook, per-turn status line, ko agent-model messages, fixed-cost audit.
 const test = require('node:test');
 const assert = require('node:assert');

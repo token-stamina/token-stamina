@@ -108,7 +108,7 @@ function renderCapped(m, maxTokens) {
 }
 
 function parseMeta(md) {
-  const m = /<!-- token-stamina-handoff session=(\S*) lastPromptTs=(\S*) saved=(\S*) -->/.exec(md || '');
+  const m = /<!-- token-(?:stamina|pacer)-handoff session=(\S*) lastPromptTs=(\S*) saved=(\S*) -->/.exec(md || '');
   return m ? { session: m[1], lastPromptTs: m[2] ? Date.parse(m[2]) : null, saved: Date.parse(m[3]) } : null;
 }
 const stripMeta = (md) => md.replace(/<!--[\s\S]*?-->\s*/, '').trim();

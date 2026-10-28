@@ -1,0 +1,58 @@
+{
+ "_note": "hand-computed; T0 = 1793145600 (2026-10-28T00:00:00Z); turn i of A/B/D at T0+60i, user prompt 5 s earlier",
+ "A": {
+  "sample_turns": 25,
+  "in_last": 2000,
+  "in_med10": 2000,
+  "in_trend": 1000,
+  "spark_len": 20,
+  "spark_first": 1000,
+  "spark_last": 2000,
+  "hit": 0.9,
+  "hit_active": 0.9,
+  "miss_after_idle": 0,
+  "j": 0,
+  "fit": "lower_candidate",
+  "ctx_tokens": 2000,
+  "last_user_ts": 1793147095,
+  "last_ts": 1793147100
+ },
+ "B": {
+  "sample_turns": 8,
+  "in_med10": 1000,
+  "in_trend": null,
+  "spark_len": 8,
+  "fit": "fit"
+ },
+ "C": {
+  "sample_turns": 12,
+  "hit": 0.63,
+  "hit_active": 0.9,
+  "miss_after_idle": 3
+ },
+ "D": {
+  "agent_tokens_done": 3300,
+  "agent_tokens_live": 2200,
+  "agents_running": 1,
+  "main_tokens_sum": 3000,
+  "agent_share": 0.6470588235294118,
+  "agent_done_ids": [
+   "agA",
+   "agB"
+  ],
+  "notified_last_turn_totals": [
+   1000,
+   2500
+  ]
+ },
+ "E": {
+  "sample_turns": 0,
+  "in_last": null,
+  "hit": null,
+  "hit_active": null,
+  "fit": null,
+  "spark_len": 0,
+  "model": null
+ },
+ "_note_D": "E5: done = agents' own transcripts (agA 2x1100, agB 1x1100), same unit as main (3 turns x 1000) and live (run1 2x1100); notification totalTokens (1000, 2500) are last-turn values and are not summed"
+}

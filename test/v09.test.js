@@ -1,4 +1,5 @@
 'use strict';
+require('./helpers/temp-home'); // isolated data folder before anything reads it
 // First-run setup prompt: asked once at startup when the status line is not Token Stamina's, never again.
 const test = require('node:test');
 const assert = require('node:assert');
@@ -19,7 +20,7 @@ function hook(userHome, input, extraEnv) {
   noUpdateCheck(userHome);
   return execFileSync(process.execPath, [FR], { env, input: JSON.stringify(input), encoding: 'utf8' });
 }
-// Keep the hook off the network in tests: the update check is covered in v10.
+// Keep the hook off the network in tests: the update check is covered in v046.
 function noUpdateCheck(userHome) {
   const f = path.join(userHome, '.claude', 'token-stamina', 'config.json');
   let c = {};

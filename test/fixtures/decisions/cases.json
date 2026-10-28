@@ -1,0 +1,40 @@
+{
+  "T0": 1793145600,
+  "cfg": {
+    "lang": "ko", "applyMode": "approve", "proposalTtlSec": 7200, "heldTtlSec": 7200, "rejectCooldownSec": 86400, "applyMaxPerRun": 3,
+    "managerExcludeCwd": ["Trading", "otherbot_work"], "excludeCwd": ["mybot_work"],
+    "managerProtectKeywords": ["trade", "trading"],
+    "fleetWarnAt": 3, "fleetHardAt": 5, "fleetTotalWarnAt": 4, "fleetTotalHardAt": 7, "fleetModelFloor": "sonnet", "stateMaxAgeSec": 21600
+  },
+  "rows": [
+    { "sid": "owner-opus", "cwd_tail": "proj", "model": "claude-opus-4-7", "protected": false, "fit": "lower_candidate", "j": 0,
+      "in_med10": 40000, "ctx_tokens": 90000, "clear_candidate": false, "idle_sec": 2000, "last_user_ts": 1793143600,
+      "agent_share": 0.5, "agents_upper": 1, "agent_tokens_done": 100000, "agent_tokens_live": null, "updated_at": "2026-10-28T00:30:00.000Z" },
+    { "sid": "linked-opus", "cwd_tail": "work", "model": "claude-opus-4-7", "protected": false, "fit": "lower_candidate", "j": 0,
+      "in_med10": 20000, "ctx_tokens": 50000, "clear_candidate": false, "idle_sec": 2500, "last_user_ts": 1793143100,
+      "agent_share": null, "agents_upper": 0, "agent_tokens_done": null, "agent_tokens_live": null, "updated_at": "2026-10-28T00:30:00.000Z" },
+    { "sid": "trading-opus", "cwd_tail": "Trading", "model": "claude-opus-4-7", "protected": true, "fit": "lower_candidate", "j": 0,
+      "in_med10": 30000, "ctx_tokens": 60000, "clear_candidate": false, "idle_sec": 2100, "last_user_ts": 1793143500,
+      "agent_share": 0.9, "agents_upper": 2, "agent_tokens_done": 500000, "agent_tokens_live": null, "updated_at": "2026-10-28T00:30:00.000Z" },
+    { "sid": "ctx450k", "cwd_tail": "docs", "model": "claude-sonnet-4-6", "protected": false, "fit": "fit", "j": 0,
+      "in_med10": 450000, "ctx_tokens": 450000, "clear_candidate": true, "idle_sec": 4000, "last_user_ts": 1793141600,
+      "agent_share": null, "agents_upper": 0, "agent_tokens_done": null, "agent_tokens_live": null, "updated_at": "2026-10-28T00:30:00.000Z" },
+    { "sid": "sonnet", "cwd_tail": "misc", "model": "claude-sonnet-4-6", "protected": false, "fit": "fit", "j": 0,
+      "in_med10": 10000, "ctx_tokens": 20000, "clear_candidate": false, "idle_sec": 100, "last_user_ts": 1793145500,
+      "agent_share": null, "agents_upper": 0, "agent_tokens_done": null, "agent_tokens_live": null, "updated_at": "2026-10-28T01:00:00.000Z" }
+  ],
+  "live": [
+    { "sessionId": "owner-opus", "model": "claude-opus-4-7", "cwd": "C:\\Claude\\proj" },
+    { "sessionId": "linked-opus", "model": "claude-sonnet-4-6", "cwd": "C:\\Claude\\work" },
+    { "sessionId": "trading-opus", "model": "claude-opus-4-7", "cwd": "C:\\Trading" },
+    { "sessionId": "ctx450k", "model": "claude-sonnet-4-6", "cwd": "C:\\Claude\\docs" }
+  ],
+  "settings": {
+    "ok": { "values": { "fleetWarnAt": 4, "fleetHardAt": 6, "fleetModelFloor": "haiku", "agentModelDefault": "sonnet", "applyMode": "approve",
+      "autoScope": ["session_model"], "dashboardMaskTitles": true },
+      "requested_by": "owner", "requested_at": "2026-10-28T00:50:00.000Z" },
+    "bad": { "values": { "fleetWarnAt": 0, "fleetHardAt": 51, "applyMode": "auto", "sessionRules": { "otherbot_work": "normal" } },
+      "requested_by": "owner", "requested_at": "2026-10-28T00:50:00.000Z" },
+    "unknown": { "values": { "foo": 1, "excludeCwd": [] }, "requested_by": "owner", "requested_at": "2026-10-28T00:50:00.000Z" }
+  }
+}

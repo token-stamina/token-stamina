@@ -1,2 +1,5 @@
 node_modules/
 *.tmp
+graphify-out/
+.claude/
+CLAUDE.md

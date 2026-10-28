@@ -206,7 +206,8 @@ function compute(opts, cfg) {
       if (fs.existsSync(f)) subCalls = assistantCalls(readEntries(f));
     }
     const au = agentUsage(tur, subCalls, family(e.model));
-    const r = au && downgradeSaving(au.u, caller.fam, au.fam);
+    const cfFam = e.requested_model && family(e.requested_model) !== 'other' ? family(e.requested_model) : caller.fam; // explicit upper-tier request is the counterfactual
+    const r = au && downgradeSaving(au.u, cfFam, au.fam);
     if (!r) { A.unresolved++; continue; }
     bump(A, r.tokens, r.saving);
   }

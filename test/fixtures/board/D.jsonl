@@ -1,0 +1,8 @@
+{"type":"user","timestamp":"2026-10-28T00:00:55.000Z","message":{"role":"user","content":"hello number 1"}}
+{"type":"assistant","timestamp":"2026-10-28T00:01:00.000Z","message":{"id":"m1","model":"claude-opus-5-5","role":"assistant","usage":{"input_tokens":10,"cache_creation_input_tokens":90,"cache_read_input_tokens":900,"output_tokens":0}}}
+{"type":"user","timestamp":"2026-10-28T00:01:55.000Z","message":{"role":"user","content":"hello number 2"}}
+{"type":"assistant","timestamp":"2026-10-28T00:02:00.000Z","message":{"id":"m2","model":"claude-opus-5-5","role":"assistant","usage":{"input_tokens":10,"cache_creation_input_tokens":90,"cache_read_input_tokens":900,"output_tokens":0}}}
+{"type":"user","timestamp":"2026-10-28T00:02:55.000Z","message":{"role":"user","content":"hello number 3"}}
+{"type":"assistant","timestamp":"2026-10-28T00:03:00.000Z","message":{"id":"m3","model":"claude-opus-5-5","role":"assistant","usage":{"input_tokens":10,"cache_creation_input_tokens":90,"cache_read_input_tokens":900,"output_tokens":0}}}
+{"type":"attachment","timestamp":"2026-10-28T00:05:00.000Z","attachment":{"type":"queued_command","commandMode":"task-notification","prompt":"<task-notification>\n<task-id>agA</task-id>\n<status>completed</status>\n</task-notification>","usage":{"totalTokens":1000,"toolUses":3}}}
+{"type":"attachment","timestamp":"2026-10-28T00:05:10.000Z","attachment":{"type":"queued_command","commandMode":"task-notification","prompt":"<task-notification>\n<task-id>agB</task-id>\n<status>completed</status>\n</task-notification>","usage":{"totalTokens":2500,"toolUses":3}}}

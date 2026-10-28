@@ -6,6 +6,7 @@ const pace = require('./pace');
 const langmod = require('./lang');
 
 const { tokLabel } = require('./boundary');
+const fleet = require('./fleet');
 
 // Current context size: current_usage (input + cache read + cache creation), else total_input_tokens.
 function contextTokens(cw) {
@@ -28,12 +29,22 @@ function buildState(input, prev, now) {
     for (const k of ['seven_day', 'five_hour']) {
       const w = rl[k];
       if (w && typeof w.used_percentage === 'number' && typeof w.resets_at === 'number') {
-        next[k] = { pct: w.used_percentage, resets_at: w.resets_at };
+        next[k] = { pct: w.used_percentage, resets_at: w.resets_at, recorded_at: now };
         changed = true;
       }
     }
   }
-  if (changed) next.recorded_at = now;
+  if (changed) {
+    // A window this render did not carry keeps the time it was really measured (W7 R1: never refresh an old value).
+    // Its time is unknown when it has no stamp of its own (0.4.8 wrote only the top-level time, which a 5h-only render
+    // bumped) or the stamp is more than 120 s ahead (clock went backwards): such a window is dropped, not re-stamped.
+    for (const k of ['seven_day', 'five_hour']) {
+      if (!next[k] || next[k] !== (prev || {})[k]) continue;
+      const t = next[k].recorded_at;
+      if (typeof t !== 'number' || !isFinite(t) || t > now + 120) delete next[k];
+    }
+    next.recorded_at = now; next.source = 'statusline';
+  }
   return { state: next, changed };
 }
 
@@ -70,6 +81,12 @@ function segment(input, state, now, cfg) {
     else if (tok >= (cfg.turnCostYellowTokens || 100000)) c += ' 🟡';
   }
   if (c) parts.push(c);
+  try {
+    if (!(cfg.fleet === false || cfg.fleetShowAt === 0) && input && typeof input.transcript_path === 'string') {
+      const f = fleet.segment(fleet.scanCached(fleet.sessionDir(input.transcript_path), now, cfg), cfg);
+      if (f) parts.push(f);
+    }
+  } catch (e) { /* the fleet token must never break the status line */ }
   return parts.filter(Boolean).join(' · ');
 }
 

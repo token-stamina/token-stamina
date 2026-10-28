@@ -1,4 +1,5 @@
 'use strict';
+require('./helpers/temp-home'); // isolated data folder before anything reads it
 // Desktop app (CLAUDE_CODE_ENTRYPOINT=claude-desktop): hook text asks for a card only, never a chat paste line.
 const test = require('node:test');
 const assert = require('node:assert');

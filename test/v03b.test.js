@@ -1,4 +1,5 @@
 'use strict';
+require('./helpers/temp-home'); // isolated data folder before anything reads it
 // Auto-compact window choice: setup-compact.js and threshold scaling. Uses temp files only.
 const test = require('node:test');
 const assert = require('node:assert');

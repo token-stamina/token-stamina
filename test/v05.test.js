@@ -1,4 +1,5 @@
 'use strict';
+require('./helpers/temp-home'); // isolated data folder before anything reads it
 // Language pick in setup: writes only lang, keeps other keys, rejects unsupported values.
 const test = require('node:test');
 const assert = require('node:assert');

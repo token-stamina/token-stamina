@@ -36,6 +36,66 @@ function decide(input, state, cfg, now, last) {
   return { text: message(a, cfg.lang), grade: a.grade, worst: a.worst };
 }
 
+// --- Stage 0: ask Claude (desktop only) to sync the usage record via get_usage -> sync-usage.js ---
+// Neutral wording (W7 #8): the hint says what the call does; it never asks Claude to keep anything from the user.
+// HEAD.stale(age) when a record exists, HEAD.none when there is none yet (W7 #9: no "none h old").
+const SYNC_HEAD = {
+  ko: { stale: (age) => `Token Stamina: 한도 기록이 ${age}시간 전 것이에요.`, none: 'Token Stamina: 아직 한도 기록이 없어요.' },
+  en: { stale: (age) => `Token Stamina: the usage record is ${age}h old.`, none: 'Token Stamina: there is no usage record yet.' },
+  ja: { stale: (age) => `Token Stamina: 使用量の記録が${age}時間前のものです。`, none: 'Token Stamina: 使用量の記録はまだありません。' },
+};
+// The 5h window is fresh but the weekly (7d) one is missing or stale: the hint names the weekly record.
+const SYNC_HEAD_7D = {
+  ko: { stale: (age) => `Token Stamina: 주간(7d) 한도 기록이 ${age}시간 전 것이에요.`, none: 'Token Stamina: 주간(7d) 한도 기록이 없어요.' },
+  en: { stale: (age) => `Token Stamina: the weekly (7d) usage record is ${age}h old.`, none: 'Token Stamina: there is no weekly (7d) usage record.' },
+  ja: { stale: (age) => `Token Stamina: 週間(7d)の使用量の記録が${age}時間前のものです。`, none: 'Token Stamina: 週間(7d)の使用量の記録がありません。' },
+};
+// Age of the 7d window from its own recorded_at (never the top-level time, which a 5h-only write bumps). null when the
+// window or its stamp is missing, or the stamp is more than 120 s ahead (clock went backwards): unknown.
+function syncAgeSec(state, now) {
+  const w = state && state.seven_day;
+  const t = w && w.recorded_at;
+  if (!Number.isFinite(t) || t > now + 120) return null;
+  return Math.max(0, now - t);
+}
+const SYNC_BODY = {
+  ko: (root) => ` 이 세션에서 한 번, mcp__ccd_session_mgmt__get_usage 도구가 있으면 불러서 결과 JSON 을 그대로 \`node "${root}/scripts/sync-usage.js"\` 의 stdin 으로 넘기면 기록이 새로 고쳐져요. 도구가 없으면 건너뛰면 돼요.`,
+  en: (root) => ` Once in this session, if the tool mcp__ccd_session_mgmt__get_usage exists, calling it and piping its JSON result unchanged into \`node "${root}/scripts/sync-usage.js"\` (stdin) refreshes the record. If the tool does not exist, skip this.`,
+  ja: (root) => ` このセッションで一度、mcp__ccd_session_mgmt__get_usage ツールがあれば呼び出し、結果の JSON をそのまま \`node "${root}/scripts/sync-usage.js"\` の stdin に渡すと記録が更新されます。ツールがなければ省略してかまいません。`,
+};
+// Answers from the app that sync-usage.js remembers in last_reject (status:*, invalid:*, no_window): back off on all of them.
+const BACKOFF_RE = /^(status:|invalid:|no_window$)/;
+
+function isDesktop(env) {
+  const e = env || {};
+  return e.CLAUDE_CODE_ENTRYPOINT === 'claude-desktop' || !!e.CLAUDE_CODE_DESKTOP_APP_VERSION;
+}
+
+// Pure. a = pace.assess(state) plus optional a.ageSec (age of the 7d window, syncAgeSec); book = usage-sync.json.
+// Freshness is per window: a fresh 5h next to a missing or stale 7d (a.d7 null) still asks for a sync, because the
+// weekly window is the one the pacing grade depends on (reason 'no_7d' / 'stale_7d').
+function syncHint(input, a, cfg, now, book, env, root) {
+  if (cfg.usageSync === false) return { text: null, reason: 'disabled' };
+  if (!input || input.hook_event_name !== 'SessionStart') return { text: null, reason: 'event' };
+  if (!isDesktop(env)) return { text: null, reason: 'not_desktop' };
+  const noState = !a || a.grade === null || a.grade === undefined;
+  const miss7 = !noState && !a.stale && !a.d7;
+  if (!noState && !a.stale && !miss7) return { text: null, reason: 'fresh' };
+  const b = book || {};
+  const cool = Number.isFinite(cfg.usageSyncHintCooldownSec) ? cfg.usageSyncHintCooldownSec : 900;
+  if (Number.isFinite(b.hinted_at) && now - b.hinted_at < cool) return { text: null, reason: 'cooldown' };
+  const naSec = Number.isFinite(cfg.usageSyncNaBackoffSec) ? cfg.usageSyncNaBackoffSec : 86400;
+  const lr = b.last_reject;
+  if (lr && BACKOFF_RE.test(String(lr.reason)) && Number.isFinite(lr.ts) && now - lr.ts < naSec) return { text: null, reason: 'na_backoff' };
+  const lang = SYNC_HEAD[cfg.lang] ? cfg.lang : 'en';
+  const hasAge = !!a && Number.isFinite(a.ageSec);
+  const H = miss7 ? SYNC_HEAD_7D[lang] : SYNC_HEAD[lang];
+  const head = noState || !hasAge ? H.none : H.stale(String(Math.floor(a.ageSec / 3600)));
+  const r = root || process.env.CLAUDE_PLUGIN_ROOT || path.join(__dirname, '..');
+  const reason = noState ? 'no_state' : (miss7 ? ((a.staleWindows || []).includes('7d') ? 'stale_7d' : 'no_7d') : 'stale');
+  return { text: head + SYNC_BODY[lang](r), reason, age_sec: hasAge ? a.ageSec : null };
+}
+
 function run(raw) {
   const input = JSON.parse(raw);
   const event = input.hook_event_name;
@@ -45,19 +105,37 @@ function run(raw) {
   const book = pace.readJson(file, {});
   const sid = input.session_id || 'unknown';
   const last = book[sid] && book[sid].grade;
-  const d = decide(input, pace.readState(), cfg, Math.floor(Date.now() / 1000), last);
+  const state = pace.readState();
+  const nowSec = Math.floor(Date.now() / 1000);
+  const d = decide(input, state, cfg, nowSec, last);
   if (d.grade && d.grade !== last) {
     book[sid] = { grade: d.grade, ts: Date.now() };
     const keys = Object.keys(book);
     if (keys.length > 50) keys.sort((x, y) => book[x].ts - book[y].ts).slice(0, keys.length - 50).forEach((k) => delete book[k]);
     pace.writeJson(file, book);
   }
-  if (!d.text) return '';
-  pace.appendEvent({ event: 'nudge', session: sid, hook: event, grade: d.grade, worst: d.worst });
-  return JSON.stringify({ hookSpecificOutput: { hookEventName: event, additionalContext: pace.attributed(d.text, cfg.lang, cfg._langAuto) } });
+  const parts = [];
+  if (d.text) {
+    pace.appendEvent({ event: 'nudge', session: sid, hook: event, grade: d.grade, worst: d.worst });
+    parts.push(pace.attributed(d.text, cfg.lang, cfg._langAuto));
+  }
+  if (event === 'SessionStart') {
+    const a = pace.assess(state, nowSec, cfg);
+    a.ageSec = syncAgeSec(state, nowSec);
+    const syncFile = path.join(pace.home(), 'usage-sync.json');
+    const sb = pace.readJson(syncFile, {}) || {};
+    const h = syncHint(input, a, cfg, nowSec, sb, process.env);
+    if (h.text) {
+      pace.writeJson(syncFile, Object.assign({}, sb, { hinted_at: nowSec, hinted_session: sid }));
+      pace.appendEvent({ event: 'usage_sync_hint', session: sid, reason: h.reason, age_sec: h.age_sec });
+      parts.push(h.text);
+    }
+  }
+  if (!parts.length) return '';
+  return JSON.stringify({ hookSpecificOutput: { hookEventName: event, additionalContext: parts.join('\n') } });
 }
 
-module.exports = { decide, message, run };
+module.exports = { decide, message, run, isDesktop, syncHint, syncAgeSec };
 
 if (require.main === module) {
   let raw = '';
