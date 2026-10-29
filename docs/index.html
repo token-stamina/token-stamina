@@ -14,7 +14,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="site.css">
+<link rel="stylesheet" href="site.css?v=0.5.1-2">
 </head>
 <body>
 <div class="wrap">
@@ -33,8 +33,8 @@
   <h1>Make your weekly limit last until the reset.</h1>
   <p class="lede">A Claude Code plugin that compares your usage with the time left. When you run ahead, it moves subagents to cheaper models, suggests a compact at the right moment, and keeps a handoff note so you don't lose your place.</p>
   <div class="cta">
-    <a class="btn primary" href="#install"><svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 4v15"/><path d="m6 13 6 6 6-6"/></svg>Install</a>
-    <a class="btn" href="https://github.com/token-stamina/token-stamina"><svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M9 19c-4.3 1.4-4.3-2.5-6-3m12 5v-3.5c0-1 .1-1.4-.5-2 2.8-.3 5.5-1.4 5.5-6a4.6 4.6 0 0 0-1.3-3.2 4.2 4.2 0 0 0-.1-3.2s-1.1-.3-3.5 1.3a12.3 12.3 0 0 0-6.2 0C6.5 2.8 5.4 3.1 5.4 3.1a4.2 4.2 0 0 0-.1 3.2A4.6 4.6 0 0 0 4 9.5c0 4.6 2.7 5.7 5.5 6-.6.6-.6 1.2-.5 2V21"/></svg>GitHub</a>
+    <a class="btn primary" href="#install"><svg class="ic" width="18" height="18" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 4v15"/><path d="m6 13 6 6 6-6"/></svg>Install</a>
+    <a class="btn" href="https://github.com/token-stamina/token-stamina"><svg class="ic" width="18" height="18" viewBox="0 0 24 24" aria-hidden="true"><path d="M9 19c-4.3 1.4-4.3-2.5-6-3m12 5v-3.5c0-1 .1-1.4-.5-2 2.8-.3 5.5-1.4 5.5-6a4.6 4.6 0 0 0-1.3-3.2 4.2 4.2 0 0 0-.1-3.2s-1.1-.3-3.5 1.3a12.3 12.3 0 0 0-6.2 0C6.5 2.8 5.4 3.1 5.4 3.1a4.2 4.2 0 0 0-.1 3.2A4.6 4.6 0 0 0 4 9.5c0 4.6 2.7 5.7 5.5 6-.6.6-.6 1.2-.5 2V21"/></svg>GitHub</a>
   </div>
   <div class="cmd hero-cmd"><pre>claude plugin marketplace add token-stamina/token-stamina</pre><button type="button">copy</button></div>
 </div>
@@ -65,32 +65,32 @@
   <h2><span class="n">01</span>What it does</h2>
   <div class="feats">
     <article class="feat">
-      <div class="hd"><span class="ico"><svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><circle cx="9" cy="8" r="3.5"/><path d="M2.5 20c0-3.6 2.9-6 6.5-6s6.5 2.4 6.5 6"/><path d="M16 4.6a3.5 3.5 0 0 1 0 6.8"/><path d="M18 14.3c2.1.8 3.5 2.8 3.5 5.7"/></svg></span><h3>Subagent model</h3><span class="tag">auto</span></div>
+      <div class="hd"><span class="ico"><svg class="ic" width="18" height="18" viewBox="0 0 24 24" aria-hidden="true"><circle cx="9" cy="8" r="3.5"/><path d="M2.5 20c0-3.6 2.9-6 6.5-6s6.5 2.4 6.5 6"/><path d="M16 4.6a3.5 3.5 0 0 1 0 6.8"/><path d="M18 14.3c2.1.8 3.5 2.8 3.5 5.7"/></svg></span><h3>Subagent model</h3><span class="tag">auto</span></div>
       <p>When you run ahead of pace, subagents with no model set move to Haiku or Sonnet.</p>
       <details><summary>More</summary><p>While the grade is red, a subagent call with no model set goes to Haiku if the task looks simple and to Sonnet otherwise. When several subagents or sessions are running at once, yellow is enough. A call that names a model, is a fork, or looks like review or design work is never changed: at most Claude gets a suggestion. You can change this to suggestions only, or turn it off.</p></details>
     </article>
     <article class="feat">
-      <div class="hd"><span class="ico"><svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M6 3h9l4 4v14H6z"/><path d="M14 3v5h5"/><path d="M9 13h7"/><path d="M9 17h5"/></svg></span><h3>Handoff note</h3><span class="tag">auto</span></div>
+      <div class="hd"><span class="ico"><svg class="ic" width="18" height="18" viewBox="0 0 24 24" aria-hidden="true"><path d="M6 3h9l4 4v14H6z"/><path d="M14 3v5h5"/><path d="M9 13h7"/><path d="M9 17h5"/></svg></span><h3>Handoff note</h3><span class="tag">auto</span></div>
       <p>Saves where you were at the end of every turn and brings it back after a compact or clear.</p>
       <details><summary>More</summary><p>At the end of each turn it saves the last few requests, commits, edited files and to-dos, and adds them to the new conversation after you compact or clear. The note is put together from your transcript; no model writes it. You can compact early and not have to explain again where you were.</p></details>
     </article>
     <article class="feat">
-      <div class="hd"><span class="ico"><svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 14h6v6"/><path d="M20 10h-6V4"/><path d="m14 10 7-7"/><path d="m3 21 7-7"/></svg></span><h3>Compact suggestion</h3><span class="tag">suggestion</span></div>
+      <div class="hd"><span class="ico"><svg class="ic" width="18" height="18" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 14h6v6"/><path d="M20 10h-6V4"/><path d="m14 10 7-7"/><path d="m3 21 7-7"/></svg></span><h3>Compact suggestion</h3><span class="tag">suggestion</span></div>
       <p>Suggests <code>/compact</code> right after you finish something in a long conversation.</p>
       <details><summary>More</summary><p>Once the conversation is large and you've just finished something (a commit, an edit, an answer), it suggests <code>/compact</code> with the commit subjects filled in. If the conversation is much larger than that, it suggests a new session instead.</p></details>
     </article>
     <article class="feat">
-      <div class="hd"><span class="ico"><svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M3.5 18a8.5 8.5 0 1 1 17 0"/><path d="m12 18 4.5-6"/></svg></span><h3>Auto-compact point</h3><span class="tag">set once</span></div>
+      <div class="hd"><span class="ico"><svg class="ic" width="18" height="18" viewBox="0 0 24 24" aria-hidden="true"><path d="M3.5 18a8.5 8.5 0 1 1 17 0"/><path d="m12 18 4.5-6"/></svg></span><h3>Auto-compact point</h3><span class="tag">set once</span></div>
       <p>Setup can move Claude Code's automatic compact earlier, so long sessions re-read less.</p>
       <details><summary>More</summary><p>Setup can lower Claude Code's automatic compact point, so a long session doesn't keep re-reading a very large context on every call.</p></details>
     </article>
     <article class="feat">
-      <div class="hd"><span class="ico"><svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="3.5"/></svg></span><h3>Grade change</h3><span class="tag">once</span></div>
+      <div class="hd"><span class="ico"><svg class="ic" width="18" height="18" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="3.5"/></svg></span><h3>Grade change</h3><span class="tag">once</span></div>
       <p>One short line when the grade changes, in your language. Nothing while it stays the same.</p>
       <details><summary>More</summary><p>When the grade changes, Claude gets one short line and tells you, in your language. Nothing is added while the grade stays the same.</p></details>
     </article>
     <article class="feat">
-      <div class="hd"><span class="ico"><svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M3 10h18"/><path d="M9 10v10"/></svg></span><h3>Desktop app</h3><span class="tag">optional</span></div>
+      <div class="hd"><span class="ico"><svg class="ic" width="18" height="18" viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M3 10h18"/><path d="M9 10v10"/></svg></span><h3>Desktop app</h3><span class="tag">optional</span></div>
       <p>Records the app's usage figures. A private board puts every session on one page.</p>
       <details><summary>More</summary><p>The desktop app has no status line, so when the saved usage is more than six hours old, Claude is asked once per session to read the app's own usage figures and record them. An <a href="#board">efficiency board</a> (preview) puts all your sessions on one private page and lets you approve or reject its suggestions from your phone.</p></details>
     </article>
