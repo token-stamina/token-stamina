@@ -140,3 +140,24 @@ footer a:hover { color: var(--ink); }
 .shots img { display: block; width: 100%; height: auto; border: 1px solid var(--line-2); border-radius: 8px; }
 .shots figcaption { margin-top: .4rem; font-size: 13px; color: var(--ink-2); }
 @media (max-width: 640px) { .shots { grid-template-columns: 1fr; } }
+
+/* Shared with the plugin's board: inline SVG icons (24 grid, 2px round stroke), mono tags, 12px cards, 8px controls. */
+.ic { width: 18px; height: 18px; flex: 0 0 auto; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+.cta { display: flex; flex-wrap: wrap; gap: 12px; margin-top: 28px; }
+.btn { display: inline-flex; align-items: center; gap: 8px; min-height: 44px; padding: 0 18px; border-radius: 8px; border: 1px solid var(--line-2); font: 600 15px var(--sans); color: var(--ink); text-decoration: none; }
+.btn:hover { color: var(--ink); border-color: var(--ink-3); }
+.btn.primary { background: var(--link); border-color: var(--link); color: var(--bg); }
+.btn.primary:hover { background: var(--link-hover); border-color: var(--link-hover); color: var(--bg); }
+.btn:focus-visible, .cmd button:focus-visible, .feat summary:focus-visible { outline: 2px solid var(--link); outline-offset: 2px; }
+.hero-cmd { max-width: 620px; margin-top: 16px; }
+.feats { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(320px, 100%), 1fr)); gap: 14px; }
+.feat { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 18px; display: flex; flex-direction: column; gap: 10px; }
+.feat .hd { display: flex; align-items: center; gap: 12px; }
+.feat .ico { width: 36px; height: 36px; border-radius: 8px; display: grid; place-items: center; background: var(--panel-2); border: 1px solid var(--line); color: var(--link); flex: 0 0 auto; }
+.feat h3 { margin: 0; font-size: 16px; font-weight: 600; flex: 1; }
+.feat > p { margin: 0; font-size: 15px; line-height: 1.55; color: var(--body); }
+.feat details summary { cursor: pointer; font: 500 12px var(--mono); color: var(--ink-3); }
+.feat details summary:hover { color: var(--ink); }
+.feat details p { margin: 8px 0 0; font-size: 14px; color: var(--ink-2); }
+html[lang="ko"] { word-break: keep-all; overflow-wrap: break-word; }
+html[lang="ko"] .tag { letter-spacing: 0; font-family: var(--sans); text-transform: none; }
