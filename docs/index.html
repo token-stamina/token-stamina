@@ -105,18 +105,16 @@
 
 <section id="board" class="col">
   <h2><span class="n">04</span>Efficiency board</h2>
-  <p><span class="tag">desktop app · preview</span> If you run several sessions at once, the board puts them on one page: a private Artifact on claude.ai that you can also open on your phone. The page is in Korean for now.</p>
-  <dl class="priv">
-    <dt>Shows</dt>
-    <dd>Per session: recent input size, cache hit rate, how full the context is, running subagents and their models, and a hint when a cheaper model or a clear would fit. At the top, your weekly and 5-hour usage.</dd>
-    <dt>Suggests</dt>
-    <dd>Cards such as a lower default model for subagents, a clear at a work boundary, or a setting. Nothing is applied until you press approve, and the next board run applies it, at most three per run. Clearing a session is always left to you. Sessions in folders you protect are shown but never get a suggestion that changes them.</dd>
-  </dl>
-  <p class="step"><span class="n">1</span>In the desktop app, ask Claude to publish <code>dashboard/index.html</code> from the plugin folder as an Artifact with the <code>db</code> capability.</p>
+  <p><span class="tag">desktop app · preview</span> All your sessions on one private page, on your phone too. Nothing changes until you approve it.</p>
+  <div class="shots">
+    <figure><img src="board-sessions.png" width="720" height="1106" loading="lazy" alt="Board: weekly, 5-hour and Fable usage at the top, then one card per session with re-read context, cache hit rate, context size and running subagents."><figcaption>Usage, then each session: context, cache hits, subagents.</figcaption></figure>
+    <figure><img src="board-approve.png" width="720" height="460" loading="lazy" alt="A suggestion card: lower this session from Opus to Sonnet, estimated saving about 310k tokens, with Approve, Reject and Hold buttons."><figcaption>A suggestion with its estimated saving. Approve, reject or hold.</figcaption></figure>
+  </div>
+  <p class="small">Demo data. The page is in Korean for now.</p>
+  <p class="step"><span class="n">1</span>Ask Claude in the desktop app to publish <code>dashboard/index.html</code> from the plugin folder as an Artifact with the <code>db</code> capability.</p>
   <p class="step"><span class="n">2</span>Put its link in <code>dashboardUrl</code> in <code>~/.claude/token-stamina/config.json</code>.</p>
-  <p class="step"><span class="n">3</span>In a separate Haiku session, push the board. To keep it fresh, repeat it every 15 minutes:</p>
+  <p class="step"><span class="n">3</span>In a separate Haiku session, refresh it every 15 minutes:</p>
   <div class="cmd"><pre>/loop 15m /token-stamina:board</pre><button type="button">copy</button></div>
-  <p class="small">The hooks only write one small row per session on your machine. A board run whose rows haven't changed skips the write. <code>"board": false</code> in the config stops the rows.</p>
 </section>
 
 <section id="privacy" class="col">

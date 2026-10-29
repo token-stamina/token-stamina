@@ -105,18 +105,16 @@
 
 <section id="board" class="col">
   <h2><span class="n">04</span>효율 현황판</h2>
-  <p><span class="tag">데스크탑 앱 · 미리보기</span> 세션을 여러 개 함께 돌린다면, 현황판이 그 세션들을 한 페이지에 모아 줍니다. claude.ai의 비공개 Artifact라서 휴대폰에서도 열 수 있습니다.</p>
-  <dl class="priv">
-    <dt>보여 주는 것</dt>
-    <dd>세션마다 최근 입력 크기, 캐시 적중률, 맥락이 얼마나 찼는지, 돌고 있는 하위 에이전트와 그 모델, 그리고 더 싼 모델이나 비우기가 맞을 때 알려 주는 힌트입니다. 맨 위에는 주간·5시간 사용량이 나옵니다.</dd>
-    <dt>제안하는 것</dt>
-    <dd>하위 에이전트 기본 모델 낮추기, 작업 경계에서 비우기, 설정 변경 같은 카드입니다. 승인을 누르기 전에는 아무것도 적용되지 않고, 다음 현황판 실행 때 한 번에 최대 세 개까지 적용됩니다. 세션 비우기는 언제나 직접 하게 둡니다. 보호하도록 지정한 폴더의 세션은 보이기만 하고, 그 세션을 바꾸는 제안은 나오지 않습니다.</dd>
-  </dl>
+  <p><span class="tag">데스크탑 앱 · 미리보기</span> 모든 세션을 비공개 페이지 하나에, 휴대폰에서도. 승인하기 전에는 아무것도 바뀌지 않습니다.</p>
+  <div class="shots">
+    <figure><img src="../board-sessions.png" width="720" height="1106" loading="lazy" alt="현황판: 맨 위에 주간·5시간·Fable 사용량, 아래에 세션마다 다시 읽는 맥락, 캐시 적중률, 맥락 크기, 돌고 있는 하위 에이전트 카드."><figcaption>사용량, 그리고 세션마다 맥락·캐시 적중·하위 에이전트.</figcaption></figure>
+    <figure><img src="../board-approve.png" width="720" height="460" loading="lazy" alt="제안 카드: 이 세션을 Opus에서 Sonnet으로, 예상 절약 약 31만 토큰, 승인·거절·보류 버튼."><figcaption>예상 절약과 함께 오는 제안. 승인·거절·보류.</figcaption></figure>
+  </div>
+  <p class="small">데모 데이터입니다.</p>
   <p class="step"><span class="n">1</span>데스크탑 앱에서 Claude에게 플러그인 폴더의 <code>dashboard/index.html</code>을 <code>db</code> 기능을 켠 Artifact로 게시해 달라고 합니다.</p>
   <p class="step"><span class="n">2</span>그 링크를 <code>~/.claude/token-stamina/config.json</code>의 <code>dashboardUrl</code>에 넣습니다.</p>
-  <p class="step"><span class="n">3</span>Haiku 세션을 따로 열어 현황판을 올립니다. 계속 새로 고치려면 15분마다 되풀이하게 합니다:</p>
+  <p class="step"><span class="n">3</span>Haiku 세션을 따로 열어 15분마다 새로 고칩니다:</p>
   <div class="cmd"><pre>/loop 15m /token-stamina:board</pre><button type="button">복사</button></div>
-  <p class="small">훅은 내 컴퓨터에 세션마다 작은 행 하나만 씁니다. 행이 바뀌지 않았으면 현황판 실행은 쓰기를 건너뜁니다. 설정에 <code>"board": false</code>를 넣으면 행 기록이 멈춥니다.</p>
 </section>
 
 <section id="privacy" class="col">

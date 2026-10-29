@@ -133,3 +133,10 @@ footer a:hover { color: var(--ink); }
 
 /* fixed line under the demo cards: same in every grade */
 .verdict-card .always { margin: 4px 0 0; padding-top: 14px; border-top: 1px dashed var(--line-2); font-size: 14px; line-height: 1.55; color: var(--ink-3); }
+
+/* Board screenshots: two columns on wide screens, stacked on phones. */
+.shots { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; align-items: start; margin: 1.2rem 0; }
+.shots figure { margin: 0; }
+.shots img { display: block; width: 100%; height: auto; border: 1px solid var(--line-2); border-radius: 8px; }
+.shots figcaption { margin-top: .4rem; font-size: 13px; color: var(--ink-2); }
+@media (max-width: 640px) { .shots { grid-template-columns: 1fr; } }
