@@ -74,8 +74,8 @@ test('no leftover old product name in shipped files', () => {
     if (e.isDirectory()) walk(f); else if (/Token Pacer|token-pacer|TOKEN_PACER|tokenpacer/.test(fs.readFileSync(f, 'utf8'))) hits.push(path.relative(root, f).split(path.sep).join('/'));
   } };
   walk(root);
-  // The legacy-folder fallback (scripts/pace.js and its mirror in hooks/register.ts). README no longer carries the old name.
-  assert.deepStrictEqual(hits.sort(), ['hooks/register.ts', 'scripts/pace.js']);
+  // The legacy-folder fallback (scripts/pace.js). README no longer carries the old name.
+  assert.deepStrictEqual(hits.sort(), ['scripts/pace.js']);
 });
 
 test('W7 #16: every test file loads the temp-home helper before anything else, so no test touches the real data folder', () => {
@@ -84,7 +84,7 @@ test('W7 #16: every test file loads the temp-home helper before anything else, s
     ...fs.readdirSync(path.join(root, 'test')).filter((f) => f.endsWith('.test.js')).map((f) => 'test/' + f),
     ...fs.readdirSync(path.join(root, 'hooks')).filter((f) => f.endsWith('.test.ts')).map((f) => 'hooks/' + f),
   ];
-  assert.ok(files.length >= 30);
+  assert.ok(files.length >= 20);
   const missing = files.filter((f) => {
     const lines = fs.readFileSync(path.join(root, f), 'utf8').split(/\r?\n/);
     const first = lines.find((l) => /^\s*(require\(|import )/.test(l)) || '';

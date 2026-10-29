@@ -1,0 +1,71 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Privacy Policy — Token Stamina</title>
+<meta name="description" content="What the Token Stamina plugin for Claude Code reads, writes and sends. It runs on your machine, makes no model calls and sends no telemetry.">
+<link rel="canonical" href="https://tokenstamina.com/privacy.html">
+<meta property="og:title" content="Token Stamina Privacy Policy">
+<meta property="og:url" content="https://tokenstamina.com/privacy.html">
+<link rel="icon" href="logo.svg" type="image/svg+xml">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="site.css">
+</head>
+<body>
+<div class="wrap">
+
+<header class="top">
+  <a class="mark" href="/"><svg class="logo" viewBox="0 0 64 64" aria-hidden="true"><rect x="1" y="1" width="62" height="62" rx="14" fill="#15171B" stroke="#2A2E35" stroke-width="2"/><rect x="10" y="27" width="44" height="10" rx="5" fill="#2A2E35"/><rect x="10" y="27" width="24" height="10" rx="5" fill="#56D364"/><rect x="38" y="17" width="4" height="30" rx="2" fill="#E3B341"/></svg>token-stamina</a>
+  <nav>
+    <a href="/#install">Install</a>
+    <a href="/#board">Board</a>
+    <a href="/privacy.html">Privacy</a>
+    <a href="https://github.com/token-stamina/token-stamina">GitHub</a>
+  </nav>
+</header>
+
+<section class="col">
+  <h2>Privacy Policy</h2>
+  <p class="small">Last updated: 2026-10-28 (plugin version 0.5.1). Token Stamina is an independent, community-made plugin for Claude Code. It is not affiliated with Anthropic.</p>
+  <p>Token Stamina runs on your own machine as hooks and commands inside Claude Code. It has no server and no account. It collects no telemetry, makes no model calls of its own, and does not profile you. This page lists what it reads, what it writes and what can leave your machine.</p>
+
+  <dl class="priv">
+    <dt>What it reads</dt>
+    <dd>Only on your machine: the usage numbers Claude Code passes to the status line (rate limits, context size, session id, working folder); your session transcripts under <code>~/.claude/projects</code> (usage per model, context size, what the last turn did, MCP and skill usage counts); the subagent metadata files Claude Code keeps there (description, agent type, model, finished flag) to count running subagents; and the text of each prompt, only to detect its language (the prompt text is not stored). The <code>/token-stamina:audit</code> command also counts the characters of your always-loaded files (<code>CLAUDE.md</code>, <code>MEMORY.md</code>), lists installed plugins, and reads MCP server names (no keys or values).</dd>
+
+    <dt>What it writes</dt>
+    <dd>Its own files go under <code>~/.claude/token-stamina/</code> (or the folder in <code>TOKEN_STAMINA_HOME</code>): state, caches, per-session bookkeeping, an append-only <code>events.jsonl</code> (session ids, token counts, which hint fired, subagent model decisions) and your <code>config.json</code>. Outside that folder it changes <code>~/.claude/settings.json</code> (status line, auto-compact window) and optionally <code>~/.claude/keybindings.json</code> only when you run <code>/token-stamina:setup</code> or <code>/token-stamina:autocompact</code> and agree; a backup of settings.json is saved first.</dd>
+
+    <dt>Handoff notes</dt>
+    <dd>To survive a <code>/compact</code> or <code>/clear</code>, it saves a short note in <code>~/.claude/token-stamina/handoff/</code>: the working folder path and session id, up to the last three requests (each clipped to 200 characters), commit subjects, edited file paths and to-do items. Notes older than 7 days are deleted the next time the Stop hook runs. Set <code>"handoff": false</code> in <code>~/.claude/token-stamina/config.json</code> to stop writing and restoring notes (existing notes are not deleted; remove the folder to delete them). Restored notes and hint lines are added to the conversation, so Claude Code sends them to the model like any other context.</dd>
+
+    <dt>Network</dt>
+    <dd>At most once a day, one HTTPS GET of <code>https://raw.githubusercontent.com/token-stamina/token-stamina/main/.claude-plugin/plugin.json</code> to see whether a newer version exists. Nothing is sent beyond the request itself (GitHub sees your IP address, as with any download). <code>"updateCheck": false</code> turns it off. Two things the plugin can start may use the network on their own: <code>claude plugin list</code> during an audit, and a status line command you asked it to wrap.</dd>
+
+    <dt>Optional board</dt>
+    <dd>The efficiency board is optional and only works after you set it up in the Claude desktop app. When you run <code>/token-stamina:board</code>, Claude writes board rows (numbers, model names, the last folder name of each session's working folder), session titles (unless <code>"dashboardMaskTitles": true</code>) and your usage percentages to a private Artifact that you published under your own claude.ai account. Token Stamina operates no server and receives none of this. Without a <code>dashboardUrl</code> in your config, nothing is pushed. <code>"board": false</code> stops the local rows.</dd>
+
+    <dt>What it does not do</dt>
+    <dd>No telemetry, no analytics, no advertising, no sale or sharing of data, no calls to any language model from its scripts, and no profiling. It does not send your transcripts, prompts or files anywhere.</dd>
+
+    <dt>Removing your data</dt>
+    <dd>Uninstall the plugin, delete <code>~/.claude/token-stamina/</code>, and remove <code>statusLine</code> and <code>env.CLAUDE_CODE_AUTO_COMPACT_WINDOW</code> from <code>~/.claude/settings.json</code> (or restore the <code>settings.json.bak-token-stamina-*</code> backup). Delete the board Artifact in claude.ai if you created one.</dd>
+
+    <dt>Contact</dt>
+    <dd>Questions or concerns: <a href="https://github.com/token-stamina/token-stamina/issues">open an issue on GitHub</a>. Changes to this policy are published on this page and in the repository history.</dd>
+  </dl>
+  <p class="small" style="margin-top:1.2rem">The full file-by-file list is in the <a href="https://github.com/token-stamina/token-stamina#privacy-and-what-runs-on-your-machine">README</a>.</p>
+</section>
+
+<footer>
+  <span>MIT licensed · free</span>
+  <a href="/">Home</a>
+  <a href="https://github.com/token-stamina/token-stamina">Source</a>
+  <a href="https://github.com/token-stamina/token-stamina/issues">Report a problem</a></footer>
+
+</div>
+</body>
+</html>

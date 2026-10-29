@@ -4,6 +4,9 @@ argument-hint: "[--titles]"
 allowed-tools: Bash(node:*), ArtifactData, mcp__ccd_session_mgmt__get_usage, mcp__ccd_session_mgmt__list_sessions, mcp__ccd_session_mgmt__get_session, mcp__ccd_session_mgmt__set_session_model, mcp__ccd_turn__wrap_up
 ---
 
+Pushes Token Stamina's efficiency board (per-session context size, cache hit rate, running subagents, usage limits) to a private dashboard Artifact.
+Claude desktop app only. The data goes to an Artifact you publish under your own claude.ai account, through Claude's own `ArtifactData` tool; Token Stamina runs no server and receives nothing. Optional: nothing is pushed until you set `dashboardUrl`.
+
 Haiku 세션에서 돌리세요. 앱 모델 메뉴에서 Haiku 로 바꾸거나 `start_session(model:'haiku')` 로 갱신 전용 탭을 열어요. 이 명령은 판단이 없어요: 계산·제안·건너뛰기 판정은 전부 스크립트가 하고, 이 세션은 아래 도구를 순서대로 부르고 JSON 을 그대로 넘기기만 해요. 한 번에 한 줄씩만 보고하고 오너에게 한국어로 말해요.
 
 0. 이 세션이 Haiku 가 아니면 "더 싼 탭(Haiku)에서 돌릴 수 있어요" 를 한 줄 알리고 계속해요(막지 않아요).

@@ -2,6 +2,8 @@
 
 Token Stamina turns your Claude Code pace into action. It compares weekly (7d) and 5-hour usage with how much of each window has passed, grades it green, yellow or red, and when you're well ahead of pace moves subagent calls to cheaper models. At work boundaries in long conversations it suggests a compact (with a savings estimate when it can make one) and saves a handoff note first. It makes no LLM calls; its only network request is a once-a-day version check (`"updateCheck": false` turns it off).
 
+**Local only.** Token Stamina reads your Claude Code session records on your machine to work out usage. It does no profiling, sends no telemetry and never uploads your transcripts; only the optional board (to your own private Artifact) and the daily version check reach the network. The handoff note keeps a short clip of your last requests for 7 days (`"handoff": false` turns it off). Details: [privacy policy](https://tokenstamina.com/privacy.html).
+
 **Works alongside** tools that shrink what a single task reads (command-output filters, code-graph MCP servers). Token Stamina doesn't compete with them: it adjusts models and compact timing to your limit pace. We haven't tested every combination; if you see a conflict, open an issue.
 
 > **Unofficial.** Token Stamina is an independent, community-made plugin for Claude Code. It is not affiliated with, endorsed by, or sponsored by Anthropic. "Claude" and "Claude Code" are trademarks of Anthropic, PBC and are used only to say what this plugin works with. The 7d/5h percentages are passed through from Claude Code's status line input. Everything Token Stamina derives from them (grades, today's share, exhaustion time) and every savings figure is a local estimate based on assumptions, not a bill or an official usage number.
@@ -24,6 +26,8 @@ Language: `/token-stamina:setup` asks first (English or 한국어) and records i
 Tests: `node --test`.
 
 ## Install
+
+Requires Node.js on PATH (hooks run `node`).
 
 In Claude Code 2.1.275 or later:
 
@@ -52,6 +56,17 @@ claude plugin update token-stamina@token-stamina
 then restart Claude Code. Since 0.4.6 you are told once per release when a newer version is out: at startup, at most once a day, `scripts/update-check.js` reads the version in this repository's `.claude-plugin/plugin.json` from GitHub in the background, and the next startup shows one line if it is newer than yours. `"updateCheck": false` turns this off.
 
 The status line set up by 0.4.6 runs a small launcher, `~/.claude/token-stamina/token-stamina-statusline.js`, that always runs the installed version, so updates reach the status line too. If yours was set up by 0.4.5 or older it points at one version folder; Claude offers once to switch it (`scripts/setup-statusline.js`).
+
+## Try it
+After installing and starting a new session:
+
+```
+/token-stamina:audit --days 30        # always-loaded files, plugins, unused MCP/skills; changes nothing
+/token-stamina:savings --since 2026-10-01   # estimated tokens saved so far (an estimate, not billing)
+/token-stamina:fleet --all           # subagents running now, by model
+/token-stamina:report --since 2026-10-01    # local usage by model, main vs subagent
+/token-stamina:autocompact 400k      # pick when auto-compact happens
+```
 
 ## v0.3: handoff
 - `scripts/handoff.js` (Stop): writes `~/.claude/token-stamina/handoff/<session>.md` and `latest-<cwdhash>.md` (last 3 requests, commits, edited files, todos; capped by `handoffMaxTokens`; pruned after 7 days). No LLM.
@@ -108,6 +123,9 @@ An optional board for people who run several sessions at once. It shows, per ses
 - Suggestions (a lower subagent default model, a clear at a work boundary, a setting) appear as cards. `applyMode` is `"manual"` by default: nothing is applied until you press approve, and the next board run applies it. Only what the local ledger (`board/decisions.json`) proposed can be applied, at most `applyMaxPerRun` (3) per run and one per session. Clearing a session is always left to you; the board never clears one. Protected sessions are shown but never get a suggestion that changes them. Suggestions for another session's model are advice only for now (the app's session ids cannot be matched to transcripts exactly).
 - An approved subagent default model is stored as `agentModelDefault` and used by the subagent hook for Agent calls that name no model.
 - Config keys: `board`, `boardTailBytes`, `boardKeepSec`, `boardIdleSec`, `boardDailyTokens`, `dashboardUrl`, `dashboardMaskTitles`, `managerExcludeCwd`, `managerProtectKeywords`, `managerProtectSegments`, `applyMode`, `proposalTtlSec`, `heldTtlSec`, `rejectCooldownSec`, `applyMaxPerRun`, `savingTurns`, `agentShareProposeAt`, `agentModelDefault`. `"board": false` stops the rows.
+
+## v0.5.1: directory listing
+Plugin manifest now carries the privacy policy, support and documentation links; the privacy policy is at [tokenstamina.com/privacy.html](https://tokenstamina.com/privacy.html). Unused TypeScript sources were removed from `hooks/` (the hooks are the Node scripts in `scripts/`). No behavior change.
 
 ## Privacy and what runs on your machine
 Token Stamina works locally. It sends no telemetry and its hooks call no LLM. The optional board (`/token-stamina:board`, above) is run by Claude in a session you start and writes to your own private Artifact; nothing else leaves your machine except the update check: at most once a day, one HTTPS GET of `https://raw.githubusercontent.com/token-stamina/token-stamina/main/.claude-plugin/plugin.json`, which sends nothing beyond the request itself (GitHub sees your IP address, as with any download); `"updateCheck": false` turns it off. Two things it starts can use the network on their own: `claude plugin list` (audit only) and your own `wrap` command. Hint lines and restored handoff notes are added to the conversation, so Claude Code sends them to the model like any other context.

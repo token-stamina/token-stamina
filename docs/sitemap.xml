@@ -12,4 +12,8 @@
     <xhtml:link rel="alternate" hreflang="en" href="https://tokenstamina.com/"/>
     <xhtml:link rel="alternate" hreflang="ko" href="https://tokenstamina.com/ko/"/>
   </url>
+  <url>
+    <loc>https://tokenstamina.com/privacy.html</loc>
+    <lastmod>2026-10-28</lastmod>
+  </url>
 </urlset>

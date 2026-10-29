@@ -382,7 +382,7 @@ test('rows: readVersions reads a map file and an out_dir tree', () => {
 test('commands/board.md: first body line says Haiku; config has boardDailyTokens', () => {
   const md = fs.readFileSync(path.join(__dirname, '..', 'commands', 'board.md'), 'utf8').split(/\r?\n/);
   const body = md.slice(md.indexOf('---', 1) + 1).filter((l) => l.trim());
-  assert.ok(body[0].startsWith('Haiku 세션에서 돌리세요'));
+  assert.ok(body.some((l) => l.startsWith('Haiku 세션에서 돌리세요')));
   const cfgDef = JSON.parse(fs.readFileSync(path.join(__dirname, '..', 'config.default.json'), 'utf8'));
   assert.equal(cfgDef.boardDailyTokens, 150000);
 });
