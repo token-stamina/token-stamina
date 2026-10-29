@@ -58,11 +58,12 @@
 <section class="col">
   <h2><span class="n">01</span>What it does</h2>
   <ol class="does">
-    <li><b>Subagent model.</b> <span class="tag">auto</span> While the grade is red, a subagent call with no model set goes to Haiku if the task looks simple and to Sonnet otherwise. If the call names a model, is a fork, or looks like review or design work, it's left alone. You can change this to suggestions only, or turn it off.</li>
+    <li><b>Subagent model.</b> <span class="tag">auto</span> While the grade is red, a subagent call with no model set goes to Haiku if the task looks simple and to Sonnet otherwise. When several subagents or sessions are running at once, yellow is enough. A call that names a model, is a fork, or looks like review or design work is never changed: at most Claude gets a suggestion. You can change this to suggestions only, or turn it off.</li>
     <li><b>Handoff note.</b> <span class="tag">auto</span> At the end of each turn it saves the last few requests, commits, edited files and to-dos, and adds them to the new conversation after you compact or clear. The note is put together from your transcript; no model writes it. You can compact early and not have to explain again where you were.</li>
     <li><b>Compact suggestion.</b> <span class="tag">suggestion</span> Once the conversation is large and you've just finished something (a commit, an edit, an answer), it suggests <code>/compact</code> with the commit subjects filled in. If the conversation is much larger than that, it suggests a new session instead.</li>
     <li><b>Auto-compact point.</b> <span class="tag">set once</span> Setup can lower Claude Code's automatic compact point, so a long session doesn't keep re-reading a very large context on every call.</li>
     <li><b>Grade change.</b> <span class="tag">once</span> When the grade changes, Claude gets one short line and tells you, in your language. Nothing is added while the grade stays the same.</li>
+    <li><b>Desktop app.</b> <span class="tag">optional</span> The desktop app has no status line, so when the saved usage is more than six hours old, Claude is asked once per session to read the app's own usage figures and record them. An efficiency board (preview, Korean only for now) shows each session's input size, cache hit rate and running subagents on a private Artifact page, and lets you approve or reject its suggestions from your phone. Nothing is applied until you approve.</li>
   </ol>
   <p class="small">It doesn't change your main conversation's model or block requests. It doesn't compact by itself either: Claude Code doesn't let plugins run <code>/compact</code>. <code>/token-stamina:audit</code> lists what gets loaded into every conversation, such as CLAUDE.md files, plugins and MCP servers you never use. It only reports and doesn't change anything.</p>
 </section>
@@ -105,9 +106,9 @@
   <h2><span class="n">04</span>What runs on your machine</h2>
   <dl class="priv">
     <dt>Reads</dt>
-    <dd>The usage numbers Claude Code passes to the status line, and your session transcripts under <code>~/.claude/projects</code>, to add up usage and build the handoff note.</dd>
+    <dd>The usage numbers Claude Code passes to the status line, and your session transcripts under <code>~/.claude/projects</code>, to add up usage and build the handoff note, and the subagent files Claude Code keeps there, to count what is running.</dd>
     <dt>Writes</dt>
-    <dd>Only to <code>~/.claude/token-stamina/</code>, and to your settings file during setup if you agree. Handoff notes are deleted after seven days.</dd>
+    <dd>Only to <code>~/.claude/token-stamina/</code>, and to your settings file during setup if you agree. Handoff notes are deleted after seven days. The optional board is the one feature that sends data off your machine: when you run it, Claude writes the board rows (numbers, model names, the last folder name of each session's working folder, and session titles unless you hide them) and your usage percentages to your own private Artifact on claude.ai.</dd>
     <dt>Never</dt>
     <dd>Its scripts send no telemetry and call no model. Their only network request is the update check: once a day at most, one download of the published version number from GitHub, so it can tell you when a new version is out (<code>"updateCheck": false</code> turns it off). Two commands it can start may go online: <code>claude plugin list</code> during an audit, and a status line command you've asked it to wrap. Hint lines and handoff notes it adds to the conversation are sent to the model like the rest of your conversation.</dd>
   </dl>
