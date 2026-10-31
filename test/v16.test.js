@@ -391,7 +391,7 @@ test('applyPayload: no settings request -> settings/applied not written; manual 
 });
 
 test('CLI --apply in an isolated home: writes only config.json / config.prev.json / board/decisions.json (+events), never the real home', () => {
-  const realCfg = path.join(os.homedir(), '.claude', 'token-stamina', 'config.json');
+  const realCfg = path.join(require('./helpers/temp-home').REAL_HOME, '.claude', 'token-stamina', 'config.json');
   const realBefore = fs.existsSync(realCfg) ? fs.readFileSync(realCfg) : null;
   const now = Math.floor(Date.now() / 1000);
   const user = { lang: 'ko', applyMode: 'approve', managerExcludeCwd: ['Trading'], keep: { a: 1 } };

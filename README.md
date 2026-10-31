@@ -124,11 +124,11 @@ An optional board for people who run several sessions at once. It shows, per ses
 - An approved subagent default model is stored as `agentModelDefault` and used by the subagent hook for Agent calls that name no model.
 - Config keys: `board`, `boardTailBytes`, `boardKeepSec`, `boardIdleSec`, `boardDailyTokens`, `dashboardUrl`, `dashboardMaskTitles`, `managerExcludeCwd`, `managerProtectKeywords`, `managerProtectSegments`, `applyMode`, `proposalTtlSec`, `heldTtlSec`, `rejectCooldownSec`, `applyMaxPerRun`, `savingTurns`, `agentShareProposeAt`, `agentModelDefault`. `"board": false` stops the rows.
 
-## v0.5.2: no clear offers in the desktop app
-The desktop app's `clear_session` does not run SessionStart hooks, so the handoff note was never restored after a clear there (0 clear starts against 43 compact starts in real transcripts). In the app Claude now points to plain `/compact` (the note is restored) or offers a new-session card that carries the note, and never offers `clear_session`. The clear estimate is no longer added to the hint. A new-session card now counts as an offer for the topic check.
-
 ## v0.5.1: directory listing
 Plugin manifest now carries the privacy policy, support and documentation links; the privacy policy is at [tokenstamina.com/privacy.html](https://tokenstamina.com/privacy.html). Unused TypeScript sources were removed from `hooks/` (the hooks are the Node scripts in `scripts/`). No behavior change.
+
+## v0.5.2: no clear offers in the desktop app
+The desktop app's `clear_session` does not run SessionStart hooks, so the handoff note was never restored after a clear there (0 clear starts against 43 compact starts in real transcripts). In the app Claude now points to plain `/compact` (the note is restored) or offers a new-session card that carries the note, and never offers `clear_session`. The clear estimate is no longer added to the hint. A new-session card now counts as an offer for the topic check.
 
 ## Privacy and what runs on your machine
 Token Stamina works locally. It sends no telemetry and its hooks call no LLM. The optional board (`/token-stamina:board`, above) is run by Claude in a session you start and writes to your own private Artifact; nothing else leaves your machine except the update check: at most once a day, one HTTPS GET of `https://raw.githubusercontent.com/token-stamina/token-stamina/main/.claude-plugin/plugin.json`, which sends nothing beyond the request itself (GitHub sees your IP address, as with any download); `"updateCheck": false` turns it off. Two things it starts can use the network on their own: `claude plugin list` (audit only) and your own `wrap` command. Hint lines and restored handoff notes are added to the conversation, so Claude Code sends them to the model like any other context.

@@ -9,7 +9,7 @@ const os = require('os');
 const path = require('path');
 const crypto = require('crypto');
 
-const REAL_CFG = path.join(os.homedir(), '.claude', 'token-stamina', 'config.json');
+const REAL_CFG = path.join(require('./helpers/temp-home').REAL_HOME, '.claude', 'token-stamina', 'config.json');
 const hashReal = () => { try { return crypto.createHash('sha1').update(fs.readFileSync(REAL_CFG)).digest('hex'); } catch (e) { return 'absent'; } };
 const REAL_BEFORE = hashReal();
 

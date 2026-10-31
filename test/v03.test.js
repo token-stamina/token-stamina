@@ -93,19 +93,21 @@ test('handoff: SessionStart restores same session on compact, skips the auto not
 
 test('handoff: Claude-written note wins only when newer than the last user prompt', () => {
   const f = transcript('t5.jsonl');
-  handoff.runStop({ hook_event_name: 'Stop', session_id: 'sess-c', cwd: 'C:\\Rich', transcript_path: f }, Date.now());
+  // Clock pinned next to the fixture's prompts: with the real clock the 10/23 notes aged past prune's 7 days and vanished.
+  const NOW = Date.parse('2026-10-23T11:00:00Z');
+  handoff.runStop({ hook_event_name: 'Stop', session_id: 'sess-c', cwd: 'C:\\Rich', transcript_path: f }, NOW);
   const cf = handoff.sessionFile('sess-c', true);
   fs.writeFileSync(cf, '# Rich note from Claude\nkeep X');
   const old = new Date('2026-10-23T09:00:00Z'); // before the last prompt (10:10)
   fs.utimesSync(cf, old, old);
-  assert.equal(handoff.pick('sess-c', 'C:\\Rich', Date.now()).kind, 'auto');
+  assert.equal(handoff.pick('sess-c', 'C:\\Rich', NOW).kind, 'auto');
   const fresh = new Date('2026-10-23T10:30:00Z');
   fs.utimesSync(cf, fresh, fresh);
-  const p = handoff.pick('sess-c', 'C:\\Rich', Date.now());
+  const p = handoff.pick('sess-c', 'C:\\Rich', NOW);
   assert.equal(p.kind, 'claude');
   assert.ok(handoff.additionalContext(p).includes('keep X'));
   // next Stop copies it to latest-<cwd>.claude.md so a /clear in a new session finds it
-  handoff.runStop({ hook_event_name: 'Stop', session_id: 'sess-c', cwd: 'C:\\Rich', transcript_path: f }, Date.now());
+  handoff.runStop({ hook_event_name: 'Stop', session_id: 'sess-c', cwd: 'C:\\Rich', transcript_path: f }, NOW);
   assert.ok(fs.existsSync(handoff.latestFile('C:\\Rich', true)));
 });
 

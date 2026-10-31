@@ -93,7 +93,9 @@ test('W7 #16: every test file loads the temp-home helper before anything else, s
   assert.deepStrictEqual(missing, []);
   const os = require('os');
   assert.ok(process.env.TOKEN_STAMINA_HOME.startsWith(os.tmpdir()), 'this process runs on a temp home');
-  assert.notEqual(path.resolve(process.env.TOKEN_STAMINA_HOME), path.resolve(os.homedir(), '.claude', 'token-stamina'));
+  const { REAL_HOME } = require('./helpers/temp-home');
+  assert.notEqual(path.resolve(process.env.TOKEN_STAMINA_HOME), path.resolve(REAL_HOME, '.claude', 'token-stamina'));
+  assert.notEqual(path.resolve(os.homedir()), path.resolve(REAL_HOME)); // ~/.claude defaults (projects, settings) never reach the real home
 });
 
 test('W7 #15: the README version heading matches plugin.json', () => {
