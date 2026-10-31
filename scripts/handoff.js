@@ -14,6 +14,7 @@ const TAIL_BYTES = 512 * 1024;
 const KEEP_SEC = 7 * 86400;
 const FALLBACK_MAX_AGE_SEC = 86400;
 const CLEAR_MAX_AGE_SEC = 3600;
+const CLEAR_LINK_MAX_SEC = 3600; // desktop-app clear: the new session must start within this of the marker
 const HEADER = 'Token Stamina handoff (auto-saved before compact/clear)';
 const EDIT_TOOLS = new Set(['Edit', 'Write', 'MultiEdit', 'NotebookEdit']);
 const SHELL_TOOLS = new Set(['Bash', 'PowerShell']);
@@ -36,7 +37,7 @@ function promptText(o) {
 // Pure: extract what the note needs from parsed transcript lines.
 function scan(entries) {
   const prompts = [], calls = [], failed = new Set();
-  let todos = null, lastPromptTs = null;
+  let todos = null, lastPromptTs = null, prevPromptTs = null;
   for (const o of entries) {
     if (!o || o.isSidechain || !o.message) continue;
     const c = o.message.content;
@@ -44,7 +45,7 @@ function scan(entries) {
       if (Array.isArray(c)) for (const b of c) if (b && b.type === 'tool_result' && b.is_error) failed.add(b.tool_use_id);
       if (!o.isMeta && boundary.isRealPrompt(o)) {
         const t = promptText(o);
-        if (t && !/^<(system-reminder|local-command|command-)/.test(t)) { prompts.push(t); lastPromptTs = o.timestamp || lastPromptTs; }
+        if (t && !/^<(system-reminder|local-command|command-)/.test(t)) { prompts.push(t); if (o.timestamp) { prevPromptTs = lastPromptTs; lastPromptTs = o.timestamp; } }
       }
     } else if (o.type === 'assistant' && Array.isArray(c)) {
       for (const b of c) {
@@ -66,7 +67,29 @@ function scan(entries) {
       commits.push({ id: b.id || null, s });
     }
   }
-  return { prompts, commits, files, todos, lastPromptTs };
+  return { prompts, commits, files, todos, lastPromptTs, prevPromptTs };
+}
+
+// Desktop-app clear_session starts a new CLI session without running SessionStart for a clear, so the clearing turn leaves a
+// marker (see runStop) keyed by the app session id (CLAUDE_CODE_HOST_SESSION_ID, unchanged across the clear) and the new
+// CLI session restores from it on its first SessionStart or UserPromptSubmit, whichever runs first (see restoreMarked).
+const hostId = () => process.env.CLAUDE_CODE_HOST_SESSION_ID || '';
+const pendingFile = (host) => path.join(dirOf(), 'pending-clear-' + safeId(host) + '.json');
+const lastTurn = (entries) => { let i = entries.length - 1; while (i >= 0 && !boundary.isRealPrompt(entries[i])) i--; return entries.slice(i + 1); };
+// Only a call that went through counts: a denied or failed call (is_error result, or no result yet) leaves no marker.
+function clearedSelf(entries) {
+  const host = hostId();
+  const calls = [], ok = new Set();
+  for (const o of lastTurn(entries)) {
+    if (!o || o.isSidechain || !o.message || !Array.isArray(o.message.content)) continue;
+    for (const b of o.message.content) {
+      if (!b) continue;
+      if (o.type === 'assistant' && b.type === 'tool_use' && /clear_session$/.test(String(b.name || '')) && b.input
+        && (b.input.session_id === 'self' || (host && b.input.session_id === host))) calls.push(b.id);
+      else if (o.type === 'user' && b.type === 'tool_result' && !b.is_error) ok.add(b.tool_use_id);
+    }
+  }
+  return calls.some((id) => ok.has(id));
 }
 
 const clip = (s, n) => (s.length > n ? s.slice(0, n - 3) + '...' : s);
@@ -74,6 +97,8 @@ const clip = (s, n) => (s.length > n ? s.slice(0, n - 3) + '...' : s);
 function render(m, p) {
   const out = [];
   out.push(`<!-- token-stamina-handoff session=${m.session} lastPromptTs=${m.lastPromptTs || ''} saved=${m.saved} -->`);
+  // Separate comment so older parsers still match the first line.
+  if (m.prevPromptTs) out.push(`<!-- token-stamina-handoff-prev prevPromptTs=${m.prevPromptTs} -->`);
   out.push(`# Handoff note (auto, no LLM)`);
   out.push(`- cwd: ${m.cwd || '?'}`);
   out.push(`- saved: ${m.saved}`);
@@ -109,9 +134,11 @@ function renderCapped(m, maxTokens) {
 
 function parseMeta(md) {
   const m = /<!-- token-(?:stamina|pacer)-handoff session=(\S*) lastPromptTs=(\S*) saved=(\S*) -->/.exec(md || '');
-  return m ? { session: m[1], lastPromptTs: m[2] ? Date.parse(m[2]) : null, saved: Date.parse(m[3]) } : null;
+  if (!m) return null;
+  const pv = /<!-- token-stamina-handoff-prev prevPromptTs=(\S+) -->/.exec(md || '');
+  return { session: m[1], lastPromptTs: m[2] ? Date.parse(m[2]) : null, prevPromptTs: pv ? Date.parse(pv[1]) : null, saved: Date.parse(m[3]) };
 }
-const stripMeta = (md) => md.replace(/<!--[\s\S]*?-->\s*/, '').trim();
+const stripMeta = (md) => md.replace(/^(?:\s*<!--[\s\S]*?-->)+\s*/, '').trim();
 
 function readText(p) { try { return fs.readFileSync(p, 'utf8'); } catch (e) { return null; } }
 function mtime(p) { try { return fs.statSync(p).mtimeMs; } catch (e) { return null; } }
@@ -133,7 +160,8 @@ function runStop(input, nowMs) {
   if (cfg.handoff === false || !input.transcript_path) return null;
   nowMs = nowMs || Date.now();
   const sid = safeId(input.session_id);
-  const sc = scan(boundary.readTail(input.transcript_path, TAIL_BYTES));
+  const entries = boundary.readTail(input.transcript_path, TAIL_BYTES);
+  const sc = Object.assign(scan(entries), { entries });
   const dir = dirOf();
   fs.mkdirSync(dir, { recursive: true });
   // Session-long accumulation (the tail only covers the end of long sessions).
@@ -143,8 +171,13 @@ function runStop(input, nowMs) {
   for (const c of sc.commits) if (!c.id || !ids.has(c.id)) acc.commits.push(c);
   acc.commits = acc.commits.slice(-40);
   acc.files = acc.files.filter((f) => !sc.files.includes(f)).concat(sc.files).slice(-40);
+  // The tail can hold only the last prompt after big tool output, so the prompt before it is carried here.
+  if (sc.lastPromptTs && sc.lastPromptTs !== acc.lastPromptTs) {
+    acc.prevPromptTs = sc.prevPromptTs || acc.lastPromptTs || null;
+    acc.lastPromptTs = sc.lastPromptTs;
+  }
   pace.writeJson(side, acc);
-  const meta = { session: sid, cwd: input.cwd, saved: new Date(nowMs).toISOString(), lastPromptTs: sc.lastPromptTs,
+  const meta = { session: sid, cwd: input.cwd, saved: new Date(nowMs).toISOString(), lastPromptTs: sc.lastPromptTs, prevPromptTs: acc.prevPromptTs || sc.prevPromptTs,
     prompts: sc.prompts, commits: acc.commits, files: acc.files, todos: sc.todos };
   const md = renderCapped(meta, cfg.handoffMaxTokens || 1500);
   fs.writeFileSync(sessionFile(sid), md);
@@ -155,6 +188,7 @@ function runStop(input, nowMs) {
     fs.copyFileSync(cf, latestFile(input.cwd, true));
     fs.writeFileSync(latestFile(input.cwd, true) + '.from', sid); // which session wrote the copied note (read by pick for from_session)
   }
+  if (hostId() && clearedSelf(sc.entries)) pace.writeJson(pendingFile(hostId()), { from: sid, host: hostId(), cwd: input.cwd, at: nowMs });
   prune(dir, nowMs);
   return { file: sessionFile(sid), tokens: estimateTokens(md) };
 }
@@ -170,7 +204,10 @@ function pick(sid, cwd, nowMs, source) {
     const meta = parseMeta(auto);
     if (cl !== null) {
       const ct = mtime(claudeF);
-      if (!meta || meta.lastPromptTs === null || ct >= meta.lastPromptTs) {
+      // A clear is asked for by the last prompt itself (the card's button), after the note was written,
+      // so for a clear the note only has to be newer than the prompt before that one.
+      const since = meta ? (clearOnly && meta.prevPromptTs !== null ? meta.prevPromptTs : meta.lastPromptTs) : null;
+      if (since === null || ct >= since) {
         const age = clearOnly ? CLEAR_MAX_AGE_SEC : maxAgeSec;
         if (!age || nowMs - ct <= age * 1000) return { file: claudeF, kind: 'claude', text: cl };
       }
@@ -197,6 +234,10 @@ function additionalContext(p) {
 function runStart(input, nowMs) {
   const cfg = pace.loadConfig();
   if (cfg.handoff === false) return '';
+  if (input.source === 'startup' || input.source === 'clear') {
+    const r = restoreMarked(input, nowMs, 'SessionStart', 'clear_start');
+    if (r) return r;
+  }
   if (input.source !== 'compact' && input.source !== 'clear') return '';
   const p = pick(safeId(input.session_id), input.cwd, nowMs || Date.now(), input.source);
   if (!p) return '';
@@ -205,14 +246,39 @@ function runStart(input, nowMs) {
   return JSON.stringify({ hookSpecificOutput: { hookEventName: 'SessionStart', additionalContext: additionalContext(p) } });
 }
 
+// Restore from the host marker (see above). Returns the hook JSON or ''. The marker is deleted on every attempt
+// (even without a note), when it is older than the window, or when it belongs to the current CLI session.
+function restoreMarked(input, nowMs, eventName, via) {
+  const host = hostId();
+  if (!host) return '';
+  const pf = pendingFile(host);
+  if (!fs.existsSync(pf)) return '';
+  if (pace.loadConfig().handoff === false) return '';
+  nowMs = nowMs || Date.now();
+  const mk = pace.readJson(pf, null);
+  try { fs.unlinkSync(pf); } catch (e) { return ''; } // someone else restored first
+  if (!mk || typeof mk.from !== 'string' || typeof mk.at !== 'number') return '';
+  if (nowMs - mk.at > CLEAR_LINK_MAX_SEC * 1000 || safeId(mk.from) === safeId(input.session_id)) return '';
+  const cf = sessionFile(mk.from, true);
+  const ct = mtime(cf);
+  let p = null;
+  if (ct !== null && ct >= mk.at - CLEAR_MAX_AGE_SEC * 1000) p = { kind: 'claude', text: readText(cf) };
+  else { const at = readText(sessionFile(mk.from)); if (at !== null) p = { kind: 'auto', text: at }; }
+  if (!p || p.text === null) return '';
+  pace.appendEvent({ event: 'handoff_restore', session: input.session_id, source: via, kind: p.kind, from_session: mk.from });
+  return JSON.stringify({ hookSpecificOutput: { hookEventName: eventName, additionalContext: HEADER + ' [' + p.kind + ' note]\n' + stripMeta(p.text) } });
+}
+const runPrompt = (input, nowMs) => restoreMarked(input, nowMs, 'UserPromptSubmit', 'clear_prompt');
+
 function run(raw) {
   const input = JSON.parse(raw);
   if (input.hook_event_name === 'Stop') { runStop(input); return ''; }
   if (input.hook_event_name === 'SessionStart') return runStart(input);
+  if (input.hook_event_name === 'UserPromptSubmit') return runPrompt(input);
   return '';
 }
 
-module.exports = { scan, render, renderCapped, parseMeta, pick, additionalContext, runStop, runStart, run, sessionFile, latestFile, dirOf, cwdHash, safeId, prune, HEADER };
+module.exports = { scan, render, renderCapped, parseMeta, pick, additionalContext, runStop, runStart, runPrompt, run, pendingFile, clearedSelf, restoreMarked, CLEAR_LINK_MAX_SEC, sessionFile, latestFile, dirOf, cwdHash, safeId, prune, HEADER };
 
 if (require.main === module) {
   let raw = '';

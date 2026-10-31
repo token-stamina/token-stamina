@@ -29,6 +29,11 @@
             "type": "command",
             "command": "node \"${CLAUDE_PLUGIN_ROOT}/scripts/board.js\"",
             "timeout": 5
+          },
+          {
+            "type": "command",
+            "command": "node \"${CLAUDE_PLUGIN_ROOT}/scripts/handoff.js\"",
+            "timeout": 5
           }
         ]
       }
@@ -54,7 +59,7 @@
         ]
       },
       {
-        "matcher": "compact|clear",
+        "matcher": "startup|compact|clear",
         "hooks": [
           {
             "type": "command",

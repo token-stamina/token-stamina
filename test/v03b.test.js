@@ -101,7 +101,7 @@ test('inline compact hint: threshold, once per growth, reset after compact, one-
   assert.equal(gate.decideHint(90000, c, 280000).hintAt, null); // compacted
   assert.equal(gate.decideHint(170000, { inlineCompactHint: false }, null).hint, false);
   const ko = gate.hintMessage('ko', 241000, 'H.claude.md');
-  assert.ok(ko.includes('24.1만') && ko.includes('/compact') && !ko.includes('clear_session self'));
+  assert.ok(ko.includes('24.1만') && ko.includes('clear_session self') && ko.includes('H.claude.md'));
   assert.ok(gate.hintMessage('en', 241000, 'H.claude.md').includes('241k'));
 });
 

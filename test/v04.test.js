@@ -202,6 +202,12 @@ test('topic check (0.4.2): above gateAt every prompt, quiet after a clear offer 
   offer.message.content.push({ type: 'tool_use', id: 't', name: 'mcp__ccd_turn__wrap_up', input: { actions: [{ message: '지금 세션 비워줘 (clear_session self)' }] } });
   assert.equal(gate.clearOffered([offer]), true);
   assert.equal(gate.clearOffered([asst('o2', 0, 'claude-opus-4', [1, 1, 0, 1])]), false);
+  const card = asst('o3', 0, 'claude-opus-4', [1, 1, 0, 1]);
+  card.message.content.push({ type: 'tool_use', id: 's', name: 'mcp__ccd_session__start_session', input: { initiation: 'offer' } });
+  assert.equal(gate.clearOffered([card]), true);
+  const direct = asst('o4', 0, 'claude-opus-4', [1, 1, 0, 1]);
+  direct.message.content.push({ type: 'tool_use', id: 's', name: 'mcp__ccd_session__start_session', input: { initiation: 'user_asked' } });
+  assert.equal(gate.clearOffered([direct]), false);
   assert.ok(gate.topicCheckMessage('ko', 210000, 'H.md').includes('비우지 않기'));
 });
 

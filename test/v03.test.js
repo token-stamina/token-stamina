@@ -189,3 +189,44 @@ test('topic-gate: moving into a parent or child folder is not a cwd change', () 
   assert.equal(gate.sameTree('C:\\Projects', 'C:\\Other'), false);
   assert.equal(gate.sameTree('C:\\Projects', 'C:\\ProjectsX'), false);
 });
+
+test('clear from the card button: the note written before the button prompt is still restored', () => {
+  // Real order in the desktop app: Claude writes the note (10:12), the owner presses "clear" (10:15 prompt),
+  // Claude calls clear_session, the Stop hook writes the auto note, then the conversation is cleared.
+  const f = transcript('t-clear-btn.jsonl', [prompt('지금 세션 비워줘', '2026-10-23T10:15:00Z'), asst([tu('mcp__ccd_session_mgmt__clear_session', { session_id: 'self' })], u(180000))]);
+  handoff.runStop({ hook_event_name: 'Stop', session_id: 'sess-btn', cwd: 'C:\BtnCase', transcript_path: f }, Date.now());
+  const auto = fs.readFileSync(handoff.sessionFile('sess-btn'), 'utf8');
+  assert.equal(handoff.parseMeta(auto).prevPromptTs, Date.parse('2026-10-23T10:10:00Z'));
+  assert.ok(!handoff.additionalContext({ text: auto }).includes('<!--')); // both meta comments stay out of the restored text
+  const cf = handoff.sessionFile('sess-btn', true);
+  fs.writeFileSync(cf, '# Claude note\nnext: Z');
+  const written = new Date('2026-10-23T10:12:00Z');
+  fs.utimesSync(cf, written, written);
+  const now = new Date('2026-10-23T10:16:00Z').getTime();
+  assert.equal(handoff.pick('sess-btn', 'C:\BtnCase', now, 'clear').kind, 'claude');
+  // A note older than the turn before the button is still stale.
+  const old = new Date('2026-10-23T10:08:00Z');
+  fs.utimesSync(cf, old, old);
+  assert.equal(handoff.pick('sess-btn', 'C:\BtnCase', now, 'clear'), null);
+  // Compact keeps the stricter rule: the note must be newer than the last prompt.
+  fs.utimesSync(cf, written, written);
+  assert.equal(handoff.pick('sess-btn', 'C:\BtnCase', now, 'compact').kind, 'auto');
+});
+
+test('clear button after big tool output: the earlier prompt is carried in the sidecar when the tail holds only the last one', () => {
+  const sid = 'sess-tail', cwd = 'C:\TailCase';
+  const f1 = writeJsonl(path.join(TMP, 't-tail1.jsonl'), [prompt('동의하고 제출', '2026-10-23T10:10:00Z'), asst([text('done')], u(180000))]);
+  handoff.runStop({ hook_event_name: 'Stop', session_id: sid, cwd, transcript_path: f1 }, Date.now());
+  // Next turn: the tail the hook reads holds only the "clear" prompt.
+  const f2 = writeJsonl(path.join(TMP, 't-tail2.jsonl'), [prompt('비우기', '2026-10-23T10:15:00Z'), asst([tu('mcp__ccd_session_mgmt__clear_session', { session_id: 'self' })], u(180000))]);
+  handoff.runStop({ hook_event_name: 'Stop', session_id: sid, cwd, transcript_path: f2 }, Date.now());
+  assert.equal(handoff.parseMeta(fs.readFileSync(handoff.sessionFile(sid), 'utf8')).prevPromptTs, Date.parse('2026-10-23T10:10:00Z'));
+  const cf = handoff.sessionFile(sid, true);
+  fs.writeFileSync(cf, '# Claude note\nnext: T');
+  const written = new Date('2026-10-23T10:12:00Z');
+  fs.utimesSync(cf, written, written);
+  assert.equal(handoff.pick(sid, cwd, new Date('2026-10-23T10:16:00Z').getTime(), 'clear').kind, 'claude');
+  // Another Stop in the same turn (same last prompt) keeps the carried value.
+  handoff.runStop({ hook_event_name: 'Stop', session_id: sid, cwd, transcript_path: f2 }, Date.now());
+  assert.equal(handoff.parseMeta(fs.readFileSync(handoff.sessionFile(sid), 'utf8')).prevPromptTs, Date.parse('2026-10-23T10:10:00Z'));
+});

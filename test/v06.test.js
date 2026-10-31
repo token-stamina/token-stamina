@@ -62,7 +62,7 @@ test('hint line carries (예상) and tokens, never money or limit percent', () =
 
 test('topic-gate hint embeds the estimate only when a card exists', () => {
   const withCard = gate.hintMessage('ko', 200000, 'f.md', {}, REF);
-  assert.ok(withCard.includes('(예상) 지금 압축하면') && !withCard.includes('(예상) 지금 비우면')); // no clear offer since 0.5.2
+  assert.ok(withCard.includes('(예상) 지금 압축하면') && withCard.includes('(예상) 지금 비우면'));
   assert.ok(!gate.hintMessage('ko', 400000, 'f.md', {}, REF).includes('(예상)'));
   assert.ok(!gate.hintMessage('ko', 200000, 'f.md', {}).includes('(예상)'));
 });

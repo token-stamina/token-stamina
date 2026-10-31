@@ -1,7 +1,7 @@
 {
   "name": "token-stamina",
   "displayName": "Token Stamina",
-  "version": "0.5.2",
+  "version": "0.5.3",
   "description": "Unofficial add-on for Claude Code that acts on your pace against the weekly and 5-hour limits: moves subagents to cheaper models when you're well ahead of pace, suggests compacts at work boundaries, and keeps a handoff note across compacts. Status segment and fixed-cost audit included. No LLM calls.",
   "author": {
     "name": "Token Stamina"
