@@ -78,7 +78,7 @@ Auto-compact point: `/token-stamina:autocompact` (or step 6 of `/token-stamina:s
 
 Hooks skip headless runs (`CLAUDE_CODE_ENTRYPOINT` starting with `sdk`) and any cwd matching `excludeCwd` in `~/.claude/token-stamina/config.json` (case-insensitive substrings), so automation that drives Claude Code (bots, scripts) never gets Token Stamina lines in its prompts.
 
-Compact hint (v0.3.5): Claude cannot see its own context size, so `topic-gate.js` (UserPromptSubmit) tells it once the context passes the compact threshold (and again every 100k), asking it to end the task with the hint in its reply. Where a session-clearing tool exists (Claude desktop app `clear_session`), Claude writes the handoff note and offers a one-click clear instead of a paste line. The old screen hint (`boundary.js` systemMessage) is opt-in with `"boundary": true`; `"inlineCompactHint": false` turns the inline hint off.
+Compact hint (v0.3.5): Claude cannot see its own context size, so `topic-gate.js` (UserPromptSubmit) tells it once the context passes the compact threshold (and again every 100k), asking it to end the task with the hint in its reply. In the Claude desktop app Claude writes the handoff note and points to plain `/compact`, or offers a new-session card that carries the note when the next work is a different topic. Since 0.5.2 it never offers the app's `clear_session`: that clear does not run SessionStart hooks, so the handoff note was never restored after it. The old screen hint (`boundary.js` systemMessage) is opt-in with `"boundary": true`; `"inlineCompactHint": false` turns the inline hint off.
 
 
 ## v0.4: savings estimate
@@ -123,6 +123,9 @@ An optional board for people who run several sessions at once. It shows, per ses
 - Suggestions (a lower subagent default model, a clear at a work boundary, a setting) appear as cards. `applyMode` is `"manual"` by default: nothing is applied until you press approve, and the next board run applies it. Only what the local ledger (`board/decisions.json`) proposed can be applied, at most `applyMaxPerRun` (3) per run and one per session. Clearing a session is always left to you; the board never clears one. Protected sessions are shown but never get a suggestion that changes them. Suggestions for another session's model are advice only for now (the app's session ids cannot be matched to transcripts exactly).
 - An approved subagent default model is stored as `agentModelDefault` and used by the subagent hook for Agent calls that name no model.
 - Config keys: `board`, `boardTailBytes`, `boardKeepSec`, `boardIdleSec`, `boardDailyTokens`, `dashboardUrl`, `dashboardMaskTitles`, `managerExcludeCwd`, `managerProtectKeywords`, `managerProtectSegments`, `applyMode`, `proposalTtlSec`, `heldTtlSec`, `rejectCooldownSec`, `applyMaxPerRun`, `savingTurns`, `agentShareProposeAt`, `agentModelDefault`. `"board": false` stops the rows.
+
+## v0.5.2: no clear offers in the desktop app
+The desktop app's `clear_session` does not run SessionStart hooks, so the handoff note was never restored after a clear there (0 clear starts against 43 compact starts in real transcripts). In the app Claude now points to plain `/compact` (the note is restored) or offers a new-session card that carries the note, and never offers `clear_session`. The clear estimate is no longer added to the hint. A new-session card now counts as an offer for the topic check.
 
 ## v0.5.1: directory listing
 Plugin manifest now carries the privacy policy, support and documentation links; the privacy policy is at [tokenstamina.com/privacy.html](https://tokenstamina.com/privacy.html). Unused TypeScript sources were removed from `hooks/` (the hooks are the Node scripts in `scripts/`). No behavior change.
