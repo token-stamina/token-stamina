@@ -1,3 +1,5 @@
+<p><img src="docs/logo.svg" alt="" width="72"></p>
+
 # Token Stamina
 
 Token Stamina turns your Claude Code pace into action. It compares weekly (7d) and 5-hour usage with how much of each window has passed, grades it green, yellow or red, and when you're well ahead of pace moves subagent calls to cheaper models. At work boundaries in long conversations it suggests a compact (with a savings estimate when it can make one) and saves a handoff note first. It makes no LLM calls; its only network request is a once-a-day version check (`"updateCheck": false` turns it off).
