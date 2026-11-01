@@ -3,6 +3,7 @@
 // memory. Each test checks one feature end to end through the real register.ts.
 import { expect, mock, test } from 'claude-code/testing';
 import { sessionFileName, latestFileName, pendingClearName } from './core/handoff.ts';
+import { SLOTS, hash, slotName, header as evHeader } from './core/events.ts';
 
 const USER = '/h';
 const HOME = '/h/.claude/token-stamina';
@@ -26,9 +27,9 @@ type Files = Record<string, string>;
 // The engine hands the hooks absolute paths in the platform's form (C:\h\... on Windows): compare them as /h/...
 const norm = (p: string) => String(p).replace(/\\/g, '/').replace(/^[A-Za-z]:/, '');
 
-function world(on: any, files: Files, opts: { host?: string; usage?: any; messages?: any[] } = {}) {
+function world(on: any, files: Files, opts: { host?: string; usage?: any; messages?: any[]; onWrite?: (p: string, text: string) => boolean; ages?: Record<string, number>; denyWrite?: string; noSid?: boolean } = {}) {
   const mtime: Record<string, number> = {};
-  for (const p of Object.keys(files)) mtime[p] = Date.now();
+  for (const p of Object.keys(files)) mtime[p] = Date.now() - ((opts.ages && opts.ages[p]) || 0);
   const status: (string | undefined)[] = [];
   on('fs.read', (_: any, e: any) => {
     const p = norm(e.path);
@@ -36,8 +37,9 @@ function world(on: any, files: Files, opts: { host?: string; usage?: any; messag
     return p in files ? { value: files[p] } : { deny: 'ENOENT: ' + p };
   });
   on('fs.write', (_: any, e: any) => {
+    if (opts.denyWrite) return { deny: opts.denyWrite };
     const p = norm(e.path);
-    files[p] = String(e.text);
+    if (!(opts.onWrite && opts.onWrite(p, String(e.text)))) files[p] = String(e.text);
     mtime[p] = Date.now();
     return { value: undefined };
   });
@@ -59,7 +61,7 @@ function world(on: any, files: Files, opts: { host?: string; usage?: any; messag
     return seen.size ? { value: [...seen.values()] } : { deny: 'ENOENT' };
   });
   on('session.messages', () => (opts.messages ? { value: opts.messages } : { deny: 'no messages in the test' }));
-  on('session.id', () => ({ value: 'S1' }));
+  on('session.id', () => (opts.noSid ? { deny: 'no session id in the test' } : { value: 'S1' }));
   on('session.cwd', () => ({ value: '/w' }));
   on('session.usage', () => ({ value: opts.usage || { startedAt: 0, context: { tokens: 1000, window: 200000 }, rateLimits: [] } }));
   on('ui.status', (_: any, e: any) => {
@@ -71,6 +73,8 @@ function world(on: any, files: Files, opts: { host?: string; usage?: any; messag
 }
 
 const line = (o: unknown) => JSON.stringify(o) + '\n';
+// Every event line written so far: the old single file and the per-session slot files (core/events.ts).
+const evText = (files: Files) => Object.keys(files).filter((p) => p === HOME + '/events.jsonl' || p.startsWith(HOME + '/events/')).sort().map((p) => files[p]).join('');
 const prompt = (t: string) => line({ type: 'user', isSidechain: false, timestamp: new Date().toISOString(), message: { role: 'user', content: t } });
 const asst = (content: unknown[]) => line({ type: 'assistant', isSidechain: false, message: { model: 'm', role: 'assistant', content, usage: { input_tokens: 5000 } } });
 const result = (id: string) => line({ type: 'user', isSidechain: false, message: { role: 'user', content: [{ type: 'tool_result', tool_use_id: id, content: 'ok' }] } });
@@ -314,7 +318,7 @@ const idleRun = ($: any, on: any) => async (promptAt: number) => {
     world(on, files, { messages: [{ role: 'assistant', content: [] }], usage: bigUsage });
     on('classic.UserPromptSubmit', () => ({}));
     await $.classic.UserPromptSubmit({ session_id: 'S1', cwd: '/w', prompt: 'next', transcript_path: '/t/big.jsonl' } as any);
-    return String(files[HOME + '/events.jsonl'] || '');
+    return evText(files);
 };
 
 test('UserPromptSubmit on the fallback path: the side file stopAt opens the idle gate', async ($, on) => {
@@ -339,7 +343,7 @@ test('Agent call with fleet on: other active sessions are counted (fleet_session
   on('tool.call', () => ({ result: {} }));
   await $.classic.SessionStart({ source: 'startup', session_id: 'S1', cwd: '/w', transcript_path: PROJ + '/S1.jsonl' } as any);
   await $.tool.call({ tool: 'Agent', description: 'do the thing', prompt: 'do the thing', subagent_type: 'general-purpose' } as any);
-  const ev = String(files[HOME + '/events.jsonl']);
+  const ev = evText(files);
   expect(ev).toContain('"fleet_sessions":4');
   expect(ev).toContain('"reason":"fleet_advise_nostate"'); // 0 running + 4 sessions >= fleetTotalWarnAt 4
 });
@@ -351,7 +355,7 @@ test('Agent call with fleetSessions:false counts no sessions (fleet_sessions nul
   on('tool.call', () => ({ result: {} }));
   await $.classic.SessionStart({ source: 'startup', session_id: 'S1', cwd: '/w', transcript_path: PROJ + '/S1.jsonl' } as any);
   await $.tool.call({ tool: 'Agent', description: 'do the thing', prompt: 'do the thing', subagent_type: 'general-purpose' } as any);
-  const ev2 = String(files2[HOME + '/events.jsonl']);
+  const ev2 = evText(files2);
   expect(ev2).toContain('"fleet_sessions":null');
   expect(ev2).not.toContain('fleet_advise_nostate');
 });
@@ -370,7 +374,7 @@ test('Agent call at red usage with 4 other sessions: the total-sessions hard lin
   await $.classic.SessionStart({ source: 'startup', session_id: 'S1', cwd: '/w', transcript_path: PROJ + '/S1.jsonl' } as any);
   await $.tool.call({ tool: 'Agent', description: 'do the thing', prompt: 'do the thing', subagent_type: 'general-purpose' } as any);
   expect(seen?.model).toBe('sonnet');
-  expect(String(files[HOME + '/events.jsonl'])).toContain('"reason":"fleet_hard_downgrade"');
+  expect(evText(files)).toContain('"reason":"fleet_hard_downgrade"');
 });
 
 test('/ts-report default window drops rows older than 30 days; --since widens it', async ($, on) => {
@@ -421,7 +425,7 @@ const cacheRun = async ($: any, on: any, cacheSec: number, sid: string) => {
   await $.tool.call({ tool: 'Agent', description: 'do the thing', prompt: 'do the thing', subagent_type: 'general-purpose' } as any);
   files[PROJ + '/OTHERE.jsonl'] = line({ type: 'user', cwd: '/oE', entrypoint: 'cli' });
   await $.tool.call({ tool: 'Agent', description: 'do the thing', prompt: 'do the thing', subagent_type: 'general-purpose' } as any);
-  return String(files[HOME + '/events.jsonl']);
+  return evText(files);
 };
 
 test('fleetSessionsCacheSec 30: a session started between two Agent calls is not seen until the cache runs out', async ($, on) => {
@@ -448,4 +452,278 @@ test('an old Node status line entry gets one on-screen line pointing to setup, o
   expect((r.additionalContext || []).join(' ')).not.toContain('/token-stamina:setup');
   await $.classic.SessionStart({ source: 'startup', session_id: 'S2', cwd: '/w', transcript_path: '/t/S2.jsonl' } as any);
   expect(logged.length).toBe(1);
+});
+
+// 0.6.1: each session writes its own slot file under events/, so two processes never rewrite the same file.
+const EV = HOME + '/events/';
+const slotFor = (sid: string, k = 0) => EV + slotName((hash(sid) % SLOTS) + k);
+const agentCall = async ($: any, on: any, files: Files) => {
+  world(on, files);
+  on('tool.call', () => ({ result: {} }));
+  await $.tool.call({ tool: 'Agent', description: 'do the thing', prompt: 'do the thing', subagent_type: 'general-purpose' } as any);
+};
+
+test('an event goes to the session slot file, which starts with its owner line', async ($, on) => {
+  const files: Files = {};
+  await agentCall($, on, files);
+  const t = files[slotFor('S1')]!;
+  expect(JSON.parse(t.split('\n')[0]!).owner).toBe('S1');
+  expect(t).toContain('"event":"agent_model"');
+  expect(files[HOME + '/events.jsonl']).toBeUndefined();
+});
+
+test('a slot another session holds is left alone: the event goes to the next slot', async ($, on) => {
+  const other = evHeader('OTHER', Date.now()) + line({ v: 5, ts: new Date().toISOString(), event: 'nudge', session: 'OTHER' });
+  const files: Files = { [slotFor('S1')]: other };
+  await agentCall($, on, files);
+  expect(files[slotFor('S1')]).toBe(other);
+  expect(files[slotFor('S1', 1)]).toContain('"event":"agent_model"');
+});
+
+test('a slot over 3 MiB moves aside to its .old file and starts again with the owner line', async ($, on) => {
+  const big = evHeader('S1', Date.now()) + (line({ v: 5, ts: new Date().toISOString(), event: 'filler', session: 'S1', pad: 'x'.repeat(1000) })).repeat(3300);
+  const files: Files = { [slotFor('S1')]: big };
+  await agentCall($, on, files);
+  expect(files[slotFor('S1').replace(/\.jsonl$/, '.old.jsonl')]).toBe(big);
+  const t = files[slotFor('S1')]!;
+  expect(t.length < 10000).toBe(true);
+  expect(JSON.parse(t.split('\n')[0]!).owner).toBe('S1');
+  expect(t).toContain('"event":"agent_model"');
+});
+
+test('/ts-savings reads the events in the slot files', async ($, on) => {
+  const events = evHeader('S1', Date.now()) + line({ v: 5, ts: iso(), event: 'agent_model', action: 'inject', session: 'S1', tool_use_id: 't1', model: 'sonnet', requested_model: 'opus' });
+  const transcript =
+    asstAt('m1', 'claude-opus-4-7', { input_tokens: 10, output_tokens: 5 }, [{ type: 'tool_use', id: 't1', name: 'Agent', input: {} }]) +
+    line({ type: 'user', isSidechain: false, toolUseResult: { status: 'completed', resolvedModel: 'claude-sonnet-4-6', usage: { input_tokens: 1000, output_tokens: 100 } }, message: { role: 'user', content: [{ type: 'tool_result', tool_use_id: 't1', content: 'ok' }] } });
+  world(on, { [slotFor('S1')]: events, [PROJ + '/S1.jsonl']: transcript });
+  const r: any = await $.command.run({ command: 'ts-savings' } as any);
+  expect(r.text).toContain('Model downgrade: 1 calls, 1.1k tokens, Opus-input equiv 600 (est.)');
+});
+
+test('two sessions claiming the same free slot: the one whose header was overwritten moves to the next slot', async ($, on) => {
+  const files: Files = {};
+  let raced = false;
+  world(on, files, {
+    onWrite: (p, text) => {
+      if (raced || p !== slotFor('S1') || !text.includes('"owner":"S1"')) return false;
+      raced = true;
+      files[p] = evHeader('RIVAL', Date.now()); // the rival's write lands after ours
+      return true;
+    },
+  });
+  on('tool.call', () => ({ result: {} }));
+  await $.tool.call({ tool: 'Agent', description: 'do the thing', prompt: 'do the thing', subagent_type: 'general-purpose' } as any);
+  expect(raced).toBe(true);
+  expect(files[slotFor('S1')]).not.toContain('agent_model');
+  expect(files[slotFor('S1', 1)]).toContain('"event":"agent_model"');
+});
+
+// 0.6.1: $.fs has no delete, so note files unchanged for 7 days are emptied; an empty note reads as none.
+const DAY = 86400 * 1000;
+
+test('startup empties handoff files unchanged for 7 days and leaves newer ones', async ($, on) => {
+  const old = sessionFileName(DIR, 'OLD');
+  const fresh = sessionFileName(DIR, 'NEW');
+  const files: Files = { [old]: '# old note\nsecret plan\n', [DIR + '/OLD.json']: '{"commits":[]}', [fresh]: '# new note\n' };
+  world(on, files, { ages: { [old]: 8 * DAY, [DIR + '/OLD.json']: 8 * DAY, [fresh]: 6 * DAY } });
+  on('classic.SessionStart', () => ({}));
+  await $.classic.SessionStart({ source: 'startup', session_id: 'S1', cwd: '/w', transcript_path: '/t/S1.jsonl' } as any);
+  expect(files[old]).toBe('');
+  expect(files[DIR + '/OLD.json']).toBe('');
+  expect(files[fresh]).toBe('# new note\n');
+});
+
+test('SessionStart compact: an emptied session note reads as none, so the cwd latest note comes back instead', async ($, on) => {
+  const files: Files = { [sessionFileName(DIR, 'S1')]: '', [latestFileName(DIR, '/w')]: '# Handoff note (auto, no LLM)\n- cwd: /w\n\nlatest work\n' };
+  world(on, files);
+  on('classic.SessionStart', () => ({}));
+  const r: any = await $.classic.SessionStart({ source: 'compact', session_id: 'S1', cwd: '/w', transcript_path: '/t/S1.jsonl' } as any);
+  expect((r.additionalContext || []).join('\n')).toContain('latest work');
+});
+
+// ---- efficiency board: the per-session row (Stop / UserPromptSubmit) and the `board` tool ----
+
+const BOARD = HOME + '/board';
+const BTOOL = 'mcp__token-stamina__board';
+const boardTranscript = () => prompt('hello') + asstAt('m1', 'claude-opus-4-7', { input_tokens: 5000, cache_read_input_tokens: 100, output_tokens: 10 });
+const nowIso = (offsetSec = 0) => new Date(Date.now() + offsetSec * 1000).toISOString();
+// A board row as the Stop hook writes it, for the tool tests.
+const rowDoc = (sid: string, over: Record<string, unknown> = {}) => ({
+  sid, cwd_tail: 'proj', model: 'claude-opus-4-7', entrypoint: null, protected: false, last_user_ts: Math.floor(Date.now() / 1000) - 600, last_ts: Math.floor(Date.now() / 1000) - 590,
+  in_last: 40000, in_med10: 40000, in_trend: 0, spark: [40000], hit: 0.9, hit_active: 0.9, miss_after_idle: 0, j: 0, fit: 'lower_candidate', estimated: true,
+  ctx_tokens: 40000, clear_candidate: false, idle_sec: 600, agents_running: 0, agents_upper: 0, agent_tokens_done: null, agent_tokens_live: null, agent_share: null,
+  sample_turns: 5, updated_at: nowIso(-30), ...over,
+});
+async function callBoard($: any, input: Record<string, unknown>): Promise<any> {
+  const r: any = await $.tool.call({ tool: BTOOL, ...input } as any);
+  return JSON.parse(r.result.content[0].text);
+}
+const redUsage = () => {
+  const resets = new Date(Date.now() + 3 * 86400 * 1000).toISOString();
+  return { startedAt: 0, context: { tokens: 1000, window: 200000 }, rateLimits: [{ kind: 'seven_day', percentUsed: 97, resetsAt: resets }, { kind: 'five_hour', percentUsed: 97, resetsAt: resets }] };
+};
+
+test('board row: Stop writes board/S1.json only when dashboardUrl is set', async ($, on) => {
+  const files: Files = { '/t/S1.jsonl': boardTranscript(), [HOME + '/config.json']: JSON.stringify({ dashboardUrl: 'https://claude.ai/artifact/x' }) };
+  world(on, files);
+  on('classic.Stop', () => ({}));
+  await $.classic.Stop({ session_id: 'S1', cwd: '/w/proj', transcript_path: '/t/S1.jsonl' } as any);
+  const r = JSON.parse(files[BOARD + '/S1.json'] || 'null');
+  expect(r?.sid).toBe('S1');
+  expect(r?.cwd_tail).toBe('proj');
+  expect(r?.in_last).toBe(5100);
+});
+
+test('board row: no row when dashboardUrl is empty', async ($, on) => {
+  const files2: Files = { '/t/S1.jsonl': boardTranscript(), [HOME + '/config.json']: JSON.stringify({ dashboardUrl: '' }) };
+  world(on, files2);
+  on('classic.Stop', () => ({}));
+  await $.classic.Stop({ session_id: 'S1', cwd: '/w/proj', transcript_path: '/t/S1.jsonl' } as any);
+  expect(files2[BOARD + '/S1.json']).toBeUndefined();
+});
+
+test('board row: an expired row file is emptied, a fresh one and the ledger stay; a row never overwrites the ledger', async ($, on) => {
+  const ledger = JSON.stringify({ rows: [{ pid: 'sm-000000000000', status: 'approved' }], proposals: {} });
+  const files: Files = {
+    '/t/S1.jsonl': boardTranscript(), [HOME + '/config.json']: JSON.stringify({ dashboardUrl: 'https://claude.ai/artifact/x' }),
+    [BOARD + '/OLD.json']: JSON.stringify(rowDoc('OLD', { updated_at: nowIso(-3 * 86400) })),
+    [BOARD + '/FRESH.json']: JSON.stringify(rowDoc('FRESH')),
+    [BOARD + '/decisions.json']: ledger,
+  };
+  world(on, files);
+  on('classic.Stop', () => ({}));
+  await $.classic.Stop({ session_id: 'S1', cwd: '/w/proj', transcript_path: '/t/S1.jsonl' } as any);
+  expect(files[BOARD + '/OLD.json']).toBe('');
+  expect(JSON.parse(files[BOARD + '/FRESH.json']!).sid).toBe('FRESH');
+  expect(files[BOARD + '/decisions.json']).toBe(ledger);
+  // a session whose id is "decisions" must not clobber the ledger
+  files['/t/decisions.jsonl'] = boardTranscript();
+  await $.classic.Stop({ session_id: 'decisions', cwd: '/w/proj', transcript_path: '/t/decisions.jsonl' } as any);
+  expect(files[BOARD + '/decisions.json']).toBe(ledger);
+  // an emptied row file may be written again by its own session
+  files['/t/OLD.jsonl'] = boardTranscript();
+  await $.classic.Stop({ session_id: 'OLD', cwd: '/w/proj', transcript_path: '/t/OLD.jsonl' } as any);
+  expect(JSON.parse(files[BOARD + '/OLD.json']!).sid).toBe('OLD');
+});
+
+test('board tool: session.start declares it', async ($, on) => {
+  const tools: any[] = [];
+  on('tool.register', (_: any, e: any) => {
+    tools.push(e);
+    return { value: { tool: 'mcp__token-stamina__' + e.name } };
+  });
+  on('command.register', (_: any, e: any) => ({ value: { command: e.name } }));
+  on('session.start', (_: any, e: any) => ({ cwd: e.cwd }));
+  world(on, {});
+  await $.session.start({ cwd: '/w', surface: 'terminal', isInteractive: true } as any);
+  expect(tools.map((t) => t.name).join(',')).toBe('board');
+  expect(tools[0].inputSchema.properties.mode.enum).toContain('record-push');
+});
+
+test('board tool rows: writes the batch files, then skips as unchanged once record-push has run', async ($, on) => {
+  const files: Files = { [BOARD + '/S1.json']: JSON.stringify(rowDoc('S1')) };
+  world(on, files);
+  const a = await callBoard($, { mode: 'rows' });
+  expect(a.skip).toBe(false);
+  expect(a.rows).toBe(1);
+  expect(a.writes_count).toBe(3); // account, summary, sessions/S1
+  const batch = JSON.parse(files[norm(a.batch_file)]!);
+  expect(batch.writes.length).toBe(3);
+  const w = batch.writes.find((x: any) => x.collection === 'sessions');
+  expect(w.doc_id).toBe('S1');
+  expect(JSON.parse(files[norm(w.file_path)]!).sid).toBe('S1');
+  expect(JSON.parse(files[HOME + '/board-push/pending.json']!).rows).toBe(1);
+
+  const rec = await callBoard($, { mode: 'record-push', tokens: 1234, rows: 1 });
+  expect(rec).toEqual({ recorded: true, rows: 1, tokens: 1234 });
+  expect(evText(files)).toContain('"event":"board_push"');
+  const b = await callBoard($, { mode: 'rows' });
+  expect(b.skip).toBe(true);
+  expect(b.reason).toBe('unchanged');
+
+  const j = await callBoard($, { mode: 'json' });
+  expect(j.count).toBe(1);
+  expect(j.source).toBe('board-dir');
+});
+
+test('board tool rows: the day budget counts board_push tokens of every session slot file', async ($, on) => {
+  const slot = HOME + '/events/s001.jsonl';
+  const files: Files = {
+    [BOARD + '/S1.json']: JSON.stringify(rowDoc('S1')),
+    [slot]: evHeader('OTHER', Date.now()) + JSON.stringify({ v: 5, ts: nowIso(-3600), event: 'board_push', tokens: 200000, rows: 1 }) + '\n',
+  };
+  world(on, files);
+  const a = await callBoard($, { mode: 'rows' });
+  expect(a.skip).toBe(true);
+  expect(a.reason).toBe('budget');
+  expect(a.tokens_24h).toBe(200000);
+  expect(a.daily_limit).toBe(150000);
+});
+
+test('board tool apply: an approved decision becomes a set_session_model op and is kept in the ledger', async ($, on) => {
+  const live = [{ sessionId: 'S1', model: 'claude-opus-4-7', cwd: '/w/proj', title: 'proj work' }];
+  const files: Files = {
+    [BOARD + '/S1.json']: JSON.stringify(rowDoc('S1')),
+    [HOME + '/config.json']: JSON.stringify({ applyMode: 'approve' }),
+    '/t/live.json': JSON.stringify(live),
+  };
+  world(on, files, { usage: redUsage() });
+  // rows remembers the proposal card locally; apply reads proposal content only from there
+  const a = await callBoard($, { mode: 'rows', titles: '/t/live.json' });
+  expect(a.skip).toBe(false);
+  expect(a.proposals).toBeGreaterThan(0);
+  const pid = Object.keys(JSON.parse(files[BOARD + '/decisions.json']!).proposals).find((k) => k.startsWith('sm-'))!;
+  expect(pid).toBeDefined();
+  files['/t/dec.json'] = JSON.stringify([{ pid, status: 'approved', decided_by: 'owner', decided_at: nowIso(-60) }]);
+  const r = await callBoard($, { mode: 'apply', decisions: '/t/dec.json', live: '/t/live.json' });
+  expect(r.ops.length).toBe(1);
+  expect(r.ops[0].tool).toBe('set_session_model');
+  expect(r.ops[0].args).toEqual({ session_id: 'S1', model: 'sonnet' });
+  expect(r.apply_mode).toBe('approve');
+  const led = JSON.parse(files[BOARD + '/decisions.json']!);
+  expect(led.rows.some((x: any) => x.pid === pid)).toBe(true);
+  expect(Object.keys(led.proposals)).toContain(pid);
+  expect(evText(files)).toContain('"event":"decision_apply"');
+  // the runner's result is recorded
+  const rr = await callBoard($, { mode: 'record-apply', results: JSON.stringify([{ pid, ok: true }]) });
+  expect(rr.results[0].status).toBe('applied');
+  expect(JSON.parse(files[BOARD + '/decisions.json']!).rows.find((x: any) => x.pid === pid).status).toBe('applied');
+});
+
+test('board tool: an unknown mode and a failing mode answer in the Node error shapes', async ($, on) => {
+  world(on, {}, { denyWrite: 'disk full' });
+  const bad = await callBoard($, { mode: 'nope' });
+  expect(bad.error).toContain('unknown mode');
+  const rp = await callBoard($, { mode: 'record-push' });
+  expect(rp.recorded).toBe(false);
+  expect(rp.error).toContain('disk full');
+});
+
+test('board tool apply: a config.json that cannot be parsed is left as it is, and the answer is an error', async ($, on) => {
+  const broken = '{ "lang": "ko", oops';
+  const files: Files = { [HOME + '/config.json']: broken, '/t/dec.json': '[]' };
+  world(on, files);
+  const r: any = await $.tool.call({ tool: BTOOL, mode: 'apply', decisions: '/t/dec.json' } as any);
+  expect(r.result.isError).toBe(true);
+  const out = JSON.parse(r.result.content[0].text);
+  expect(out.ops).toEqual([]);
+  expect(out.error).toContain('config.json');
+  expect(files[HOME + '/config.json']).toBe(broken);
+  expect(files[HOME + '/config.prev.json']).toBeUndefined();
+});
+
+test('board row: a prompt writes no row (rows are written at Stop only)', async ($, on) => {
+  const files: Files = { '/t/S1.jsonl': boardTranscript(), [HOME + '/config.json']: JSON.stringify({ dashboardUrl: 'https://claude.ai/artifact/x' }) };
+  world(on, files);
+  on('classic.UserPromptSubmit', () => ({}));
+  await $.classic.UserPromptSubmit({ session_id: 'S1', cwd: '/w/proj', prompt: 'next', transcript_path: '/t/S1.jsonl' } as any);
+  expect(files[BOARD + '/S1.json']).toBeUndefined();
+});
+
+test('an event without a session id is not written (it would share one slot across processes)', async ($, on) => {
+  const files: Files = {};
+  world(on, files, { noSid: true });
+  await callBoard($, { mode: 'record-push', tokens: 5, rows: 1 });
+  expect(evText(files)).toBe('');
 });

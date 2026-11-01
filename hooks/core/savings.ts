@@ -6,6 +6,7 @@
 import { WEIGHT, family } from './report.ts';
 import { estimateTokens, joinPath } from './text.ts';
 import { baseName, parentDir, walkJsonl, type CmdIO, type FileInfo } from './cmd-io.ts';
+import { readEvents } from './events.ts';
 
 export const ALERT_EVENTS = new Set(['inline_hint', 'topic_gate', 'boundary', 'topic_check']);
 const ALERT_WINDOW_MS = 3 * 3600 * 1000;
@@ -139,23 +140,8 @@ export function parseArgs(argv: string[], defaultSince: string): SavingsOpts {
   return o;
 }
 
-// events.jsonl plus what the mod wrote beside it: events-mod.jsonl (the main file was over 4 MiB) and
-// the rotated events-<time>.jsonl files. A rotated file older than `since` cannot hold a newer event.
-export async function readEvents(io: CmdIO, home: string, sinceMs: number): Promise<any[]> {
-  const out: any[] = [];
-  const names = new Set<string>(['events.jsonl', 'events-mod.jsonl']);
-  const list = await io.list(home);
-  if (list) for (const e of list) if (e.kind === 'file' && /^events-[\w-]+\.jsonl$/.test(e.name) && e.mtimeMs >= sinceMs) names.add(e.name);
-  for (const n of names) {
-    const txt = await io.read(joinPath(home, n));
-    if (!txt) continue;
-    for (const line of txt.split('\n')) {
-      if (!line) continue;
-      try { const e = JSON.parse(line); if (Date.parse(e.ts) >= sinceMs) out.push(e); } catch { /* skip */ }
-    }
-  }
-  return out;
-}
+// The event log: the old single files and the per-session slot files (core/events.ts).
+export { readEvents };
 
 interface Agg { count: number; tokens: number; cost: number; opus_input_equiv: number }
 const agg = (): Agg => ({ count: 0, tokens: 0, cost: 0, opus_input_equiv: 0 });

@@ -25,6 +25,15 @@ import { isRealPrompt, commitSubject } from './boundary.ts';
 export const TAIL_BYTES = 512 * 1024;
 export const KEEP_SEC = 7 * 86400;
 export const FALLBACK_MAX_AGE_SEC = 86400;
+
+// $.fs has no delete: a note file unchanged for KEEP_SEC is emptied instead (the Node build unlinked it).
+// The names of the entries to empty: files with content whose last write is older than KEEP_SEC.
+export function staleNotes(entries: { name: string; kind: string; size: number; mtimeMs: number }[], nowMs: number): string[] {
+  return entries.filter((e) => e.kind === 'file' && e.size > 0 && nowMs - e.mtimeMs > KEEP_SEC * 1000).map((e) => e.name);
+}
+
+// An emptied note (blank text) reads as no note.
+export const noteText = (t: string | null): string | null => (t != null && t.trim() ? t : null);
 export const CLEAR_MAX_AGE_SEC = 3600;
 export const CLEAR_LINK_MAX_SEC = 3600; // desktop-app clear: the new session must start within this of the marker
 export const HEADER = 'Token Stamina handoff (auto-saved before compact/clear)';

@@ -15,9 +15,12 @@
 //   tool.call Agent / mcp__ccd_session__start_session   agent-model.js
 //   every hook above          statusline.js, as $.ui.status from $.session.usage()
 //   command.run fleet / savings / report / audit   scripts/{fleet,savings,report,audit}.js, answered as { text }
-//                             (registered in session.start; setup and autocompact are mod/commands/*.md)
-// Not ported here (stage 2 or no longer needed): first-run/setup-nudge (the status line needs no
-// setup in a mod), board.js, the desktop usage-sync hint, note pruning ($.fs has no delete).
+//                             (registered in session.start; setup, autocompact and board are mod/commands/*.md)
+//   classic.Stop / UserPromptSubmit   board.js (the per-session board row, only with dashboardUrl set)
+//   tool.call mcp__token-stamina__board   board.js --rows / --apply / --record-apply / --record-push / --json
+//                             (the tool is declared in session.start; mod/commands/board.md calls it)
+// Not ported here (no longer needed): first-run/setup-nudge (the status line needs no setup in a mod),
+// the desktop usage-sync hint. Not in the board tool: board.js --json --live (the transcript scan).
 
 import type { Register, EngineInterface } from 'claude-code';
 
@@ -84,6 +87,8 @@ import {
   pickClearNote,
   pendingClearName,
   recentLog,
+  staleNotes,
+  noteText,
 } from './core/handoff.ts';
 import { computeProfile, cacheIsFresh, firstCallTokensFromText, type ProfileResult } from './core/clear-savings.ts';
 import { segment as statuslineSegment, legacyStatusNotice } from './core/statusline.ts';
@@ -91,6 +96,41 @@ import { joinPath, estimateTokens, encodeCwd } from './core/text.ts';
 import { splitArgs, dayAgo, skippedLine, walkJsonl, type CmdIO } from './core/cmd-io.ts';
 import { createAgg as reportAgg, render as reportRender, sinceMsOf, defaultWindow as reportDefaultWindow, defaultWindowNote as reportWindowNote, DEFAULT_REPORT_DAYS } from './core/report.ts';
 import { compute as savingsCompute, renderText as savingsRender, parseArgs as savingsArgs } from './core/savings.ts';
+import {
+  DIR as EVENTS_DIR,
+  KEEP_MS as EVENTS_KEEP_MS,
+  ROTATE_AT as EVENTS_ROTATE_AT,
+  header as eventHeader,
+  oldName as eventOldName,
+  ownerOf as eventOwner,
+  pickSlot,
+  readEvents,
+} from './core/events.ts';
+import {
+  DEFAULTS as BOARD_DEFAULTS,
+  SID_RE as BOARD_SID_RE,
+  isRowFile as boardIsRowFile,
+  readBoardEntries as boardReadEntries,
+  pruneList as boardPruneList,
+  tailText as boardTailText,
+  tailMetrics as boardTailMetrics,
+  agentTailTokens as boardAgentTailTokens,
+  liveAgentIds as boardLiveAgentIds,
+  row as boardRowOf,
+  rowsPayload as boardRowsPayload,
+  applyPayload as boardApplyPayload,
+  applyEvent as boardApplyEvent,
+  ledgerOf as boardLedgerOf,
+  ledgerAfter as boardLedgerAfter,
+  pendingApprovals as boardPending,
+  rememberProposals as boardRemember,
+  recordApplyResult as boardRecordApplyResult,
+  pushRecord as boardPushRecord,
+  docFiles as boardDocFiles,
+  docVersion as boardDocVersion,
+  lastDetected as boardLastDetected,
+  type BoardEntry,
+} from './core/board.ts';
 import { buildReport as auditBuild, render as auditRender, parseArgs as auditArgs } from './core/audit.ts';
 
 type $T = EngineInterface;
@@ -181,30 +221,51 @@ async function mtimeOf($: $T, path: string): Promise<number | null> {
   }
 }
 
-// events.jsonl, one JSON line per event with `v: 5` (PLAN §2). $.fs has no append, so the file is
-// read and written whole; writes from this module are chained so two hooks never interleave. A
-// file that exists but cannot be read (over 4 MiB) is never overwritten: the line goes to
-// events-mod.jsonl instead. Past 3 MiB the log is moved aside to events-<time>.jsonl.
-const ROTATE_AT = 3 * 1024 * 1024;
+// The event log, one JSON line per event with `v: 5` (PLAN §2), in the session's own slot file
+// events/sXXX.jsonl (core/events.ts): a slot is written by one session, so by one process, and $.fs
+// rewriting the whole file loses no other process's line. Writes from this module are chained so two
+// hooks never interleave. Past 3 MiB a slot is moved aside to sXXX.old.jsonl.
+const slotOf = new Map<string, string>();
+const noSlot = new Set<string>();
 let eventChain: Promise<void> = Promise.resolve();
 function appendEvent($: $T, env: Env, ev: Record<string, unknown>): Promise<void> {
-  const line = JSON.stringify(Object.assign({ v: 5, ts: new Date().toISOString() }, ev)) + '\n';
+  const nowMs = Date.now();
+  const line = JSON.stringify(Object.assign({ v: 5, ts: new Date(nowMs).toISOString() }, ev)) + '\n';
+  const sid = safeId(typeof ev.session === 'string' ? ev.session : undefined);
+  // No session id: every such process would share one slot, so the line is not written. A session
+  // that found no slot (folder crowded) does not search again in this process.
+  if (sid === 'unknown' || noSlot.has(sid)) return eventChain;
   eventChain = eventChain.then(async () => {
     try {
-      let file = joinPath(env.home, 'events.jsonl');
-      let prev = '';
-      if (await $.fs.exists(file)) {
-        const t = await readText($, file);
-        if (t == null) {
-          file = joinPath(env.home, 'events-mod.jsonl');
-          prev = (await readText($, file)) || '';
-        } else prev = t;
+      const dir = joinPath(env.home, EVENTS_DIR);
+      const at = (n: string) => joinPath(dir, n);
+      const skip = new Set<string>();
+      for (let tries = 0; tries < 3; tries++) {
+        let name = slotOf.get(sid);
+        let prev: string | null = name ? await readText($, at(name)) : null;
+        if (!name || prev == null || eventOwner(prev) !== sid) {
+          if (name) skip.add(name);
+          const list = await $.fs.list(dir).catch(() => []);
+          const pick = await pickSlot(sid, list.filter((x) => x.kind === 'file'), nowMs, (n) => readText($, at(n)), skip);
+          if (!pick) { noSlot.add(sid); return; } // every slot searched is held by a live session: the line is dropped
+          name = pick.name;
+          if (pick.fresh) {
+            await $.fs.write(at(name), eventHeader(sid, nowMs));
+            const old = at(eventOldName(name));
+            const om = await mtimeOf($, old);
+            if (om !== null && nowMs - om > EVENTS_KEEP_MS) await $.fs.write(old, ''); // a past owner's events
+            prev = await readText($, at(name));
+            if (eventOwner(prev) !== sid) { skip.add(name); continue; } // another session took it first
+          } else prev = pick.text;
+          slotOf.set(sid, name);
+        }
+        if (prev!.length > EVENTS_ROTATE_AT / 3 && new TextEncoder().encode(prev!).length > EVENTS_ROTATE_AT) {
+          await $.fs.write(at(eventOldName(name)), prev!);
+          prev = eventHeader(sid, nowMs);
+        }
+        await $.fs.write(at(name), prev + line);
+        return;
       }
-      if (prev.length > ROTATE_AT) {
-        await $.fs.write(file.replace(/\.jsonl$/, '-' + Date.now() + '.jsonl'), prev);
-        prev = '';
-      }
-      await $.fs.write(file, prev + line);
     } catch {
       /* best-effort, never block */
     }
@@ -385,8 +446,9 @@ async function restoreMarked($: $T, env: Env, sid: string, nowMs: number, via: s
     await $.fs.write(pf, '{}'); // consumed on every attempt, as the Node script's unlink
     if (decidePrompt(mk, sid, nowMs) !== 'restore') return null;
     const cf = sessionFileName(dir, mk.from, true);
-    const ct = await mtimeOf($, cf);
-    const p = pickClearNote(ct === null ? null : await readText($, cf), ct, await readText($, sessionFileName(dir, mk.from)), mk.at);
+    const ctext = await readNote($, cf);
+    const ct = ctext === null ? null : await mtimeOf($, cf);
+    const p = pickClearNote(ct === null ? null : ctext, ct, await readNote($, sessionFileName(dir, mk.from)), mk.at);
     if (!p) return null;
     await appendEvent($, env, { event: 'handoff_restore', session: sid, source: via, kind: p.kind, from_session: mk.from });
     await showRecent($, env, mk.from, lang);
@@ -406,14 +468,30 @@ async function showRecent($: $T, env: Env, from: string, lang: string): Promise<
   }
 }
 
+// A note file emptied by pruneNotes reads as missing (text and mtime null).
+const readNote = async ($: $T, path: string) => noteText(await readText($, path));
+
 async function notePair($: $T, autoFile: string, claudeFile: string): Promise<NotePairFetch> {
   const [autoText, claudeText, autoMtimeMs, claudeMtimeMs] = await Promise.all([
-    readText($, autoFile),
-    readText($, claudeFile),
+    readNote($, autoFile),
+    readNote($, claudeFile),
     mtimeOf($, autoFile),
     mtimeOf($, claudeFile),
   ]);
-  return { autoFile, claudeFile, autoText, claudeText, autoMtimeMs, claudeMtimeMs };
+  return { autoFile, claudeFile, autoText, claudeText, autoMtimeMs: autoText == null ? null : autoMtimeMs, claudeMtimeMs: claudeText == null ? null : claudeMtimeMs };
+}
+
+// handoff.js::prune without unlink: note files unchanged for 7 days are emptied, at most once an hour per process.
+let prunedAt = 0;
+async function pruneNotes($: $T, env: Env, nowMs: number): Promise<void> {
+  if (nowMs - prunedAt < 3600 * 1000) return;
+  prunedAt = nowMs;
+  try {
+    const dir = joinPath(env.home, 'handoff');
+    for (const n of staleNotes(await $.fs.list(dir), nowMs)) await writeText($, joinPath(dir, n), '');
+  } catch {
+    /* no handoff folder yet */
+  }
 }
 
 // Where the main transcript of each session lives, learned from the classic events; tool.call
@@ -453,6 +531,7 @@ async function onSessionStart($: $T, e: any): Promise<string[]> {
   if (n) out.push(n);
 
   if (e.source === 'startup') await legacyStatusOnce($, env, cfg.lang || 'en', nowMs);
+  if (cfg.handoff !== false) await pruneNotes($, env, nowMs);
 
   if (cfg.handoff !== false && (e.source === 'startup' || e.source === 'clear')) {
     const r = await restoreMarked($, env, safeId(sid), nowMs, 'clear_start', cfg.lang || 'en');
@@ -634,10 +713,11 @@ async function onStop($: $T, e: any): Promise<void> {
       await writeText($, latestFileName(dir, e.cwd), md);
       // A Claude-written note newer than the cwd's latest one becomes the latest, with its session.
       const cf = sessionFileName(dir, sid, true);
-      const ct = await mtimeOf($, cf);
+      const ct = (await readNote($, cf)) === null ? null : await mtimeOf($, cf);
       const lcf = latestFileName(dir, e.cwd, true);
-      if (ct !== null && ((await mtimeOf($, lcf)) || 0) < ct) {
-        const text = await readText($, cf);
+      const lct = (await readNote($, lcf)) === null ? 0 : (await mtimeOf($, lcf)) || 0; // an emptied latest note counts as none
+      if (ct !== null && lct < ct) {
+        const text = await readNote($, cf);
         if (text != null) {
           await writeText($, lcf, text);
           await writeText($, lcf + '.from', sid);
@@ -649,6 +729,9 @@ async function onStop($: $T, e: any): Promise<void> {
       /* handoff save is best-effort */
     }
   }
+
+  // --- board.js::run ---
+  await boardRow($, env, cfg, e, t, nowMs);
 }
 
 // ============================================================================
@@ -989,6 +1072,302 @@ async function answer(name: string, run: () => Promise<string>): Promise<{ text:
 }
 
 // ============================================================================
+// Efficiency board (scripts/board.js): the row a Stop / UserPromptSubmit hook writes, and the
+// `board` tool the /board command calls (rows, apply, record-apply, record-push, json).
+// The pure rules are in core/board.ts and core/decisions.ts; this is the file access.
+// $.fs has no delete: an expired row file is overwritten with '' (read as no row).
+// ============================================================================
+
+const boardDir = (env: Env) => joinPath(env.home, 'board');
+const pushDir = (env: Env) => joinPath(env.home, 'board-push');
+
+// Board folder files (<sid>.json by name) as { name, text }, for the pure readers.
+async function boardEntries($: $T, env: Env): Promise<BoardEntry[]> {
+  const dir = boardDir(env);
+  let list: Awaited<ReturnType<$T['fs']['list']>> = [];
+  try {
+    list = await $.fs.list(dir);
+  } catch {
+    return [];
+  }
+  const out: BoardEntry[] = [];
+  for (const x of list) {
+    if (x.kind !== 'file' || !x.name.endsWith('.json') || !BOARD_SID_RE.test(x.name.slice(0, -5))) continue;
+    const text = await readText($, joinPath(dir, x.name));
+    if (text != null) out.push({ name: x.name, text });
+  }
+  return out;
+}
+
+// scripts/board.js writeRow: never overwrite a file that is not a row (a session id "decisions" would clobber the ledger).
+// An emptied file (a pruned row) may be written again.
+async function writeBoardRow($: $T, env: Env, r: any): Promise<boolean> {
+  if (!r || !BOARD_SID_RE.test(String(r.sid))) return false;
+  const f = joinPath(boardDir(env), r.sid + '.json');
+  if (await $.fs.exists(f)) {
+    const t = await readText($, f);
+    if (t === null) return false;
+    if (t.trim() !== '') {
+      let cur: unknown = null;
+      try {
+        cur = JSON.parse(t);
+      } catch {
+        /* not json: not a row */
+      }
+      if (!boardIsRowFile(r.sid + '.json', cur)) return false;
+    }
+  }
+  await $.fs.write(f, JSON.stringify(r));
+  return true;
+}
+
+// scripts/board.js prune without unlink: expired row files are emptied, at most once an hour per process.
+let boardPrunedAt = 0;
+async function pruneBoard($: $T, env: Env, now: number, cfg: Cfg): Promise<string[]> {
+  if (now * 1000 - boardPrunedAt < 3600 * 1000) return [];
+  boardPrunedAt = now * 1000;
+  const gone = boardPruneList(await boardEntries($, env), now, cfg);
+  for (const n of gone) await writeText($, joinPath(boardDir(env), n), '');
+  return gone;
+}
+
+// Agents' own transcripts: tokens over the tail read (null when none could be read, never 0 for unknown).
+async function boardAgentTokens($: $T, dir: string | null, ids: string[], bytes: number): Promise<number | null> {
+  if (!dir) return null;
+  let sum = 0;
+  let any = false;
+  for (const id of ids) {
+    if (!/^[A-Za-z0-9_-]+$/.test(String(id))) continue;
+    const t = await readText($, joinPath(dir, `agent-${id}.jsonl`));
+    if (t == null) continue;
+    any = true;
+    sum += boardAgentTailTokens(boardTailText(t, bytes));
+  }
+  return any ? sum : null;
+}
+
+// The Stop / UserPromptSubmit row. Only with the dashboard set (cfg.dashboardUrl) and cfg.board on; a transcript
+// that $.fs cannot read (over 4 MiB) gives no row. Fails open.
+async function boardRow($: $T, env: Env, cfg: Cfg, e: any, t: Transcript, nowMs: number): Promise<void> {
+  try {
+    if (cfg.board === false) return;
+    if (typeof cfg.dashboardUrl !== 'string' || !cfg.dashboardUrl.trim()) return;
+    if (typeof e.transcript_path !== 'string' || !BOARD_SID_RE.test(String(e.session_id))) return;
+    if (t.raw == null) return;
+    const now = Math.floor(nowMs / 1000);
+    const c = Object.assign({}, BOARD_DEFAULTS, cfg);
+    const m = boardTailMetrics(boardTailText(t.raw, c.boardTailBytes), now, c);
+    const dir = fleetSessionDir(e.transcript_path);
+    let snap: any = fleetEmptySnap();
+    if (dir) {
+      const entries: FleetEntry[] = [];
+      await collectMetas($, dir, entries);
+      if (entries.length) snap = fleetScanEntries(entries, now, c as any);
+    }
+    snap.doneTokens = await boardAgentTokens($, dir, m.agent_done_ids, c.boardTailBytes);
+    snap.liveTokens = await boardAgentTokens($, dir, boardLiveAgentIds(snap, m.agent_done_ids), c.boardTailBytes);
+    const r = boardRowOf({ sid: e.session_id, cwd: e.cwd, entrypoint: env.entrypoint || null }, m, snap, now, c);
+    await writeBoardRow($, env, r);
+    await pruneBoard($, env, now, c);
+  } catch {
+    /* the board never blocks a turn */
+  }
+}
+
+// A path to a JSON file, or the JSON itself (scripts/board.js readTitles); an object passes as is. null when unreadable.
+async function boardArg($: $T, arg: unknown): Promise<any> {
+  if (arg == null || arg === '') return null;
+  if (typeof arg === 'object') return arg;
+  if (typeof arg !== 'string') return null;
+  try {
+    if (await $.fs.exists(arg)) return JSON.parse(await $.fs.read(arg));
+  } catch {
+    return null;
+  }
+  try {
+    return JSON.parse(arg);
+  } catch {
+    return null;
+  }
+}
+
+// Existing-doc versions from a map file or from a folder ArtifactData list/get wrote with out_dir (sessions/, account/, summary/).
+async function boardVersions($: $T, arg: unknown): Promise<Record<string, number> | null> {
+  if (arg == null || arg === '') return null;
+  if (typeof arg === 'object') return arg as Record<string, number>;
+  if (typeof arg !== 'string') return null;
+  let kind = '';
+  try {
+    kind = (await $.fs.stat(arg)).kind;
+  } catch {
+    /* maybe a folder the stat cannot name: try it as one below */
+  }
+  if (kind === 'file') {
+    try {
+      return JSON.parse(await $.fs.read(arg));
+    } catch {
+      return null;
+    }
+  }
+  const out: Record<string, number> = {};
+  let found = false;
+  for (const col of ['sessions', 'account', 'summary']) {
+    let names: Awaited<ReturnType<$T['fs']['list']>> = [];
+    try {
+      names = await $.fs.list(joinPath(arg, col));
+    } catch {
+      continue;
+    }
+    found = true;
+    for (const n of names) {
+      if (!n.name.endsWith('.json')) continue;
+      const v = boardDocVersion(await readJson<any>($, joinPath(arg, col, n.name), null));
+      if (v !== null) out[col + '/' + n.name.slice(0, -5)] = v;
+    }
+  }
+  return found || kind === 'dir' ? out : null;
+}
+
+const numArg = (x: unknown): number | undefined => (x === undefined || x === null || x === '' ? undefined : (num(Number(x)) ?? undefined));
+
+async function boardRows($: $T, env: Env, e: any): Promise<any> {
+  const nowMs = Date.now();
+  const now = Math.floor(nowMs / 1000);
+  const { cfg } = await loadConfig($, env);
+  const entries = await boardEntries($, env);
+  const rows = boardReadEntries(entries, now, cfg);
+  let active: number | null = null;
+  try {
+    const projects = joinPath(env.configDir, 'projects');
+    const ss = await fleetCachedSessions(sessionsCache, projects + '|', nowMs, (typeof cfg.fleetSessionsCacheSec === 'number' ? cfg.fleetSessionsCacheSec : 30) * 1000, () =>
+      scanSessionsCmd($, projects, null, now, cfg));
+    active = ss ? ss.sessions : null;
+  } catch {
+    /* optional */
+  }
+  // The day's budget: board_push events of the last 24 h from every session's slot file.
+  const evs = (await readEvents(cmdIO($), env.home, nowMs - 86400 * 1000)).filter((x) => x && x.event === 'board_push');
+  const eventsText = evs.map((x) => JSON.stringify(x)).join('\n');
+  const pendArg = numArg(e.pending);
+  const ledgerDoc = await readJson<any>($, joinPath(boardDir(env), 'decisions.json'), null);
+  const usage = await readUsage($, env, nowMs);
+  const out = boardRowsPayload({
+    now, cfg, state: usage.state, rows, activeSessions: active,
+    titles: await boardArg($, e.titles), versions: await boardVersions($, e.versions), eventsText,
+    last: await readJson<any>($, joinPath(pushDir(env), 'last.json'), null),
+    pending: pendArg !== undefined ? pendArg || 0 : boardPending(ledgerDoc),
+    manager: await readJson<any>($, joinPath(boardDir(env), 'manager.json'), null),
+    ledger: boardLedgerOf(ledgerDoc),
+    detectedLang: boardLastDetected(await readJson<any>($, joinPath(env.home, 'lang.json'), {})),
+  });
+  if (out.skip) return out;
+  if (out.proposals.length) {
+    const next = boardRemember(boardLedgerOf(ledgerDoc), out.proposals, now);
+    if (next) await $.fs.write(joinPath(boardDir(env), 'decisions.json'), JSON.stringify(next));
+  }
+  // The batch as files: one data file per doc + the batch json itself (its entries point at the files, so the caller passes them as is).
+  const dir = pushDir(env);
+  const df = boardDocFiles(out.writes.concat(out.proposal_writes), dir, joinPath);
+  for (const f of df.files) await $.fs.write(f.path, JSON.stringify(f.data));
+  const batchFile = joinPath(dir, 'batch.json');
+  await $.fs.write(batchFile, JSON.stringify({ writes: df.writes }));
+  await $.fs.write(joinPath(dir, 'pending.json'), JSON.stringify({ hash: out.hash, ts: now, rows: out.sessions.length }));
+  return { skip: false, hash: out.hash, rows: out.sessions.length, writes_count: df.writes.length, batch_file: batchFile, writes: df.writes,
+    account: out.account, summary: out.summary, log: out.log, proposals: out.proposals.length };
+}
+
+async function boardApply($: $T, env: Env, e: any, sid: string | undefined): Promise<any> {
+  const now = Math.floor(Date.now() / 1000);
+  const { cfg } = await loadConfig($, env);
+  const cfgFile = joinPath(env.home, 'config.json');
+  // A config.json that exists but cannot be read or parsed is never overwritten (nor its backup).
+  let userCfg: any = {};
+  if (await $.fs.exists(cfgFile)) {
+    const text = await readText($, cfgFile);
+    try {
+      userCfg = JSON.parse(text as string);
+    } catch {
+      throw new Error('config.json could not be read; nothing was applied');
+    }
+    if (!userCfg || typeof userCfg !== 'object' || Array.isArray(userCfg)) throw new Error('config.json is not an object; nothing was applied');
+  }
+  const ledgerFile = joinPath(boardDir(env), 'decisions.json');
+  const led = boardLedgerOf(await readJson<any>($, ledgerFile, null));
+  const rows = boardReadEntries(await boardEntries($, env), now, cfg);
+  const usage = await readUsage($, env, now * 1000);
+  const r = boardApplyPayload({
+    now, cfg, userCfg, state: usage.state, rows, ledger: led,
+    decisions: await boardArg($, e.decisions), // a proposals document is not read: proposal content comes from the local ledger
+    settings: await boardArg($, e.settings), live: await boardArg($, e.live), selfSid: e.self, host: '',
+  });
+  if (r.configChanged) {
+    await $.fs.write(joinPath(env.home, 'config.prev.json'), JSON.stringify(userCfg));
+    await $.fs.write(cfgFile, JSON.stringify(r.newUser));
+  }
+  const next = boardLedgerAfter(led, r.plan.ledgerRows, now);
+  if (next) await $.fs.write(ledgerFile, JSON.stringify(next));
+  await appendEvent($, env, { ...boardApplyEvent(r), session: sid });
+  return r.out;
+}
+
+async function boardRecordApply($: $T, env: Env, e: any, sid: string | undefined): Promise<any> {
+  const now = Math.floor(Date.now() / 1000);
+  const ledgerFile = joinPath(boardDir(env), 'decisions.json');
+  const led = boardLedgerOf(await readJson<any>($, ledgerFile, null));
+  const rr = boardRecordApplyResult(led, await boardArg($, e.results), now);
+  if (rr.ledger) await $.fs.write(ledgerFile, JSON.stringify(rr.ledger));
+  await appendEvent($, env, { ...rr.event, session: sid });
+  return rr.out;
+}
+
+async function boardRecordPush($: $T, env: Env, e: any, sid: string | undefined): Promise<any> {
+  const now = Math.floor(Date.now() / 1000);
+  const pend = await readJson<any>($, joinPath(pushDir(env), 'pending.json'), null);
+  const rec = boardPushRecord({ tokens: numArg(e.tokens), rows: numArg(e.rows) }, pend, now);
+  await $.fs.write(joinPath(pushDir(env), 'last.json'), JSON.stringify(rec));
+  await appendEvent($, env, { event: 'board_push', session: sid, rows: rec.rows, tokens: rec.tokens, hash: rec.hash });
+  return { recorded: true, rows: rec.rows, tokens: rec.tokens };
+}
+
+// The `board` tool: the same JSON scripts/board.js printed for each flag, as one text block. A failure is the answer
+// (the Node script's error shape), never a throw into the engine.
+async function boardTool($: $T, e: any): Promise<{ result: { content: { type: 'text'; text: string }[]; isError: boolean } }> {
+  const mode = String(e.mode);
+  let out: unknown;
+  let isError = false;
+  try {
+    const env = await readEnv($);
+    let sid: string | undefined;
+    try {
+      sid = await $.session.id();
+    } catch {
+      /* no session id: the event goes to the unknown slot */
+    }
+    if (mode === 'rows') out = await boardRows($, env, e);
+    else if (mode === 'apply') out = await boardApply($, env, e, sid);
+    else if (mode === 'record-apply') out = await boardRecordApply($, env, e, sid);
+    else if (mode === 'record-push') out = await boardRecordPush($, env, e, sid);
+    else if (mode === 'json') {
+      const { cfg } = await loadConfig($, env);
+      const rows = boardReadEntries(await boardEntries($, env), Math.floor(Date.now() / 1000), cfg);
+      out = { count: rows.length, source: 'board-dir', rows };
+    } else {
+      out = { error: 'unknown mode: ' + mode };
+      isError = true;
+    }
+  } catch (err) {
+    const error = err instanceof Error ? err.message : String(err);
+    isError = true;
+    out = mode === 'apply' ? { ops: [], error }
+      : mode === 'record-apply' ? { results: [], error }
+        : mode === 'record-push' ? { recorded: false, error }
+          : mode === 'json' ? { count: 0, error }
+            : { skip: true, reason: 'error', error };
+  }
+  return { result: { content: [{ type: 'text', text: JSON.stringify(out) }], isError } };
+}
+
+// ============================================================================
 // Wiring.
 // ============================================================================
 
@@ -1038,8 +1417,37 @@ export const register: Register = (on) => {
     } catch {
       /* name taken */
     }
+    // The board tool (mcp__token-stamina__board), served by the tool.call hook below; /board calls it.
+    try {
+      await $.tool.register({
+        name: 'board',
+        isDeferred: true, // only /board uses it: no schema in every session's prompt
+        description: 'Token Stamina efficiency board: rows builds the dashboard push (batch file), apply runs approved decisions, record-apply and record-push log the results, json lists the board rows. Used by the /board command.',
+        inputSchema: {
+          type: 'object',
+          properties: {
+            mode: { type: 'string', enum: ['rows', 'apply', 'record-apply', 'record-push', 'json'] },
+            titles: { type: 'string', description: 'rows: path of the saved list_sessions result (or its JSON)' },
+            versions: { type: 'string', description: 'rows: path of a {"sessions/<sid>": n} file or of the folder ArtifactData list wrote with out_dir' },
+            pending: { type: 'number', description: 'rows: approved decisions waiting (default: counted from the local ledger)' },
+            decisions: { type: 'string', description: 'apply: path of the merged decisions JSON' },
+            settings: { type: 'string', description: 'apply: path of the settings/requested JSON' },
+            live: { type: 'string', description: 'apply: path of the saved list_sessions result (live models)' },
+            self: { type: 'string', description: 'apply: this session id (transcript file name)' },
+            results: { type: 'string', description: 'record-apply: path of the [{pid, ok, reason?}] JSON' },
+            tokens: { type: 'number', description: 'record-push: tokens this push cost' },
+            rows: { type: 'number', description: 'record-push: rows pushed' },
+          },
+          required: ['mode'],
+        },
+      });
+    } catch {
+      /* name taken or the engine has no tool.register */
+    }
     return next(e);
   }).catch(($, e, next) => next(e));
+
+  on('tool.call', { tool: 'mcp__token-stamina__board' }, ($, e) => boardTool($, e));
 
   on('command.run', { command: 'ts-fleet' }, ($, e) => answer('ts-fleet', () => fleetCommand($, e.args)));
   on('command.run', { command: 'ts-savings' }, ($, e) => answer('ts-savings', () => savingsCommand($, e.args)));

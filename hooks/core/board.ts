@@ -1,6 +1,12 @@
 // TS mirror of the pure part of scripts/board.js (W9-1a layer 0). No fs here: callers pass tail text / directory entries.
 import { parseTailLines, isRealPrompt } from './boundary.ts';
-import { textProtected, PROTECT_KEYWORDS_DEFAULT, PROTECT_SEGMENTS } from './decisions.ts';
+import {
+  textProtected, PROTECT_KEYWORDS_DEFAULT, PROTECT_SEGMENTS, PID_RE, proposals as decisionProposals, mappedIds, validateSettings, applyConfig,
+  mergeDocs, planApply, configHash, batchFor, safeHost, mergeLedger, recordResults,
+} from './decisions.ts';
+import { assess } from './pacer.ts';
+import { sha1Hex } from './text.ts';
+import { EXPLICIT } from './lang.ts';
 
 export interface BoardCfg { [k: string]: any }
 export const DEFAULTS: BoardCfg = {
@@ -235,25 +241,33 @@ const S: Record<string, any> = {
   },
 };
 
-// At most one line, priority E6 > E4 > E3 > E2 > E1 > E5; null when everything is normal.
+// Code of the one suggestion line, priority E6 > E4 > E3 > E2 > E1 > E5; null when everything is normal.
+export function suggestKey(r: any, account: { grade?: string | null; stale?: boolean } | null | undefined, cfg?: BoardCfg): string | null {
+  const c = cfgOf(cfg);
+  const a = account || {};
+  if (a.grade === 'red') return r.fit === 'lower_candidate' ? 'red_lower' : 'red';
+  if (a.stale) return 'stale';
+  if (r.clear_candidate) return 'clear';
+  if (r.fit === 'lower_candidate') return 'lower';
+  if (r.fit === 'judgment_on_lower') return 'judg';
+  if (r.sample_turns >= 3 && isNum(r.hit_active) && r.hit_active < 0.6) return 'hit';
+  if (r.sample_turns >= 3 && isNum(r.hit) && r.hit < 0.6 && r.miss_after_idle >= 3) return 'idle';
+  const newAt = isNum(c.newSessionAtTokens) ? c.newSessionAtTokens : DEFAULTS.newSessionAtTokens;
+  const gateAt = isNum(c.gateAtTokens) ? c.gateAtTokens : DEFAULTS.gateAtTokens;
+  if (isNum(r.in_med10) && r.in_med10 >= newAt) return 'newS';
+  if (isNum(r.in_med10) && r.in_med10 >= gateAt) return 'gate';
+  if (isNum(r.agent_share) && r.agent_share > 0.7 && r.agents_upper > 0) return 'agent';
+  if (r.agents_running === 0 && !isNum(r.agent_tokens_done) && isNum(r.in_med10) && r.in_med10 >= gateAt / 2) return 'bigread';
+  return null;
+}
+
+// At most one line; null when everything is normal.
 export function suggest(r: any, account: { grade?: string | null; stale?: boolean } | null | undefined, cfg?: BoardCfg): string | null {
   const c = cfgOf(cfg);
   const t = S[c.lang] || S.en;
-  const a = account || {};
-  if (a.grade === 'red') return t.red(r);
-  if (a.stale) return t.stale;
-  if (r.clear_candidate) return t.clear;
-  if (r.fit === 'lower_candidate') return t.lower;
-  if (r.fit === 'judgment_on_lower') return t.judg;
-  if (r.sample_turns >= 3 && isNum(r.hit_active) && r.hit_active < 0.6) return t.hit;
-  if (r.sample_turns >= 3 && isNum(r.hit) && r.hit < 0.6 && r.miss_after_idle >= 3) return t.idle;
-  const newAt = isNum(c.newSessionAtTokens) ? c.newSessionAtTokens : DEFAULTS.newSessionAtTokens;
-  const gateAt = isNum(c.gateAtTokens) ? c.gateAtTokens : DEFAULTS.gateAtTokens;
-  if (isNum(r.in_med10) && r.in_med10 >= newAt) return t.newS;
-  if (isNum(r.in_med10) && r.in_med10 >= gateAt) return t.gate;
-  if (isNum(r.agent_share) && r.agent_share > 0.7 && r.agents_upper > 0) return t.agent;
-  if (r.agents_running === 0 && !isNum(r.agent_tokens_done) && isNum(r.in_med10) && r.in_med10 >= gateAt / 2) return t.bigread;
-  return null;
+  const k = suggestKey(r, account, c);
+  if (k === null) return null;
+  return k === 'red_lower' || k === 'red' ? t.red(r) : t[k];
 }
 
 export interface BoardEntry { name: string; text: string }
@@ -372,6 +386,7 @@ export function sessionDocs(rows: any[], account: any, titles: any, cfg?: BoardC
     const t = cleanTitle(tm[r.sid], c.dashboardMaskTitles);
     if (t) d.title = t;
     d.suggestion = suggest(r, account, c);
+    d.sug = suggestKey(r, account, c); // code the page translates into its own language; `suggestion` stays for older pages
     return d;
   });
 }
@@ -422,4 +437,202 @@ export function decidePush(o: { now: number; cfg?: BoardCfg; tokens24h: number; 
     return { skip: true, reason: 'unchanged', last_push_ago_sec: ago };
   }
   return null;
+}
+
+// ---- Pure parts that scripts/board.js kept next to its file access (mod build: register.ts reads and writes through $.fs). ----
+
+// The last `bytes` of a text; a partial first line is dropped when the cut fell mid-file (scripts/board.js readTail).
+export function tailText(text: string, bytes: number): string {
+  const buf = new TextEncoder().encode(String(text || ''));
+  if (buf.length <= bytes) return String(text || '');
+  const cut = new TextDecoder().decode(buf.subarray(buf.length - bytes));
+  const nl = cut.indexOf('\n');
+  return nl < 0 ? '' : cut.slice(nl + 1);
+}
+
+// metrics() of a transcript tail (the first half of buildRow; the caller then reads the agents' transcripts).
+export function tailMetrics(text: string, now: number, cfg?: BoardCfg): any {
+  return metrics(turnsFromTail(text), null, now, cfgOf(cfg));
+}
+
+// Sum of usage input+cache_creation+cache_read+output over the turns of one agent transcript tail. Partial by nature.
+export function agentTailTokens(text: string): number {
+  let sum = 0;
+  for (const t of turnsFromTail(String(text || '').replace(/"isSidechain":true/g, '"isSidechain":false'))) if (t.role === 'assistant') sum += inTokens(t.usage!) + t.usage!.output;
+  return sum;
+}
+
+// Ids of the running agents the main transcript has not yet reported as finished (liveAgentTokens' list).
+export function liveAgentIds(snap: any, skip?: string[]): string[] {
+  if (!snap || !Array.isArray(snap.items)) return [];
+  return snap.items.filter((it: any) => it.state === 'running' && !(skip && skip.includes(it.id))).map((it: any) => it.id);
+}
+
+export const pushHash = (sessions: any[], account: any, summary: any, pids?: string[]): string => {
+  const o = pids && pids.length ? { sessions, account, summary, pids } : { sessions, account, summary };
+  return sha1Hex(JSON.stringify(o, (k, v) => (VOLATILE.includes(k) ? undefined : v))).slice(0, 16);
+};
+
+const sameJson = (a: unknown, b: unknown) => JSON.stringify(a) === JSON.stringify(b);
+
+export interface Ledger { rows: any[]; proposals: Record<string, any> }
+
+// board/decisions.json (parsed, or null) -> { rows, proposals }; the old bare-array form is rows only.
+export function ledgerOf(d: any): Ledger {
+  if (Array.isArray(d)) return { rows: d, proposals: {} };
+  const props = d && d.proposals && typeof d.proposals === 'object' && !Array.isArray(d.proposals) ? d.proposals : {};
+  return { rows: d && Array.isArray(d.rows) ? d.rows : [], proposals: props };
+}
+
+// Approved-but-not-applied decisions in the ledger (absent file = 0).
+export function pendingApprovals(d: any): number {
+  const list = Array.isArray(d) ? d : (d && Array.isArray(d.rows) ? d.rows : []);
+  return list.filter((x: any) => x && x.status === 'approved' && !x.applied_at).length;
+}
+
+// An existing doc's version from a file that ArtifactData list/get saved (version or _version).
+export function docVersion(o: any): number | null {
+  const v = o && (o.version != null ? o.version : o._version);
+  return isNum(Number(v)) && v !== null ? Number(v) : null;
+}
+
+export interface RowsIO {
+  now: number; cfg?: BoardCfg; state: any; rows: any[]; activeSessions?: number | null; titles?: any; versions?: Record<string, number> | null;
+  eventsText: string; last?: { ts?: number; hash?: string } | null; pending: number; manager?: any; ledger?: Ledger; extra?: any; detectedLang?: unknown;
+}
+
+// Everything `--rows` prints before the batch files are written (scripts/board.js rowsPayload).
+export function rowsPayload(io: RowsIO): any {
+  const cfg = Object.assign({}, PUSH_DEFAULTS, cfgOf(io.cfg));
+  const a = assess(io.state, io.now, cfg);
+  const account = accountOf(io.state, a, io.now, cfg, io.detectedLang);
+  const sessions = sessionDocs(io.rows, account, io.titles, cfg);
+  const summary = summaryOf(sessions, io.activeSessions, io.now);
+  // Proposal cards (the page renders them; the content is also kept in the local ledger so apply never trusts page copies).
+  const known = (io.ledger && io.ledger.proposals && typeof io.ledger.proposals === 'object') ? io.ledger.proposals : {};
+  const mapped = mappedIds(io.titles, io.rows);
+  const props = decisionProposals(io.rows, account, io.ledger, io.now, cfg, Object.assign({}, io.extra || {}, { mapped }))
+    .map((p: any) => (known[p.pid] && known[p.pid].created_at ? Object.assign(p, { created_at: known[p.pid].created_at }) : p));
+  const hash = pushHash(sessions, account, summary, props.map((p: any) => p.pid));
+  const skip = decidePush({ now: io.now, cfg, tokens24h: pushTokens24h(io.eventsText, io.now), last: io.last, hash, pending: io.pending });
+  const log = io.manager && Array.isArray(io.manager.log) ? io.manager.log.slice(-20) : [];
+  if (skip) return Object.assign({}, skip, { hash });
+  const proposal_writes = props.map((p: any) => ({ op: 'set', collection: 'proposals', doc_id: p.pid, data: p }));
+  return { skip: false, hash, account, summary, sessions, log, writes: batchOf(sessions, account, summary, io.versions), proposals: props, proposal_writes };
+}
+
+// Local copy of each proposal the page shows (content fields only), kept 7 days. Returns the new ledger document, or null when nothing changed.
+export function rememberProposals(led: Ledger, props: any[], now: number): any | null {
+  const keep: Record<string, any> = {};
+  for (const k of Object.keys(led.proposals)) {
+    const p = led.proposals[k];
+    const t = p && Date.parse(p.created_at);
+    if (PID_RE.test(k) && isFinite(t) && now - t / 1000 <= 7 * 86400) keep[k] = p;
+  }
+  let changed = false;
+  for (const p of props) {
+    const doc: any = { pid: p.pid, kind: p.kind, target: p.target, params: p.params, basis: { measured_at: p.basis.measured_at },
+      protected: p.protected, advice_only: p.advice_only, created_at: keep[p.pid] && keep[p.pid].created_at ? keep[p.pid].created_at : p.created_at };
+    if (p.unmapped) doc.unmapped = true;
+    if (sameJson(keep[p.pid], doc)) continue;
+    keep[p.pid] = doc;
+    changed = true;
+  }
+  return changed ? { rows: led.rows, proposals: keep } : null;
+}
+
+// Batch writes -> one data file per doc (paths under `dir`/docs/<collection>/<doc>.json) + the writes that point at them.
+export function docFiles(writes: any[], dir: string, join: (...p: string[]) => string): { files: { path: string; data: any }[]; writes: any[] } {
+  const files: { path: string; data: any }[] = [];
+  const out = writes.slice(0, 50).map((w) => {
+    if (w.op === 'delete') return w;
+    const f = join(dir, 'docs', w.collection, w.doc_id + '.json');
+    files.push({ path: f, data: w.data });
+    const e: any = { op: w.op, collection: w.collection, doc_id: w.doc_id, file_path: f };
+    if (w.if_version !== undefined) e.if_version = w.if_version;
+    return e;
+  });
+  return { files, writes: out };
+}
+
+export interface ApplyIO {
+  now: number; cfg: BoardCfg; userCfg?: any; state: any; rows: any[]; ledger?: Ledger; decisions?: any; proposals?: any; settings?: any; live?: any; selfSid?: unknown; host?: string;
+}
+
+// Core of apply (scripts/board.js applyPayload). Pure rules live in decisions.ts.
+export function applyPayload(io: ApplyIO): any {
+  const now = io.now;
+  const a = assess(io.state, now, io.cfg);
+  const stateStale = !io.state || !!a.stale || a.grade === null;
+  // The mode this run started with decides this run; a mode changed by the settings document applies from the next run only.
+  const runMode = io.cfg && io.cfg.applyMode === 'approve' ? 'approve' : 'manual';
+  const userCfg = io.userCfg && typeof io.userCfg === 'object' && !Array.isArray(io.userCfg) ? io.userCfg : {};
+  let newUser = userCfg, settingsApplied: any = null, sv: any = null;
+  if (io.settings) {
+    sv = validateSettings(io.settings, io.cfg);
+    newUser = applyConfig(userCfg, sv.accepted);
+  }
+  const eff = Object.assign({}, io.cfg, newUser, { applyMode: runMode });
+  const led = io.ledger || { rows: [], proposals: {} };
+  // Proposal content comes ONLY from the local copies rows wrote to board/decisions.json; the page's proposal docs are not read.
+  const local = Object.keys(led.proposals || {}).map((k) => led.proposals[k]);
+  const merged = mergeDocs(io.decisions, local);
+  const selfSid = typeof io.selfSid === 'string' && SID_RE.test(io.selfSid) ? io.selfSid : null;
+  const plan = planApply(merged, { rows: io.rows, now, stateStale, grade: a.grade || null, selfSid }, eff, io.live, led);
+  if (Object.keys(plan.config).length) newUser = applyConfig(newUser, plan.config);
+  const configChanged = !sameJson(newUser, userCfg);
+  const finalMode = Object.assign({}, io.cfg, newUser).applyMode === 'approve' ? 'approve' : 'manual';
+  if (sv) {
+    // The page reads the mode from settings/applied.accepted.applyMode, so the effective mode is always there.
+    const accepted = Object.assign({}, sv.accepted, { applyMode: finalMode });
+    settingsApplied = { accepted, rejected: sv.rejected, applied_at: new Date(now * 1000).toISOString(), config_hash: configHash(newUser) };
+    const rb = io.settings && typeof io.settings.requested_by === 'string' ? cleanTitle(io.settings.requested_by, false) : null;
+    if (rb) settingsApplied.requested_by = rb;
+  }
+  const batch = batchFor(plan.ledgerRows, settingsApplied, safeHost(io.host));
+  return { plan, newUser, configChanged, settingsApplied, stateStale, batch,
+    out: { ops: plan.ops, buttons: plan.buttons, results: plan.results, settings_applied: settingsApplied, config_written: configChanged,
+      apply_mode: runMode, apply_mode_next: finalMode, state_stale: stateStale, batch } };
+}
+
+// The ledger document to write after apply, or null when no ledger row changed.
+export function ledgerAfter(led: Ledger, ledgerRows: any[], now: number): any | null {
+  if (!ledgerRows.length) return null;
+  return Object.assign({ proposals: led.proposals }, mergeLedger(led, ledgerRows, now));
+}
+
+// record-apply: the ledger document to write (or null), the event line and the answer.
+export function recordApplyResult(led: Ledger, results: unknown, now: number): { ledger: any | null; event: any; out: any } {
+  const rr = recordResults(led, results, now);
+  return {
+    ledger: ledgerAfter(led, rr.ledgerRows, now),
+    event: { event: 'decision_record', applied: rr.results.filter((x: any) => x.status === 'applied').length, failed: rr.results.filter((x: any) => x.status === 'failed').length },
+    out: { results: rr.results, batch: batchFor(rr.ledgerRows, null, safeHost()) },
+  };
+}
+
+// The event line apply logs.
+export function applyEvent(r: any): any {
+  const count = (st: string) => r.plan.results.filter((x: any) => x.status === st).length;
+  return { event: 'decision_apply', ops: r.plan.ops.length, buttons: r.plan.buttons.length, applied: count('applied'), refused: count('refused'),
+    expired: count('expired'), deferred: count('deferred'), settings_accepted: r.settingsApplied ? Object.keys(r.settingsApplied.accepted).length : 0,
+    settings_rejected: r.settingsApplied ? Object.keys(r.settingsApplied.rejected).length : 0, config_written: r.configChanged };
+}
+
+// record-push: the record to write as board-push/last.json (tokens/rows of the caller, else the pending push's rows).
+export function pushRecord(kv: { tokens?: unknown; rows?: unknown }, pend: any, now: number): { ts: number; hash: string | null; rows: number | null; tokens: number | null } {
+  return { ts: now, hash: pend ? pend.hash : null, rows: isNum(kv.rows) ? kv.rows : (pend ? pend.rows : null), tokens: isNum(kv.tokens) ? kv.tokens : null };
+}
+
+// Language the user wrote in most recently (scripts/lang.js lastDetected over the parsed lang.json), else the global last one, else null.
+export function lastDetected(book: any): string | null {
+  const b = book && typeof book === 'object' ? book : {};
+  const sess = b.sessions && typeof b.sessions === 'object' ? b.sessions : {};
+  let best: any = null;
+  for (const k of Object.keys(sess)) {
+    const e = sess[k];
+    if (e && (EXPLICIT as readonly string[]).includes(e.lang) && typeof e.ts === 'number' && (!best || e.ts > best.ts)) best = e;
+  }
+  if (best) return best.lang;
+  return (EXPLICIT as readonly string[]).includes(b.last) ? b.last : null;
 }

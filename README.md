@@ -4,11 +4,11 @@
 
 **Requires Claude Code 2.1.308 or later.** Older versions cannot load the plugin; run `claude update` first.
 
-Token Stamina turns your Claude Code pace into action. It compares weekly (7d) and 5-hour usage with how much of each window has passed, grades it green, yellow or red, and when you're well ahead of pace moves subagent calls to cheaper models. At work boundaries in long conversations it suggests a compact and saves a handoff note first. It makes no LLM calls and no network requests.
+Token Stamina turns your Claude Code pace into action. It compares weekly (7d) and 5-hour usage with how much of each window has passed, grades it green, yellow or red, and when you're well ahead of pace moves subagent calls to cheaper models. At work boundaries in long conversations it suggests a compact and saves a handoff note first. It makes no LLM calls and no network requests of its own.
 
 Since 0.6.0 it runs inside Claude Code as a hooks module (a "mod"). No Node.js is needed.
 
-**Local only.** Token Stamina reads your Claude Code session records on your machine to work out usage. It sends no telemetry, never uploads your transcripts and makes no network requests at all. Details: [privacy policy](https://tokenstamina.com/privacy.html).
+**Local only.** Token Stamina reads your Claude Code session records on your machine to work out usage. It sends no telemetry, never uploads your transcripts and makes no network requests of its own. The optional board preview, if you set it up and run it, asks Claude to write session numbers to your own private Artifact. Details: [privacy policy](https://tokenstamina.com/privacy.html).
 
 **Works alongside** tools that shrink what a single task reads (command-output filters, code-graph MCP servers). Token Stamina doesn't compete with them: it adjusts models and compact timing to your limit pace. We haven't tested every combination; if you see a conflict, open an issue.
 
@@ -62,10 +62,11 @@ Grades: green `u <= elapsed%`, yellow up to +10 points, red beyond or `u >= 90`.
 /ts-fleet --all                 # subagents running now, by model
 /token-stamina:autocompact 400k # pick when auto-compact happens: 300k / 400k / 600k / default
 /token-stamina:setup            # language, old status line cleanup, defaults
+/token-stamina:board            # (preview) push the efficiency board to your own dashboard Artifact
 ```
 
 - `/ts-report` also takes `--until YYYY-MM-DD`.
-- `/ts-savings` is an estimate, not billing. It reads the plugin's own event log (`events.jsonl`). `--since YYYY-MM-DD`, `--json`.
+- `/ts-savings` is an estimate, not billing. It reads the plugin's own event log (`events/`, and `events.jsonl` from older versions). `--since YYYY-MM-DD`, `--json`.
 - `/ts-audit` changes nothing. `--cwd <path>`, `--days 30`, `--json`.
 - The four `/ts-…` commands print a table and call no model.
 
@@ -73,8 +74,25 @@ Config: `~/.claude/token-stamina/config.json` overrides `config.default.json`. S
 
 Language: `/token-stamina:setup` asks first, or set `"lang"` yourself: `auto` (default; follows the language of your prompts), `en`, `ko`, `ja`, `zh`. The status row and screen lines have en/ko/ja text (other languages show English); lines for Claude ask it to answer in your language.
 
-## v0.6.0
+## Efficiency board (preview, desktop app)
 
+**Preview, not yet tested in real use.** The board is back in 0.6.1, ported to the mod. Its automated tests pass, but the refresh tab and the approval flow have not been tried end to end in the desktop app yet. Expect rough edges and report what breaks.
+
+An optional board for people who run several sessions at once. It shows, per session, recent input size, cache hit rate, context size, running subagents and a fit hint, plus the account's limits, and lets you approve or reject suggestions from your phone. The page follows the `lang` key (`en` or `ko`; otherwise the browser language).
+- It is off until you set `dashboardUrl`. Then the Stop hook writes one small row per session to `board/<session>.json` (numbers from the transcript tail; no titles). Nothing leaves your machine from the hooks. A session whose transcript is over 4 MiB gets no row (the mod cannot read files that large), and subagent token counts skip transcripts over 4 MiB.
+- `/token-stamina:board` pushes those rows to a private dashboard Artifact on claude.ai through Claude's own `ArtifactData` tool. Run it in a separate Haiku session, optionally with `/loop 15m /token-stamina:board`. The plugin does the counting through its own `board` tool; Claude only passes the results along. A run whose rows did not change and that has nothing pending skips the write (at most 25 minutes between writes), and `boardDailyTokens` caps a day's cost.
+- This is the one feature that sends data off your machine, and only when you run the command: the board rows (numbers, model names and the last folder name of each session's working folder), session titles (unless `"dashboardMaskTitles": true`) and the account's usage percentages go to your own private Artifact.
+- To set it up, ask Claude in the desktop app to publish `dashboard/index.html` from the plugin folder as an Artifact with the `db` capability, then put its link in `dashboardUrl` in `~/.claude/token-stamina/config.json`.
+- Suggestions (a lower subagent default model, a clear at a work boundary, a setting) appear as cards. `applyMode` is `"manual"` by default: nothing is applied until you press approve, and the next board run applies it. Only what the local ledger (`board/decisions.json`) proposed can be applied, at most `applyMaxPerRun` (3) per run and one per session. Clearing a session is always left to you; the board never clears one. Protected sessions are shown but never get a suggestion that changes them. Suggestions for another session's model are advice only for now.
+- Config keys: `board`, `boardTailBytes`, `boardKeepSec`, `boardIdleSec`, `boardDailyTokens`, `dashboardUrl`, `dashboardMaskTitles`, `managerExcludeCwd`, `managerProtectKeywords`, `managerProtectSegments`, `applyMode`, `proposalTtlSec`, `heldTtlSec`, `rejectCooldownSec`, `applyMaxPerRun`, `savingTurns`, `agentShareProposeAt`, `agentModelDefault`. `"board": false` stops the rows.
+
+## v0.6.1
+
+- Event log: each session now writes its own file under `events/`, so two sessions writing at the same moment no longer lose each other's lines. The same session open in two windows at once can still collide.
+- Handoff files unchanged for 7 days are emptied (the plugin cannot delete files, so empty file names remain).
+- The efficiency board returns as a preview (above).
+
+## v0.6.0
 - Rewritten as a Claude Code mod: the hooks run inside Claude Code as a TypeScript hooks module. No Node.js needed. Requires Claude Code 2.1.308 or later.
 - The status row is drawn by the plugin. No status line setup any more; it does not touch `statusLine` or wrap another status line.
 - New command names: `/ts-report`, `/ts-savings`, `/ts-audit`, `/ts-fleet`. The old `token-stamina:` names of report, savings, fleet and audit are now `/ts-…`.
@@ -85,13 +103,12 @@ Language: `/token-stamina:setup` asks first, or set `"lang"` yourself: `auto` (d
 
 **Known limits.**
 - `/ts-report`, `/ts-savings` and `/ts-audit` skip transcript files over 4 MiB and say how many they skipped.
-- `events.jsonl` is rewritten whole on each write and rotated at 3 MiB. Two sessions writing at the same instant can lose one line; a fix is planned.
 
 History: 0.3 added the handoff note, 0.4 the savings estimate and topic check, 0.5 the fleet count, 0.6 moved everything into a mod.
 
 ## Privacy and what runs on your machine
 
-Token Stamina works locally. It makes no network requests, sends no telemetry and calls no LLM. It starts no commands of its own. Hint lines and restored handoff notes are added to the conversation, so Claude Code sends them to the model like any other context.
+Token Stamina works locally. It makes no network requests of its own, sends no telemetry and calls no LLM. The one exception you can turn on is the board preview: `/token-stamina:board` asks Claude to write board rows to your own private Artifact (see above). It starts no commands of its own. Hint lines and restored handoff notes are added to the conversation, so Claude Code sends them to the model like any other context.
 
 **What it reads**
 - Claude Code's usage reading for the session (7d and 5h percentages and reset times, context size).
@@ -106,11 +123,12 @@ Token Stamina works locally. It makes no network requests, sends no telemetry an
 
 Everything goes under `~/.claude/token-stamina/` (or `TOKEN_STAMINA_HOME`):
 - `state.json`: the last usage reading.
-- `events.jsonl`: session ids, token counts, which hint fired, subagent model decisions. Rotated at 3 MiB to `events-<time>.jsonl`; `events-mod.jsonl` is used if an old log is too large to read. Rotated files are not deleted.
+- `events/`: session ids, token counts, which hint fired, subagent model decisions. Each session writes its own slot file (`s000.jsonl` to `s3ff.jsonl`, at most 1,024 slots); past 3 MiB a slot moves to its `.old.jsonl` file, replacing the previous one. A slot unused for 30 days is reused and overwritten by a new session; if every slot is taken, the one idle longest (at least a day) is reused, so older events can be lost early. Events without a session id are not recorded. Logs from 0.6.0 and earlier (`events.jsonl`, `events-<time>.jsonl`, `events-mod.jsonl`) are still read but no longer written or deleted.
 - Per-session bookkeeping, each keeping the last 50 sessions: `nudge.json`, `boundary.json`, `topic-gate.json` (includes the working folder and prompt times), `lang.json` (a language per session).
 - `explicit-downgrade.json`: repeat memory for explicit-model suggestions.
 - `audit-cache.json`: transcript paths and MCP/skill names, so `/ts-audit` doesn't re-read unchanged files.
 - `legacy-statusline.json`: marks that the one-time upgrade line was shown.
+- Board preview, only after you set `dashboardUrl`: `board/` (one row per session; rows older than `boardKeepSec` are emptied, and the suggestion ledger `decisions.json`) and `board-push/` (the last batch the board command sent). `/token-stamina:board` may also update `config.json` when you approve a setting on the board, keeping the previous one in `config.prev.json`.
 - `handoff/` (see below).
 - `config.json` is written only by `/token-stamina:setup` or `/token-stamina:autocompact`, after you agree.
 
@@ -120,7 +138,7 @@ Everything goes under `~/.claude/token-stamina/` (or `TOKEN_STAMINA_HOME`):
 - `<session>.claude.md`: a note Claude writes itself when asked to before a compact or clear (free text, no cap); `latest-<hash>.claude.md` and its `.from` file point to the newest one.
 - `pending-clear-<id>.json`: a short marker left when Claude clears its own session in the desktop app; emptied once used.
 
-Notes are **not deleted automatically** in 0.6.0. Delete the `handoff/` folder to remove them. `"handoff": false` stops writing and restoring notes but does not delete existing ones; to stop Claude-written notes too, also set `"topicGate": false`, `"topicCheck": false` and `"inlineCompactHint": false`.
+Files in `handoff/` (notes, side files and markers) unchanged for 7 days are **emptied** when a session starts: their text is overwritten with nothing, and the empty file names stay (the plugin cannot delete files). Delete the `handoff/` folder to remove everything at once. `"handoff": false` stops writing and restoring notes but does not delete existing ones; to stop Claude-written notes too, also set `"topicGate": false`, `"topicCheck": false` and `"inlineCompactHint": false`.
 
 Outside that folder, only `/token-stamina:setup` and `/token-stamina:autocompact` change anything, and only after you agree to a preview: `env.CLAUDE_CODE_AUTO_COMPACT_WINDOW` or the old `statusLine` entry in `~/.claude/settings.json` (a `settings.json.bak-token-stamina-<timestamp>` backup is saved first), and, if you accept, a `/compact` keybinding in `~/.claude/keybindings.json`.
 

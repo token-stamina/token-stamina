@@ -1,0 +1,783 @@
+<title>Token Stamina Status</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<style>
+/* Layout: one column for phones. Account band -> efficiency summary -> session cards -> proposal cards -> settings -> intervention log. */
+:root{
+  --bg:#f6f7f5; --panel:#ffffff; --fg:#1b2420; --muted:#5d6a63; --line:#dde2de;
+  --accent:#1f6f5c; --ok:#2e7d4f; --warn:#b45f06; --bad:#b3261e; --track:#e6eae7; --spark:#1f6f5c;
+  --font-sans:"IBM Plex Sans KR","Noto Sans KR",system-ui,-apple-system,"Segoe UI",sans-serif;
+  --font-mono:"IBM Plex Mono",ui-monospace,Consolas,monospace;
+}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){
+  --bg:#101714; --panel:#18211d; --fg:#e6ece8; --muted:#97a69d; --line:#2a3731;
+  --accent:#5fc4a6; --ok:#6ccb8c; --warn:#f0a35a; --bad:#ff8a80; --track:#26322c; --spark:#5fc4a6; color-scheme:dark}}
+:root[data-theme="dark"]{
+  --bg:#101714; --panel:#18211d; --fg:#e6ece8; --muted:#97a69d; --line:#2a3731;
+  --accent:#5fc4a6; --ok:#6ccb8c; --warn:#f0a35a; --bad:#ff8a80; --track:#26322c; --spark:#5fc4a6; color-scheme:dark}
+body{background:var(--bg);color:var(--fg);font-family:var(--font-sans);font-size:14px;line-height:1.5;margin:0;
+  padding-block:16px;padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px))}
+html[lang=ko] body{word-break:keep-all}
+#ts-root{max-width:720px;margin:0 auto;display:flex;flex-direction:column;gap:12px;min-width:0}
+#ts-root *{box-sizing:border-box;min-width:0}
+h1{font-size:18px;margin:0;font-weight:650}
+.top{display:flex;justify-content:space-between;align-items:baseline;gap:8px;flex-wrap:wrap}
+.when{font-size:13px;color:var(--muted)}
+.when.late{color:var(--warn);font-weight:600}
+.band{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:12px}
+.late-note{border:1px solid var(--warn);color:var(--warn);border-radius:8px;padding:8px 12px;font-size:13px}
+.lbl{font-size:12px;color:var(--muted);letter-spacing:.02em}
+.meters{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:12px;margin-top:8px}
+.meter .v{font-family:var(--font-mono);font-size:22px;font-variant-numeric:tabular-nums}
+.bar{height:6px;background:var(--track);border-radius:3px;margin:4px 0}
+.bar i{display:block;height:100%;background:var(--accent);border-radius:3px}
+.pill{display:inline-block;max-width:100%;font-size:12px;line-height:1.4;padding:1px 8px;border-radius:12px;border:1px solid var(--line);color:var(--muted);overflow-wrap:anywhere}
+.pill.green{color:var(--ok);border-color:var(--ok)}
+.pill.yellow{color:var(--warn);border-color:var(--warn)}
+.pill.red{color:var(--bad);border-color:var(--bad)}
+.pill.est{border-style:dashed}
+.sum{display:flex;flex-wrap:wrap;gap:4px 14px;font-variant-numeric:tabular-nums}
+.sum span{white-space:nowrap}
+.sum b{font-family:var(--font-mono);font-weight:600}
+.cards{display:flex;flex-direction:column;gap:10px}
+.card{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:12px;display:flex;flex-direction:column;gap:8px}
+.card h3{margin:0;font-size:15px;font-weight:600;overflow-wrap:anywhere}
+.row{display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap}
+.kv{display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:6px 12px}
+.kv .v{font-family:var(--font-mono);font-variant-numeric:tabular-nums;overflow-wrap:anywhere}
+.kv .sub{display:block;font-family:var(--font-sans);font-size:12px;color:var(--muted)}
+.spark svg{display:block;width:100%;height:40px}
+.sug{font-size:13px;border-top:1px solid var(--line);padding-top:8px}
+.sug:empty{display:none}
+.foot{font-size:12px;color:var(--muted)}
+.empty{text-align:center;color:var(--muted);padding:24px 12px}
+.log ul{margin:8px 0 0;padding:0;list-style:none;display:flex;flex-direction:column;gap:6px}
+.log li{font-size:13px;overflow-wrap:anywhere}
+#proposals:empty{display:none}
+.hide{display:none}
+/* lag strip, share warning, proposal cards, settings panel */
+.lag{font-size:13px;color:var(--muted);border:1px solid var(--line);border-radius:8px;padding:8px 12px;background:var(--panel)}
+.lag.late{border-color:var(--warn);color:var(--warn)}
+.share-warn{border:1px solid var(--bad);color:var(--bad);border-radius:8px;padding:8px 12px;font-size:13px;font-weight:600}
+.sec-h{display:flex;justify-content:space-between;align-items:baseline;gap:8px;flex-wrap:wrap;margin:4px 0 0}
+.sec-h h2{margin:0;font-size:15px;font-weight:650}
+.pcard.expired,.pcard.done{opacity:.8}
+.pcard .what{font-size:14px;overflow-wrap:anywhere}
+.pcard .tag{font-size:12px;color:var(--muted)}
+.pill.irrev{color:var(--bad);border-color:var(--bad);font-weight:600}
+.pill.solid{background:var(--accent);color:var(--bg);border-color:var(--accent)}
+.note{font-size:12.5px;color:var(--muted);overflow-wrap:anywhere}
+.note.warn{color:var(--warn)}
+.note.bad{color:var(--bad)}
+.btns{display:flex;gap:8px;flex-wrap:wrap}
+button.b{font:inherit;font-size:14px;min-height:40px;padding:6px 14px;border-radius:8px;border:1px solid var(--line);background:var(--panel);color:var(--fg);cursor:pointer}
+button.b.ok{background:var(--accent);color:var(--bg);border-color:var(--accent);font-weight:600}
+button.b.no{color:var(--bad);border-color:var(--bad)}
+button.b:disabled{opacity:.45;cursor:not-allowed}
+button.b:focus-visible,input:focus-visible,select:focus-visible,textarea:focus-visible,summary:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.tl{display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:6px;border-top:1px solid var(--line);padding-top:8px}
+.tl div{font-size:12px;border-left:2px solid var(--line);padding-left:8px;overflow-wrap:anywhere}
+.tl div.on{border-left-color:var(--accent)}
+.tl div.bad{border-left-color:var(--bad)}
+.tl b{display:block;font-weight:600;color:var(--muted)}
+.tl .on b{color:var(--fg)}
+.set summary{cursor:pointer;display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap;list-style:none}
+.set summary::-webkit-details-marker{display:none}
+.set summary b{font-size:15px;font-weight:650}
+.set .body{display:flex;flex-direction:column;gap:12px;margin-top:10px}
+.fgrid{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px}
+.fld{display:flex;flex-direction:column;gap:3px}
+.fld label,.fld .lbl{font-size:12px;color:var(--muted)}
+.fld input[type=number],.fld select,.fld textarea{font:inherit;font-size:14px;width:100%;padding:6px 8px;border:1px solid var(--line);border-radius:6px;background:var(--bg);color:var(--fg)}
+.fld textarea{min-height:64px;resize:vertical;font-family:var(--font-mono);font-size:13px}
+.chk{display:flex;gap:6px;align-items:center;font-size:13px;flex-wrap:wrap}
+.chk input{width:18px;height:18px}
+.locked{border:1px dashed var(--line);border-radius:8px;padding:8px 10px;font-size:13px;color:var(--muted)}
+.cmp{display:flex;flex-direction:column;gap:6px;margin:0;padding:0;list-style:none}
+.cmp li{font-size:13px;border:1px solid var(--line);border-radius:8px;padding:6px 10px;overflow-wrap:anywhere}
+.cmp li.diff{border-color:var(--warn)}
+.cmp li.diff .st{color:var(--warn);font-weight:600}
+.cmp code{font-family:var(--font-mono);font-size:12.5px}
+.err{color:var(--bad);font-size:13px}
+</style>
+
+<div id="ts-root">
+  <div class="top"><h1 data-t="title"></h1><span id="when" class="when"></span></div>
+  <div id="late" class="late-note hide" data-t="late"></div>
+  <div id="lag" class="lag" role="status"></div>
+  <div id="share" class="share-warn hide" data-t="share"></div>
+  <section class="band" id="account" data-aria="aria.account"></section>
+  <section class="band" id="summary" data-aria="aria.summary"></section>
+  <section id="sessions" class="cards" data-aria="aria.sessions"></section>
+  <section id="proposals" class="cards" data-aria="aria.proposals"></section>
+  <details class="band set" id="settings" data-aria="aria.settings">
+    <summary><b data-t="set.title"></b><span id="set-state" class="pill"></span></summary>
+    <div class="body">
+      <div id="set-form"></div>
+      <div id="set-cmp"></div>
+    </div>
+  </details>
+  <section class="band log" id="log" data-aria="aria.log"></section>
+  <p class="foot" data-t="foot"></p>
+</div>
+
+<script>
+(function(){
+  /* ===== Text table. Every user-visible string lives here; the screen asks for it with t('key', {vars}). =====
+     Model names (Opus, Fable, Sonnet, Haiku) and units (k, M, %) are proper nouns / symbols and are not translated. */
+  /*STRINGS-BEGIN*/
+  var STRINGS={
+    en:{
+      "title":"Token Stamina Status",
+      "loading":"Loading…",
+      "late":"The refresh command isn't running. Run /token-stamina:board from the admin tab.",
+      "share":"This page is shared. Anyone with access can make decisions.",
+      "foot":"Values are measured locally; model fit and savings are estimates. This page writes only proposal decisions and settings requests; applying them is done by the local sync.",
+      "aria.account":"Account","aria.summary":"Efficiency summary","aria.sessions":"Sessions","aria.proposals":"Proposals","aria.settings":"Settings","aria.log":"Interventions",
+      "nodata":"No data yet",
+      "login":"Sign-in required",
+      "just":"just now","min":"{m} min ago","hm":"{h}h {m}m ago",
+      "asof":"as of {ago}",
+      "acct.title":"Account usage",
+      "acct.vs":"vs today's share: {grade}{pp}",
+      "grade.green":"Comfortable","grade.yellow":"Caution","grade.red":"Over",
+      "w.7d":"7-day window","w.5h":"5-hour window","w.fable":"Fable window",
+      "pp":" pp",
+      "acct.stale":"Value is stale (over 6 h)","acct.measured":"measured {ago}","acct.resets":"Resets in {h}h {m}m",
+      "sum.title":"Efficiency summary",
+      "sum.sessions":"Sessions","sum.agents":"Agents","sum.hit":"Cache hit","sum.lower":"Downgrade candidates","sum.clear":"Clear candidates",
+      "sess.empty":"No data yet. Open a session and take a turn; it will show up here.",
+      "sess.protected":"Protected",
+      "sess.up":"growing","sess.down":"shrinking","sess.flat":"flat",
+      "sess.ctxline":"Context re-read per turn {last} (median of last 10 turns {med}{trend}) · sample {n} turns",
+      "sess.spark":"Trend of context re-read in recent turns",
+      "sess.hit":"Cache hit","sess.hitIdle":"(excl. idle {p})",
+      "sess.fit":"Model fit","sess.est":"{v} · est.",
+      "sess.ctx":"Context size","sess.agents":"Subagents","sess.agentsVal":"{n} running · {tok}",
+      "fit.lower_candidate":"Downgrade candidate","fit.fit":"Good fit","fit.judgment_on_lower":"Judgment work on a lower model",
+      "log.title":"Interventions","log.empty":"No automatic adjustments yet",
+      "lag.none":"No sync recorded yet. Approved proposals are applied after a sync runs.",
+      "lag.last":"Last sync {ago} · approvals are applied at the next sync (usually within 15 min)",
+      "lag.late":" · No sync for over 30 min",
+      "prop.title":"Proposals","prop.mode":"{mode} mode",
+      "mode.manual":"Manual (no buttons)","mode.approve":"Apply after approval","mode.auto":"Auto",
+      "prop.empty":"Nothing to propose right now. When something can be downgraded, it will show up here.",
+      "kind.session_model":"Downgrade session model","kind.session_clear":"Clear session","kind.agent_default_model":"Downgrade default subagent model","kind.agent_model_default":"Downgrade default subagent model","kind.fleet_threshold":"Adjust concurrent-agent warning levels","kind.effort":"Reasoning effort","kind.none":"Proposal",
+      "status.proposed":"Awaiting decision","status.approved":"Approved · awaiting sync","status.rejected":"Rejected","status.held":"On hold","status.applied":"Applied","status.failed":"Apply failed","status.refused":"Apply refused","status.expired":"Expired",
+      "irrev":"Irreversible",
+      "scope":"Scope {s}",
+      "what.agentDefault":"Default model → {m}",
+      "what.clear":"Leaves a handoff note and clears the conversation",
+      "note.agentNext":"Applies from the next agent on (no model call). Agents already running are unchanged.",
+      "basis.default":"Basis",
+      "basis.measured":" · measured {hm} ({ago})",
+      "save.est":"Est. saving ","save.tok":"about {tok} tokens",
+      "win.10_turns":"scaled from last 10 turns","win.board_tail":"scaled from recent board records",
+      "save.est2":"{w} · est.",
+      "save.none":"No savings figure (control proposal)",
+      "revert":"Undo: {how}","revert.no":" (not possible)",
+      "how.handoff":"leave a handoff note only","how.prev":"restore config.prev.json","how.setModel":"set the model back ({m})",
+      "clear.note":"After approval, confirm once more in the admin tab. Approval alone does not clear the session.",
+      "manual.note":"Manual mode. Change it in the app yourself, or turn on approval mode in Settings to get buttons.",
+      "auto.note":"Eligible for automatic apply.",
+      "btn.approve":"Approve","btn.reject":"Reject","btn.hold":"Hold",
+      "advice.note":"Suggestion only — this session is not eligible for automatic apply",
+      "tl.proposed":"Proposed","tl.basis":" (basis measured {hm})",
+      "tl.approved":"Approved","tl.rejected":"Rejected","tl.held":"Held",
+      "tl.decision":"Decision","tl.expiredUndecided":"Expired undecided","tl.pending":"Pending",
+      "tl.applied":"Applied","tl.nextSync":"At next sync",
+      "tl.result":"Result","tl.r.applied":"Applied","tl.r.failed":"Failed","tl.r.refused":"Refused","tl.r.expired":"Expired",
+      "decide.noDb":"Not connected to storage, so nothing was saved","decide.saving":"Saving…","decide.fail":"Could not save: {e}","decide.unknown":"unknown error",
+      "set.title":"Settings",
+      "set.none":"No request","set.waiting":"Awaiting apply","set.diff":"Request ≠ applied: {n}","set.applied":"Applied","set.appliedRej":"Applied · {n} rejected",
+      "f.warn":"Concurrent agents warning (Warn)","f.hard":"Concurrent agents limit (Hard)","f.totalWarn":"Total warning","f.totalHard":"Total limit",
+      "f.floor":"Agent model floor","f.default":"Default agent model","f.mode":"Apply mode",
+      "f.modeAuto":"auto · locked",
+      "f.scope":"Auto-allowed scope (for auto mode; locked for now)",
+      "f.mask":"Hide session titles on the board",
+      "f.locked":"🔒 Protected folders (managerProtectSegments) and bot folders are protected and can't be unlocked here. ",
+      "f.save":"Save (applied at next sync)",
+      "f.errInt":"{k} must be an integer from 1 to 50","f.errOrder":"Hard must be at least Warn","f.errTotalOrder":"Total limit must be at least total warning",
+      "f.saved":"Saved. It will be applied at the next sync.",
+      "cmp.none":"No saved settings request yet.",
+      "cmp.meta":"Requested by {who} {hm}","cmp.metaApplied":" · applied {hm}","cmp.metaWaiting":" · awaiting apply","cmp.metaRej":" · {n} rejected",
+      "cmp.line":"Requested {a} → applied {b}","cmp.pending":"pending",
+      "cmp.differs":"Differs from request","cmp.why":" · rejected: {r}","cmp.reqVal":" (requested {v})","cmp.notYet":" · not applied yet",
+      "cmp.nextSync":"Applied at next sync","cmp.extra":"{n} other rejection(s)",
+      "who.page":"Page user","who.me":"Me",
+      "reason.protected":"Protected","reason.stale_state":"State is out of date","reason.target_changed":"The target session changed in the meantime","reason.expired":"Evidence is out of date","reason.unexpected_tool_result":"Tool result was not as expected","reason.range":"Out of range (1–50)","reason.order":"Hard is below Warn","reason.enum":"Value not allowed","reason.locked":"Locked (auto mode isn't available yet)","reason.size":"Too many items","reason.format":"Format error","reason.protected_remove":"Protected items can't be removed","reason.type":"Wrong type","reason.not_allowed":"Item not allowed","reason.unmapped":"No confirmed match with an app session","reason.unknown_proposal":"Not a proposal made by this PC","reason.grade_changed":"The limit grade has changed","reason.judgment":"Skipped: the conversation needs judgment","reason.one_per_sid":"One per session at a time (next sync)",
+      "vk.in_med10":"context median","vk.hit":"cache hit","vk.ctx_tokens":"context","vk.idle_sec":"idle (s)","vk.agent_share":"subagent share","vk.sessions":"sessions","vk.agent_tokens":"subagent tokens","vk.peak_24h":"24h peak","vk.j":"judgment hits","vk.fit":"fit","vk.grade":"grade",
+      "sug.red":"Budget is red. Defer big tasks past the reset or run them on a lower model.",
+      "sug.red_lower":"Budget is red. Lower this session to Sonnet first (app model menu).",
+      "sug.stale":"Usage value is stale. Take one turn in any session; the sync hint will appear.",
+      "sug.clear":"Clear candidate. Save a handoff note, then /clear.",
+      "sug.lower":"This session can run on Sonnet (app model menu).",
+      "sug.judg":"Many judgment tasks on a lower model. Run only the judgment step as an Opus subagent.",
+      "sug.hit":"Check whether a big file is re-read every turn (move big reads to a subagent).",
+      "sug.idle":"Many cache misses after idle. Continue within 5 minutes or finish.",
+      "sug.newS":"A new session is recommended (handoff note ready).",
+      "sug.gate":"Clear when the topic changes.",
+      "sug.agent":"Lower the default subagent model to Sonnet (agentModelDefault).",
+      "sug.bigread":"Hand big reads to a subagent.",
+      "demo.t1":"Design review — a long session title that has to wrap onto several lines",
+      "demo.t2":"Implementation work"
+    },
+    ko:{
+      "title":"Token Stamina 현황",
+      "loading":"불러오는 중…",
+      "late":"갱신 명령이 안 돌고 있어요. 관리 탭에서 /token-stamina:board 를 실행해 주세요.",
+      "share":"공유 중이에요. 결정은 누구나 쓸 수 있어요.",
+      "foot":"값은 로컬에서 측정한 것이고, 모델 적합도와 절약량은 추정이에요. 이 화면이 쓰는 것은 제안 결정과 설정 요청뿐이고, 적용은 로컬 동기화가 해요.",
+      "aria.account":"계정","aria.summary":"효율 요약","aria.sessions":"세션","aria.proposals":"제안","aria.settings":"설정","aria.log":"개입 로그",
+      "nodata":"아직 기록 없음",
+      "login":"로그인이 필요해요",
+      "just":"방금","min":"{m}분 전","hm":"{h}시간 {m}분 전",
+      "asof":"{ago} 기준",
+      "acct.title":"계정 사용량",
+      "acct.vs":"오늘 몫 대비 {grade}{pp}",
+      "grade.green":"여유","grade.yellow":"주의","grade.red":"넘침",
+      "w.7d":"7일 창","w.5h":"5시간 창","w.fable":"Fable 창",
+      "pp":"%p",
+      "acct.stale":"값 오래됨(6시간 넘음)","acct.measured":"{ago} 측정","acct.resets":"리셋까지 {h}시간 {m}분",
+      "sum.title":"효율 요약",
+      "sum.sessions":"세션","sum.agents":"에이전트","sum.hit":"캐시 적중","sum.lower":"낮출 후보","sum.clear":"비우기 후보",
+      "sess.empty":"아직 기록 없음. 세션을 열고 한 턴 쓰면 여기에 나타나요.",
+      "sess.protected":"보호",
+      "sess.up":"늘어나는 중","sess.down":"줄어드는 중","sess.flat":"변화 없음",
+      "sess.ctxline":"턴당 다시 읽는 맥락 {last} (최근 10턴 중앙값 {med}{trend}) · 표본 {n}턴",
+      "sess.spark":"최근 턴의 다시 읽는 맥락 추세",
+      "sess.hit":"캐시 적중","sess.hitIdle":"(유휴 제외 {p})",
+      "sess.fit":"모델 적합도","sess.est":"{v} · 추정",
+      "sess.ctx":"맥락 크기","sess.agents":"하위 에이전트","sess.agentsVal":"{n}개 실행 · {tok}",
+      "fit.lower_candidate":"낮출 후보","fit.fit":"적합","fit.judgment_on_lower":"판단 작업에 하위 모델",
+      "log.title":"개입 로그","log.empty":"아직 자동 조절 없음",
+      "lag.none":"동기화 기록이 아직 없어요. 승인한 제안은 동기화가 돈 뒤에 적용돼요.",
+      "lag.last":"마지막 동기화 {ago} · 승인분은 다음 동기화 때(보통 15분 안) 적용돼요",
+      "lag.late":" · 30분 넘게 동기화가 없어요",
+      "prop.title":"제안","prop.mode":"{mode} 모드",
+      "mode.manual":"직접(버튼 없음)","mode.approve":"승인 후 적용","mode.auto":"자동",
+      "prop.empty":"지금 제안할 게 없어요. 세션을 쓰다 보면 낮출 만한 것이 생길 때 여기에 올라와요.",
+      "kind.session_model":"세션 모델 낮추기","kind.session_clear":"세션 비우기","kind.agent_default_model":"하위 에이전트 기본 모델 낮추기","kind.agent_model_default":"하위 에이전트 기본 모델 낮추기","kind.fleet_threshold":"동시 에이전트 경고선 조정","kind.effort":"추론 강도","kind.none":"제안",
+      "status.proposed":"결정 대기","status.approved":"승인됨 · 동기화 대기","status.rejected":"거절함","status.held":"보류","status.applied":"적용됨","status.failed":"적용 실패","status.refused":"적용 거절","status.expired":"만료",
+      "irrev":"되돌릴 수 없음",
+      "scope":"범위 {s}",
+      "what.agentDefault":"기본 모델 → {m}",
+      "what.clear":"인계 메모를 남기고 대화를 비움",
+      "note.agentNext":"다음 에이전트부터 적용돼요(모델 호출 없음). 이미 도는 에이전트는 그대로예요.",
+      "basis.default":"근거",
+      "basis.measured":" · {hm} 측정({ago})",
+      "save.est":"예상 절약 ","save.tok":"약 {tok} 토큰",
+      "win.10_turns":"지난 10턴 환산","win.board_tail":"현황판이 읽은 최근 기록 환산",
+      "save.est2":"{w} · 추정",
+      "save.none":"절약 수치 없음(제어 제안)",
+      "revert":"되돌리기: {how}","revert.no":" (불가)",
+      "how.handoff":"인계 메모만 남아요","how.prev":"config.prev.json 값으로 복원","how.setModel":"모델 되돌리기({m})",
+      "clear.note":"승인 뒤 관리 탭에서 한 번 더 확인해요. 승인만으로는 비워지지 않아요.",
+      "manual.note":"직접 모드예요. 앱에서 직접 바꾸거나, 설정에서 승인 모드를 켜면 버튼이 나와요.",
+      "auto.note":"자동 적용 대상이에요.",
+      "btn.approve":"승인","btn.reject":"거절","btn.hold":"보류",
+      "advice.note":"제안만 — 이 세션은 자동 적용 대상이 아니에요",
+      "tl.proposed":"제안","tl.basis":" (근거 측정 {hm})",
+      "tl.approved":"승인","tl.rejected":"거절","tl.held":"보류",
+      "tl.decision":"결정","tl.expiredUndecided":"없이 만료","tl.pending":"대기",
+      "tl.applied":"적용","tl.nextSync":"다음 동기화 때",
+      "tl.result":"결과","tl.r.applied":"적용됨","tl.r.failed":"실패","tl.r.refused":"거절","tl.r.expired":"만료",
+      "decide.noDb":"저장소에 연결되지 않아 저장하지 못했어요","decide.saving":"저장 중…","decide.fail":"저장하지 못했어요: {e}","decide.unknown":"알 수 없는 오류",
+      "set.title":"설정",
+      "set.none":"요청 없음","set.waiting":"적용 대기","set.diff":"요청≠적용 {n}건","set.applied":"적용됨","set.appliedRej":"적용됨 · 거절 {n}건",
+      "f.warn":"동시 에이전트 경고(Warn)","f.hard":"동시 에이전트 한계(Hard)","f.totalWarn":"전체 합계 경고","f.totalHard":"전체 합계 한계",
+      "f.floor":"에이전트 모델 하한","f.default":"에이전트 기본 모델","f.mode":"적용 모드",
+      "f.modeAuto":"auto · 잠김",
+      "f.scope":"자동 허용 범위(자동 모드용, 지금은 잠김)",
+      "f.mask":"현황판에서 세션 제목 가리기",
+      "f.locked":"🔒 보호 폴더(managerProtectSegments)와 봇 폴더는 보호 항목이라 여기서 풀 수 없어요. ",
+      "f.save":"저장(다음 동기화에 반영)",
+      "f.errInt":"{k} 은 1~50 정수예요","f.errOrder":"Hard 는 Warn 이상이어야 해요","f.errTotalOrder":"전체 한계는 전체 경고 이상이어야 해요",
+      "f.saved":"저장했어요. 다음 동기화 때 반영돼요.",
+      "cmp.none":"저장한 설정 요청이 아직 없어요.",
+      "cmp.meta":"요청 {who} {hm}","cmp.metaApplied":" · 적용 {hm}","cmp.metaWaiting":" · 적용 대기","cmp.metaRej":" · 거절 {n}건",
+      "cmp.line":"요청 {a} → 적용 {b}","cmp.pending":"대기 중",
+      "cmp.differs":"요청과 달라요","cmp.why":" · 거절 사유: {r}","cmp.reqVal":" (요청값 {v})","cmp.notYet":" · 아직 반영 전",
+      "cmp.nextSync":"다음 동기화 때 반영돼요","cmp.extra":"그 밖의 거절 {n}건",
+      "who.page":"페이지 사용자","who.me":"나",
+      "reason.protected":"보호 대상","reason.stale_state":"상태가 오래됨","reason.target_changed":"대상 세션이 그새 바뀜","reason.expired":"근거가 오래됨","reason.unexpected_tool_result":"도구 결과가 예상과 다름","reason.range":"범위 밖(1~50)","reason.order":"Hard 가 Warn 보다 작음","reason.enum":"허용 값이 아님","reason.locked":"잠김(자동 모드는 아직 못 써요)","reason.size":"항목이 너무 많음","reason.format":"형식 오류","reason.protected_remove":"보호 항목은 뺄 수 없음","reason.type":"형식이 맞지 않음","reason.not_allowed":"허용되지 않은 항목","reason.unmapped":"앱 세션과 짝이 확인되지 않음","reason.unknown_proposal":"이 PC 가 만든 제안이 아님","reason.grade_changed":"지금 한도 등급이 달라짐","reason.judgment":"판단이 필요한 대화라 제외","reason.one_per_sid":"같은 세션은 한 번에 하나만(다음 동기화)",
+      "vk.in_med10":"맥락 중앙값","vk.hit":"캐시 적중","vk.ctx_tokens":"맥락","vk.idle_sec":"유휴(초)","vk.agent_share":"하위 에이전트 비중","vk.sessions":"세션","vk.agent_tokens":"하위 에이전트 토큰","vk.peak_24h":"24시간 최대","vk.j":"판단 키워드","vk.fit":"적합도","vk.grade":"등급",
+      "sug.red":"예산이 빨강이에요. 큰 작업은 리셋 뒤로 미루거나 하위 모델로 돌려요.",
+      "sug.red_lower":"예산이 빨강이에요. 이 세션을 먼저 Sonnet 으로 낮춰요(앱 모델 메뉴).",
+      "sug.stale":"한도 값이 오래됐어요. 아무 세션에서나 한 턴 쓰면 동기화 안내가 떠요.",
+      "sug.clear":"비우기 후보예요. 인계 메모를 저장하고 /clear 해요.",
+      "sug.lower":"이 세션은 Sonnet 으로 낮춰도 돼요(앱 모델 메뉴).",
+      "sug.judg":"판단 작업이 많아요. 판단 단계만 Opus 하위 에이전트로 돌려요.",
+      "sug.hit":"매 턴 큰 파일을 다시 읽는지 확인해요(큰 읽기는 하위 에이전트로).",
+      "sug.idle":"유휴 뒤 캐시 미스가 많아요. 5분 안에 이어 쓰거나 끝내요.",
+      "sug.newS":"새 세션을 권장해요(인계 메모 준비).",
+      "sug.gate":"주제가 바뀌면 비워요.",
+      "sug.agent":"하위 에이전트 기본 모델을 Sonnet 으로 낮춰요(agentModelDefault).",
+      "sug.bigread":"큰 읽기를 하위 에이전트로 넘겨요.",
+      "demo.t1":"설계 검토 긴 제목이 길게 이어져서 줄바꿈이 되어야 하는 세션 이름",
+      "demo.t2":"구현 작업"
+    }
+  };
+  /*STRINGS-END*/
+
+  var STALE_MIN=30;
+  var FALLBACK="en";
+  var LANG=FALLBACK;
+  var NF={};
+  var $=function(id){return document.getElementById(id)};
+  function t(key,vars){
+    var s=STRINGS[LANG][key];if(s==null)s=STRINGS.en[key];if(s==null)return key;
+    return vars?s.replace(/\{(\w+)\}/g,function(m,k){return vars[k]!=null?String(vars[k]):m}):s;
+  }
+  // Supported languages are whatever STRINGS has a table for: adding a table (e.g. ja) is all it takes.
+  function supported(code){
+    var c=String(code||"").toLowerCase();
+    if(STRINGS[c])return c;
+    var p=c.split("-")[0];
+    return STRINGS[p]?p:null;
+  }
+  // Order: an explicit language in the board data (config `lang`; "auto" or missing = not explicit) -> the viewer's browser
+  // languages in order of preference -> English. An explicit language without a table also shows English.
+  function pickLang(dataLang){
+    if(dataLang&&dataLang!=="auto")return supported(dataLang)||FALLBACK;
+    var nl=(typeof navigator!=="undefined"&&(navigator.languages&&navigator.languages.length?navigator.languages:[navigator.language]))||[];
+    for(var i=0;i<nl.length;i++){var h=supported(nl[i]);if(h)return h}
+    return FALLBACK;
+  }
+  // Numbers and clock times use the viewer's own locale (config `lang` when it fixes one, else the first browser language);
+  // relative-time wording uses the page language so a screen never mixes two languages in a sentence.
+  var NUMLOC=null;
+  function numLoc(dataLang){
+    var c=dataLang&&dataLang!=="auto"?dataLang:((typeof navigator!=="undefined"&&(navigator.languages&&navigator.languages[0]||navigator.language))||LANG);
+    try{new Intl.NumberFormat(c);return c}catch(e){return LANG}
+  }
+  function nf(opts){var k=(NUMLOC||LANG)+JSON.stringify(opts||{});return NF[k]||(NF[k]=new Intl.NumberFormat(NUMLOC||LANG,opts))}
+  function fmtInt(n){return nf({maximumFractionDigits:0}).format(Math.round(n))}
+  function applyStatic(){
+    document.documentElement.lang=LANG;document.title=t("title");
+    Array.prototype.forEach.call(document.querySelectorAll("[data-t]"),function(n){n.textContent=t(n.getAttribute("data-t"))});
+    Array.prototype.forEach.call(document.querySelectorAll("[data-aria]"),function(n){n.setAttribute("aria-label",t(n.getAttribute("data-aria")))});
+  }
+  function el(tag,cls,text){var e=document.createElement(tag);if(cls)e.className=cls;if(text!=null)e.textContent=text;return e}
+  function num(x){return typeof x==="number"&&isFinite(x)}
+  function fmtTok(n){return !num(n)?"—":n>=1e6?nf({minimumFractionDigits:1,maximumFractionDigits:1}).format(n/1e6)+"M":n>=1e3?fmtInt(n/1e3)+"k":fmtInt(n)}
+  function pct(x){return num(x)?fmtInt(x*100)+"%":"—"}
+  function agoMin(iso,now){var tm=Date.parse(iso);return isNaN(tm)?null:Math.max(0,Math.round((now-tm)/60000))}
+  // Relative times go through Intl.RelativeTimeFormat for the page language; "just now" and "Hh Mm ago" are table entries
+  // (Intl has no combined hours+minutes form); a language without them falls back to whole hours from Intl.
+  function agoText(m){
+    if(m==null)return "—";
+    if(m<1)return t("just");
+    var rtf=new Intl.RelativeTimeFormat(LANG,{numeric:"always",style:"long"});
+    if(m<60)return rtf.format(-m,"minute");
+    var h=Math.floor(m/60),mm=m%60;
+    if(mm&&STRINGS[LANG].hm)return t("hm",{h:fmtInt(h),m:fmtInt(mm)});
+    return rtf.format(-h,"hour");
+  }
+  // Model names are proper nouns: Opus / Fable / Sonnet / Haiku in both languages. Anything else is shown as given.
+  function modelName(x){
+    var s=String(x==null?"":x),m=/(opus|fable|sonnet|haiku)/i.exec(s);
+    if(!m)return s;
+    var n=m[1];return n.charAt(0).toUpperCase()+n.slice(1).toLowerCase();
+  }
+
+  function sparkline(vals){
+    var n=vals.length,W=200,H=40,pad=4,svg=document.createElementNS("http://www.w3.org/2000/svg","svg");
+    svg.setAttribute("viewBox","0 0 "+W+" "+H);svg.setAttribute("preserveAspectRatio","none");
+    svg.setAttribute("role","img");svg.setAttribute("aria-label",t("sess.spark"));
+    if(n<2)return svg;
+    var mn=Math.min.apply(null,vals),mx=Math.max.apply(null,vals),sp=(mx-mn)||1;
+    var pts=vals.map(function(v,i){return [pad+i*(W-2*pad)/(n-1),H-pad-(v-mn)/sp*(H-2*pad)]});
+    var NS="http://www.w3.org/2000/svg";
+    var base=document.createElementNS(NS,"line");base.setAttribute("x1",pad);base.setAttribute("x2",W-pad);base.setAttribute("y1",H-1);base.setAttribute("y2",H-1);base.setAttribute("stroke","var(--line)");svg.appendChild(base);
+    var d=pts.map(function(p,i){return(i?"L":"M")+p[0].toFixed(1)+" "+p[1].toFixed(1)}).join(" ");
+    var area=document.createElementNS(NS,"path");area.setAttribute("d",d+" L"+pts[n-1][0]+" "+(H-1)+" L"+pts[0][0]+" "+(H-1)+" Z");area.setAttribute("fill","var(--spark)");area.setAttribute("fill-opacity","0.12");svg.appendChild(area);
+    var ln=document.createElementNS(NS,"path");ln.setAttribute("d",d);ln.setAttribute("fill","none");ln.setAttribute("stroke","var(--spark)");ln.setAttribute("stroke-width","1.5");ln.setAttribute("vector-effect","non-scaling-stroke");svg.appendChild(ln);
+    var last=pts[n-1],c=document.createElementNS(NS,"circle");c.setAttribute("cx",last[0]);c.setAttribute("cy",last[1]);c.setAttribute("r","2.6");c.setAttribute("fill","var(--spark)");svg.appendChild(c);
+    return svg;
+  }
+
+  // value on its own line, optional muted detail on the next line (so "82%" and "(excl. idle 88%)" never break mid-phrase)
+  function kv(label,val,sub){var d=el("div");d.appendChild(el("div","lbl",label));var v=el("div","v",val);if(sub)v.appendChild(el("span","sub",sub));d.appendChild(v);return d}
+
+  function renderAccount(a,now){
+    var box=$("account");box.textContent="";
+    if(!a){box.appendChild(el("div","lbl",t("acct.title")));box.appendChild(el("div","empty",t("nodata")));return}
+    var head=el("div","row");head.appendChild(el("span","lbl",t("acct.title")));
+    if(a.grade){head.appendChild(el("span","pill "+a.grade,t("acct.vs",{grade:t("grade."+a.grade)==="grade."+a.grade?a.grade:t("grade."+a.grade),
+      pp:num(a.vs_share_pp)?" ("+(a.vs_share_pp>0?"+":"")+fmtInt(a.vs_share_pp)+t("pp")+")":""})))}
+    box.appendChild(head);
+    var m=el("div","meters");
+    [[t("w.7d"),a.pct_7d],[t("w.5h"),a.pct_5h],[t("w.fable"),a.pct_fable]].forEach(function(x){
+      if(!num(x[1]))return;var d=el("div","meter");d.appendChild(el("div","lbl",x[0]));d.appendChild(el("div","v",fmtInt(x[1])+"%"));
+      var b=el("div","bar"),i=el("i");i.style.width=Math.max(0,Math.min(100,x[1]))+"%";b.appendChild(i);d.appendChild(b);m.appendChild(d)});
+    box.appendChild(m);
+    var f=[];
+    if(a.stale)f.push(t("acct.stale"));
+    else if(a.measured_at){f.push(t("acct.measured",{ago:agoText(agoMin(a.measured_at,now))}))}
+    if(a.resets_at){var r=Math.round((Date.parse(a.resets_at)-now)/60000);if(r>0)f.push(t("acct.resets",{h:fmtInt(Math.floor(r/60)),m:fmtInt(r%60)}))}
+    if(f.length){var p=el("div","foot",f.join(" · "));if(a.stale)p.style.color="var(--warn)";box.appendChild(p)}
+  }
+
+  function renderSummary(s,rows){
+    var box=$("summary");box.textContent="";
+    if(!s&&!rows.length){box.appendChild(el("div","lbl",t("sum.title")));box.appendChild(el("div","empty",t("nodata")));return}
+    if(!s){
+      var h=0,w=0;rows.forEach(function(r){if(num(r.hit)){h+=r.hit;w++}});
+      s={sessions:rows.length,agents:rows.reduce(function(a,r){return a+(r.agents_running||0)},0),hit:w?h/w:null,
+         lower:rows.filter(function(r){return r.fit==="lower_candidate"}).length,clear:rows.filter(function(r){return r.clear_candidate}).length};
+    }
+    box.appendChild(el("div","lbl",t("sum.title")));
+    var d=el("div","sum");
+    [[t("sum.sessions"),s.sessions],[t("sum.agents"),s.agents],[t("sum.hit"),s.hit==null?"—":pct(s.hit)],[t("sum.lower"),s.lower],[t("sum.clear"),s.clear]].forEach(function(x){
+      var sp=el("span");sp.appendChild(document.createTextNode(x[0]+" "));sp.appendChild(el("b",null,x[1]==null?"—":String(x[1])));d.appendChild(sp)});
+    box.appendChild(d);
+  }
+
+  // Suggestions arrive as a code (`sug`) and are shown in the page language; older rows carry only the sender's text.
+  function sugText(r){
+    if(r.sug&&STRINGS.en["sug."+r.sug])return t("sug."+r.sug);
+    return r.suggestion||"";
+  }
+
+  function renderSessions(rows,now){
+    var box=$("sessions");box.textContent="";
+    if(!rows.length){var e=el("div","band empty",t("sess.empty"));box.appendChild(e);return}
+    rows.sort(function(a,b){return (b.last_ts?Date.parse(b.last_ts):0)-(a.last_ts?Date.parse(a.last_ts):0)});
+    rows.forEach(function(r){
+      var c=el("article","card");
+      var tt=el("div","row");tt.appendChild(el("h3",null,r.title||r.cwd_tail||(r.sid||"").slice(0,8)));
+      var b=el("span");if(r.model)b.appendChild(el("span","pill",modelName(r.model)));
+      if(r.protected){var pr=el("span","pill",t("sess.protected"));pr.style.marginLeft="6px";b.appendChild(pr)}
+      tt.appendChild(b);c.appendChild(tt);
+      if(r.spark&&r.spark.length){var sp=el("div","spark");sp.appendChild(sparkline(r.spark.slice(-20)));c.appendChild(sp);
+        var tr=num(r.in_trend)?(r.in_trend>0?t("sess.up"):r.in_trend<0?t("sess.down"):t("sess.flat")):"";
+        c.appendChild(el("div","foot",t("sess.ctxline",{last:fmtTok(r.in_last),med:fmtTok(r.in_med10),trend:tr?", "+tr:"",n:r.sample_turns==null?"—":r.sample_turns})))}
+      var k=el("div","kv");
+      k.appendChild(kv(t("sess.hit"),pct(r.hit),num(r.hit_active)?t("sess.hitIdle",{p:pct(r.hit_active)}):""));
+      var fit=el("div");fit.appendChild(el("div","lbl",t("sess.fit")));var fp=el("span","pill est",t("sess.est",{v:r.fit&&STRINGS.en["fit."+r.fit]?t("fit."+r.fit):"—"}));fit.appendChild(fp);k.appendChild(fit);
+      k.appendChild(kv(t("sess.ctx"),fmtTok(r.ctx_tokens)));
+      k.appendChild(kv(t("sess.agents"),t("sess.agentsVal",{n:r.agents_running||0,tok:fmtTok((r.agent_tokens_done||0)+(r.agent_tokens_live||0))})));
+      c.appendChild(k);
+      c.appendChild(el("div","sug",sugText(r)));
+      c.appendChild(el("div","foot",agoText(agoMin(r.updated_at||r.last_ts,now))));
+      box.appendChild(c)});
+  }
+
+  function renderLog(rows){
+    var box=$("log");box.textContent="";box.appendChild(el("div","lbl",t("log.title")));
+    if(!rows.length){box.appendChild(el("div","empty",t("log.empty")));return}
+    var ul=el("ul");rows.slice(0,20).forEach(function(l){
+      ul.appendChild(el("li",null,(l.ts||"")+" · "+(l.action||"")+" "+modelName(l.from||"")+(l.to?" → "+modelName(l.to):"")+(l.reason?" ("+l.reason+")":"")))});
+    box.appendChild(ul);
+  }
+
+  /* ===== Proposal cards, settings panel, lag strip.
+     Writes: decisions/<pid> {status,decided_by,decided_at}, settings/requested {values,requested_by,requested_at}
+     Reads: proposals/*, decisions/*, settings/requested, settings/applied (plus sessions/account/summary/log) */
+  var KEYS=["fleetWarnAt","fleetHardAt","fleetTotalWarnAt","fleetTotalHardAt","fleetModelFloor","agentModelDefault","applyMode","autoScope","dashboardMaskTitles"];
+  var SCOPES=["session_model","agent_model_default","fleet_threshold"];
+  function kindText(k){return STRINGS.en["kind."+k]?t("kind."+k):k}
+  function hm(iso){var tm=Date.parse(iso);if(isNaN(tm))return "—";return new Intl.DateTimeFormat(NUMLOC||LANG,{hour:"2-digit",minute:"2-digit",hourCycle:"h23"}).format(new Date(tm))}
+  function rs(c){return c?(STRINGS.en["reason."+c]?t("reason."+c):c):""}
+  // "how to undo" arrives as a short code from the plugin ("set_session_model(sonnet)", "handoff note only", "config.prev.json").
+  function howText(h){
+    if(!h)return "—";
+    var m=/^set_session_model\((\w+)\)$/.exec(h);
+    if(m)return t("how.setModel",{m:modelName(m[1])});
+    if(h==="handoff note only")return t("how.handoff");
+    if(h==="config.prev.json")return t("how.prev");
+    return h;
+  }
+
+  var store={sessions:[],account:null,summary:null,log:[],proposals:[],decisions:{},reqS:null,appS:null,db:null,me:null,userApi:null,names:{},shared:false,demo:false};
+  function myId(){return store.me&&store.me.id?store.me.id:"page-user"}
+  function whoName(id){if(!id)return t("who.page");if(store.names[id])return store.names[id];return id===myId()?t("who.me"):t("who.page")}
+  function effStatus(p,now){var d=store.decisions[p.pid];var s=(d&&d.status)||p.status||"proposed";
+    if((s==="proposed"||s==="held")&&p.ttl_until&&Date.parse(p.ttl_until)<now)s="expired";return s}
+  function effMode(){var a=store.appS&&store.appS.accepted&&store.appS.accepted.applyMode;return a==="approve"||a==="auto"?a:"manual"}
+  function sessTitle(tg){if(!tg)return "";if(tg.sid){var r=store.sessions.filter(function(x){return x.sid===tg.sid})[0];return r?(r.title||r.cwd_tail||tg.sid.slice(0,8)):tg.sid.slice(0,8)}return tg.scope?t("scope",{s:tg.scope}):""}
+  function valText(v){if(v==null)return "—";if(typeof v==="object")return Object.keys(v).map(function(k){
+    var x=v[k],lab=STRINGS.en["vk."+k]?t("vk."+k):k;
+    if(k==="fit"&&STRINGS.en["fit."+x])x=t("fit."+x);else if(k==="grade"&&STRINGS.en["grade."+x])x=t("grade."+x);
+    else x=typeof x==="number"&&x<=1&&x>=0&&/hit|share|ratio/.test(k)?pct(x):typeof x==="number"?fmtTok(x):x;
+    return lab+" "+x}).join(" · ");return String(v)}
+  function errText(e){return (e&&(e.message||e.code))||t("decide.unknown")}
+
+  function decide(pid,status,btns,msg){
+    if(!store.db){msg.textContent=t("decide.noDb");msg.className="note bad";return}
+    btns.forEach(function(b){b.disabled=true});msg.textContent=t("decide.saving");msg.className="note";
+    store.db.doc("decisions/"+pid).set({status:status,decided_by:myId(),decided_at:new Date().toISOString()}).then(function(){msg.textContent=""},function(e){
+      btns.forEach(function(b){b.disabled=false});msg.textContent=t("decide.fail",{e:errText(e)});msg.className="note bad"});
+  }
+
+  function timeline(p,d,st){
+    var tl=el("div","tl");
+    function step(label,val,on,bad){var s=el("div",(on?"on":"")+(bad?" bad":""));s.appendChild(el("b",null,label));s.appendChild(document.createTextNode(val));tl.appendChild(s)}
+    step(t("tl.proposed"),hm(p.created_at)+(p.basis&&p.basis.measured_at?t("tl.basis",{hm:hm(p.basis.measured_at)}):""),true);
+    var dec=d&&(d.status==="approved"||d.status==="rejected"||d.status==="held"||d.decided_at)?d:null;
+    var dl={approved:t("tl.approved"),rejected:t("tl.rejected"),held:t("tl.held")};
+    if(dec&&dec.decided_at&&dl[dec.status])step(dl[dec.status],whoName(dec.decided_by)+" "+hm(dec.decided_at),true);
+    else if(st==="expired")step(t("tl.decision"),t("tl.expiredUndecided"),false,true);
+    else step(t("tl.decision"),t("tl.pending"),false);
+    var applied=d&&d.applied_at;
+    step(t("tl.applied"),applied?hm(d.applied_at)+(d.applied_by?" · "+d.applied_by:""):(st==="approved"?t("tl.nextSync"):"—"),!!applied);
+    var res="—",bad=false,on=false;
+    if(st==="applied"){res=t("tl.r.applied");on=true}
+    else if(st==="failed"){res=t("tl.r.failed")+(d&&d.reason?": "+rs(d.reason):"");bad=true}
+    else if(st==="refused"){res=t("tl.r.refused")+(d&&d.reason?": "+rs(d.reason):"");bad=true}
+    else if(st==="expired"){res=t("tl.r.expired");bad=true}
+    step(t("tl.result"),res,on,bad);
+    return tl;
+  }
+
+  function renderProposals(now){
+    var box=$("proposals");box.textContent="";
+    var mode=effMode(),list=store.proposals.slice();
+    var h=el("div","sec-h");h.appendChild(el("h2",null,t("prop.title")));
+    h.appendChild(el("span","pill",t("prop.mode",{mode:t("mode."+mode)})));box.appendChild(h);
+    if(!list.length){box.appendChild(el("div","band empty",t("prop.empty")));return}
+    var rank={proposed:0,held:1,approved:2,failed:3,refused:3,applied:4,rejected:5,expired:6};
+    list.forEach(function(p){p._st=effStatus(p,now)});
+    list.sort(function(a,b){var r=(rank[a._st]||0)-(rank[b._st]||0);return r||(Date.parse(b.created_at)||0)-(Date.parse(a.created_at)||0)});
+    list.slice(0,20).forEach(function(p){
+      var st=p._st,d=store.decisions[p.pid],kind=p.kind||"";
+      var c=el("article","card pcard"+(st==="expired"?" expired":st==="applied"?" done":""));
+      var tt=el("div","row");tt.appendChild(el("h3",null,kind?kindText(kind):t("kind.none")));
+      var pills=el("span");
+      if(kind==="session_clear"||(p.revert&&p.revert.possible===false)){pills.appendChild(el("span","pill irrev",t("irrev")))}
+      var sp=el("span","pill"+(st==="applied"?" green":st==="failed"||st==="refused"?" red":st==="proposed"?" solid":""),STRINGS.en["status."+st]?t("status."+st):st);sp.style.marginLeft="6px";pills.appendChild(sp);
+      tt.appendChild(pills);c.appendChild(tt);
+      var tg=sessTitle(p.target),pr=p.params||{};
+      var what=(tg?tg+" · ":"");
+      if(kind==="session_model")what+=modelName(pr.from||"?")+" → "+modelName(pr.to||"sonnet");
+      else if(kind==="agent_default_model"||kind==="agent_model_default")what+=t("what.agentDefault",{m:modelName(pr.to||"sonnet")});
+      else if(kind==="fleet_threshold")what+=Object.keys(pr).map(function(k){return k+" "+pr[k]}).join(", ");
+      else if(kind==="session_clear")what+=t("what.clear");
+      else what+=valText(pr);
+      c.appendChild(el("div","what",what));
+      if(kind==="agent_default_model"||kind==="agent_model_default")c.appendChild(el("div","note",t("note.agentNext")));
+      var b=p.basis;if(b){var bt=(b.metric||t("basis.default"))+": "+valText(b.values);c.appendChild(el("div","note",bt+(b.measured_at?t("basis.measured",{hm:hm(b.measured_at),ago:agoText(agoMin(b.measured_at,now))}):"")))}
+      var es=p.est_saving,sv=el("div","row");
+      if(es&&num(es.tokens)){var sl=el("span");sl.appendChild(document.createTextNode(t("save.est")));sl.appendChild(el("b",null,t("save.tok",{tok:fmtTok(es.tokens)})));sv.appendChild(sl);
+        var wk=STRINGS.en["win."+es.window]?es.window:(kind==="agent_default_model"||kind==="agent_model_default"?"board_tail":"10_turns");
+        sv.appendChild(el("span","pill est",t("save.est2",{w:t("win."+wk)})))}
+      else sv.appendChild(el("span","note",t("save.none")));
+      c.appendChild(sv);
+      var rv=p.revert;if(rv){c.appendChild(el("div","note"+(rv.possible===false?" bad":""),t("revert",{how:howText(rv.how)})+(rv.possible===false?t("revert.no"):"")))}
+      if(kind==="session_clear")c.appendChild(el("div","note warn",t("clear.note")));
+      var advice=!!(p.advice_only||p.protected);
+      var open=(st==="proposed"||st==="held");
+      if(mode==="manual"&&open){c.appendChild(el("div","note",t("manual.note")))}
+      else if(mode==="auto"&&open){c.appendChild(el("div","note",t("auto.note")))}
+      else if(mode==="approve"&&open){
+        var bw=el("div","btns"),msg=el("div","note"),all=[];
+        var mk=function(label,cls,status){var bt2=el("button","b "+cls,label);bt2.type="button";if(advice)bt2.disabled=true;all.push(bt2);
+          bt2.addEventListener("click",function(){decide(p.pid,status,all,msg)});bw.appendChild(bt2)};
+        mk(t("btn.approve"),"ok","approved");mk(t("btn.reject"),"no","rejected");if(st!=="held")mk(t("btn.hold"),"","held");
+        c.appendChild(bw);
+        if(advice)c.appendChild(el("div","note warn",t("advice.note")));
+        c.appendChild(msg);
+      }
+      c.appendChild(timeline(p,d,st));
+      box.appendChild(c);
+    });
+  }
+
+  var formDirty=false,formBuilt=false;
+  function curValues(){var r=store.reqS&&store.reqS.values,a=store.appS&&store.appS.accepted;return r||a||{}}
+  function f(id){return document.getElementById(id)}
+  function buildForm(){
+    var box=$("set-form");box.textContent="";
+    function fld(label,input,id){var w=el("div","fld");var l=el("label",null,label);if(id)l.htmlFor=id;w.appendChild(l);w.appendChild(input);return w}
+    function numIn(id){var i=el("input");i.type="number";i.min="1";i.max="50";i.step="1";i.id=id;return i}
+    function sel(id,opts){var s=el("select");s.id=id;opts.forEach(function(o){var op=el("option",null,o[1]);op.value=o[0];if(o[2])op.disabled=true;s.appendChild(op)});return s}
+    var g=el("div","fgrid");
+    g.appendChild(fld(t("f.warn"),numIn("s-fleetWarnAt"),"s-fleetWarnAt"));
+    g.appendChild(fld(t("f.hard"),numIn("s-fleetHardAt"),"s-fleetHardAt"));
+    g.appendChild(fld(t("f.totalWarn"),numIn("s-fleetTotalWarnAt"),"s-fleetTotalWarnAt"));
+    g.appendChild(fld(t("f.totalHard"),numIn("s-fleetTotalHardAt"),"s-fleetTotalHardAt"));
+    g.appendChild(fld(t("f.floor"),sel("s-fleetModelFloor",[["haiku",modelName("haiku")],["sonnet",modelName("sonnet")]]),"s-fleetModelFloor"));
+    g.appendChild(fld(t("f.default"),sel("s-agentModelDefault",[["haiku",modelName("haiku")],["sonnet",modelName("sonnet")]]),"s-agentModelDefault"));
+    g.appendChild(fld(t("f.mode"),sel("s-applyMode",[["manual","manual · "+t("mode.manual")],["approve","approve · "+t("mode.approve")],["auto",t("f.modeAuto"),true]]),"s-applyMode"));
+    box.appendChild(g);
+    var ap=el("div","fld");ap.appendChild(el("div","lbl",t("f.scope")));
+    SCOPES.forEach(function(s){var l=el("label","chk");var i=el("input");i.type="checkbox";i.id="s-scope-"+s;i.value=s;l.appendChild(i);l.appendChild(document.createTextNode(kindText(s)));ap.appendChild(l)});
+    box.appendChild(ap);
+    var mk=el("label","chk");var mi=el("input");mi.type="checkbox";mi.id="s-dashboardMaskTitles";mk.appendChild(mi);mk.appendChild(document.createTextNode(t("f.mask")));box.appendChild(mk);
+    box.appendChild(el("div","locked",t("f.locked")));
+    var row=el("div","btns");var sv=el("button","b ok",t("f.save"));sv.type="button";sv.id="s-save";row.appendChild(sv);box.appendChild(row);
+    var m=el("div","note");m.id="s-msg";box.appendChild(m);
+    box.addEventListener("input",function(){formDirty=true;m.textContent=""});
+    sv.addEventListener("click",saveSettings);
+    formBuilt=true;
+  }
+  function fillForm(){
+    if(!formBuilt||formDirty)return;
+    var v=curValues(),d={fleetWarnAt:4,fleetHardAt:8,fleetTotalWarnAt:10,fleetTotalHardAt:20,fleetModelFloor:"haiku",agentModelDefault:"sonnet",applyMode:"manual"};
+    ["fleetWarnAt","fleetHardAt","fleetTotalWarnAt","fleetTotalHardAt","fleetModelFloor","agentModelDefault","applyMode"].forEach(function(k){f("s-"+k).value=v[k]!=null?v[k]:d[k]});
+    var sc=v.autoScope||[];SCOPES.forEach(function(s){f("s-scope-"+s).checked=sc.indexOf(s)>=0});
+    f("s-dashboardMaskTitles").checked=!!v.dashboardMaskTitles;
+  }
+  function collect(){
+    var o={},errs=[];
+    ["fleetWarnAt","fleetHardAt","fleetTotalWarnAt","fleetTotalHardAt"].forEach(function(k){var n=Number(f("s-"+k).value);
+      if(!(Math.floor(n)===n&&n>=1&&n<=50))errs.push(t("f.errInt",{k:k}));o[k]=n});
+    if(o.fleetHardAt<o.fleetWarnAt)errs.push(t("f.errOrder"));
+    if(o.fleetTotalHardAt<o.fleetTotalWarnAt)errs.push(t("f.errTotalOrder"));
+    o.fleetModelFloor=f("s-fleetModelFloor").value;o.agentModelDefault=f("s-agentModelDefault").value;o.applyMode=f("s-applyMode").value;
+    o.autoScope=SCOPES.filter(function(s){return f("s-scope-"+s).checked});
+    o.dashboardMaskTitles=f("s-dashboardMaskTitles").checked;
+    return {values:o,errs:errs};
+  }
+  function saveSettings(){
+    var m=f("s-msg"),r=collect();
+    if(r.errs.length){m.textContent=r.errs.join(" · ");m.className="err";return}
+    if(!store.db){m.textContent=t("decide.noDb");m.className="err";return}
+    var b=f("s-save");b.disabled=true;m.textContent=t("decide.saving");m.className="note";
+    store.db.doc("settings/requested").set({values:r.values,requested_by:myId(),requested_at:new Date().toISOString()}).then(function(){
+      b.disabled=false;formDirty=false;m.textContent=t("f.saved");m.className="note"},function(e){
+      b.disabled=false;m.textContent=t("decide.fail",{e:errText(e)});m.className="err"});
+  }
+  function jv(v){return v==null?"—":typeof v==="object"?JSON.stringify(v):/^(opus|fable|sonnet|haiku)$/i.test(String(v))?modelName(v):String(v)}
+  function renderCompare(){
+    var box=$("set-cmp");box.textContent="";var rq=store.reqS,ap=store.appS,st=$("set-state");
+    var diffs=0,rejN=ap&&ap.rejected?Object.keys(ap.rejected).length:0;
+    if(!rq){st.textContent=t("set.none");st.className="pill";box.appendChild(el("div","note",t("cmp.none")));return}
+    var meta=el("div","note",t("cmp.meta",{who:whoName(rq.requested_by),hm:hm(rq.requested_at)})+(ap&&ap.applied_at?t("cmp.metaApplied",{hm:hm(ap.applied_at)}):t("cmp.metaWaiting"))+t("cmp.metaRej",{n:rejN}));
+    box.appendChild(meta);
+    var ul=el("ul","cmp"),rv=rq.values||{},ac=(ap&&ap.accepted)||{},rj=(ap&&ap.rejected)||{};
+    KEYS.forEach(function(k){
+      if(!(k in rv))return;
+      var same=ap&&jv(rv[k])===jv(ac[k]);
+      var li=el("li",same?"":"diff");
+      var l1=el("div");l1.appendChild(el("code",null,k));li.appendChild(l1);
+      var l2=el("div",null,t("cmp.line",{a:jv(rv[k]),b:ap?jv(ac[k]):t("cmp.pending")}));li.appendChild(l2);
+      if(!same){diffs++;var why=rj[k];if(why&&why.value!=null&&jv(why.value)!==jv(rv[k]))why=null;
+        if(ap)li.appendChild(el("div","st",t("cmp.differs")+(why?t("cmp.why",{r:rs(why.reason)})+(why.value!=null?t("cmp.reqVal",{v:jv(why.value)}):""):t("cmp.notYet"))));
+        else li.appendChild(el("div","st",t("cmp.nextSync")))}
+      ul.appendChild(li)});
+    box.appendChild(ul);
+    var extra=Object.keys(rj).filter(function(k){return !(k in rv)});
+    if(extra.length){var dt=el("details");dt.appendChild(el("summary","note",t("cmp.extra",{n:extra.length})));extra.forEach(function(k){dt.appendChild(el("div","note",k+": "+rs(rj[k].reason)))});box.appendChild(dt)}
+    if(!ap){st.textContent=t("set.waiting");st.className="pill"}
+    else if(diffs){st.textContent=t("set.diff",{n:diffs});st.className="pill yellow"}
+    else{st.textContent=t("set.applied");st.className="pill green"}
+    if(rejN&&!diffs){st.textContent=t("set.appliedRej",{n:rejN});st.className="pill yellow"}
+  }
+
+  function renderLag(now){
+    var box=$("lag"),a=store.account,m=a&&a.updated_at?agoMin(a.updated_at,now):null;
+    if(m==null){box.textContent=t("lag.none");box.className="lag"}
+    else{box.textContent=t("lag.last",{ago:agoText(m)})+(m>STALE_MIN?t("lag.late"):"");
+      box.className="lag"+(m>STALE_MIN?" late":"")}
+  }
+
+  function setLang(l){
+    if(l===LANG)return;
+    LANG=l;applyStatic();formBuilt=false;buildForm();
+  }
+
+  function render(){
+    // language: the board data's own value (written from config `lang`) -> navigator.language -> English
+    var dl0=store.account&&store.account.lang;NUMLOC=numLoc(dl0);setLang(pickLang(dl0));
+    var now=Date.now(),a=store.account,m=a&&a.updated_at?agoMin(a.updated_at,now):null;
+    var w=$("when"),late=$("late");
+    if(m==null){w.textContent=store.login?t("login"):t("nodata");w.className="when";late.classList.add("hide")}
+    else{w.textContent=m<1?agoText(m):t("asof",{ago:agoText(m)});if(m>STALE_MIN){w.className="when late";late.classList.remove("hide")}else{w.className="when";late.classList.add("hide")}}
+    renderLag(now);
+    $("share").classList.toggle("hide",!store.shared);
+    renderAccount(a,now);renderSummary(store.summary,store.sessions);renderSessions(store.sessions.slice(),now);
+    renderProposals(now);renderCompare();fillForm();renderLog(store.log);
+  }
+
+  function snapDocs(s){return s.docs.filter(function(d){return d.exists}).map(function(d){var o=d.data();o.sid=o.sid||d.id;return o})}
+  function resolveNames(){
+    var api=store.userApi;if(!api||!api.profiles)return;
+    var ids=[];Object.keys(store.decisions).forEach(function(k){var u=store.decisions[k].decided_by;if(u&&ids.indexOf(u)<0&&!(u in store.names))ids.push(u)});
+    if(store.reqS&&store.reqS.requested_by&&!(store.reqS.requested_by in store.names)&&ids.indexOf(store.reqS.requested_by)<0)ids.push(store.reqS.requested_by);
+    if(!ids.length)return;
+    ids.forEach(function(i){store.names[i]=""});
+    Promise.resolve(api.profiles(ids)).then(function(ps){ids.forEach(function(i){var p=ps&&ps[i];store.names[i]=(p&&p.name)||""});render()}).catch(function(){});
+  }
+  function start(db){
+    store.db=db;
+    db.collection("sessions").onSnapshot(function(s){store.sessions=snapDocs(s);render()},function(){});
+    db.doc("account/now").onSnapshot(function(s){store.account=s.exists?s.data():null;render()},function(){});
+    db.doc("summary/now").onSnapshot(function(s){store.summary=s.exists?s.data():null;render()},function(){});
+    db.collection("log").orderBy("ts","desc").limit(20).onSnapshot(function(s){store.log=snapDocs(s);render()},function(){});
+    db.collection("proposals").onSnapshot(function(s){store.proposals=s.docs.filter(function(d){return d.exists}).map(function(d){var o=d.data();o.pid=o.pid||d.id;return o});render()},function(){});
+    db.collection("decisions").onSnapshot(function(s){var o={};s.docs.forEach(function(d){if(d.exists)o[d.id]=d.data()});store.decisions=o;render();resolveNames()},function(){});
+    db.doc("settings/requested").onSnapshot(function(s){store.reqS=s.exists?s.data():null;render();resolveNames()},function(){});
+    db.doc("settings/applied").onSnapshot(function(s){store.appS=s.exists?s.data():null;render()},function(){});
+    setInterval(render,60000);
+  }
+  function startUser(){
+    var up=window.claude&&window.claude.use?window.claude.use("user"):null;
+    if(!up)return;
+    up.then(function(u){if(!u)return;store.userApi=u;
+      try{store.shared=!u.isOwner()}catch(e){}
+      Promise.resolve(u.me()).then(function(me){store.me=me;render()}).catch(function(){});render()}).catch(function(){})
+  }
+
+  // Mock data for local checks: only when the claude runtime is absent. Open with #empty / #stale / #ok, plus flags
+  // a language code from the table (board data language), `manual`, `shared` (e.g. #ok,ko).
+  // The mock db is an in-memory collection; set() notifies subscribers, so clicking a button creates the row (inspect via window.__fakeDb).
+  function fakeDb(){
+    var data={},subs=[];
+    function parts(p){return p.split("/")}
+    function snapCol(c){var m=data[c]||{};return {docs:Object.keys(m).map(function(id){return {id:id,exists:true,data:function(){return JSON.parse(JSON.stringify(m[id]))}}})}}
+    function snapDoc(c,id){var m=data[c]||{};var ex=id in m;return {exists:ex,id:id,data:function(){return ex?JSON.parse(JSON.stringify(m[id])):undefined}}}
+    function notify(c,id){subs.forEach(function(s){if(s.c===c&&(s.id==null||s.id===id))s.fn(s.id==null?snapCol(c):snapDoc(c,id))})}
+    var db={
+      _data:data,
+      collection:function(c){var r={onSnapshot:function(fn){subs.push({c:c,id:null,fn:fn});fn(snapCol(c));return function(){}},orderBy:function(){return r},limit:function(){return r}};return r},
+      doc:function(path){var a=parts(path),c=a[0],id=a[1];return {
+        onSnapshot:function(fn){subs.push({c:c,id:id,fn:fn});fn(snapDoc(c,id));return function(){}},
+        set:function(v){return new Promise(function(res){data[c]=data[c]||{};data[c][id]=JSON.parse(JSON.stringify(v));setTimeout(function(){notify(c,id);res()},0)})}}}
+    };
+    return db;
+  }
+  function demo(hash){
+    var parts=hash.split(","),kind=parts[0]||"empty",flags=parts.slice(1);
+    var db=fakeDb(),D=db._data;window.__fakeDb=db;
+    var now=Date.now(),iso=function(min){return new Date(now-min*60000).toISOString()},fut=function(min){return new Date(now+min*60000).toISOString()};
+    var dl=flags.filter(function(x){return STRINGS[x]})[0]||null;
+    store.shared=flags.indexOf("shared")>=0;
+    store.me={id:"u-demo",name:""};
+    D.sessions={};D.account={};D.summary={};D.log={};D.proposals={};D.decisions={};D.settings={};
+    if(kind==="empty"){start(db);return}
+    var age=kind==="stale"?40:3;
+    D.account.now={updated_at:iso(age),measured_at:iso(age+2),pct_7d:25,pct_5h:48,pct_fable:12,grade:kind==="stale"?"yellow":"green",vs_share_pp:kind==="stale"?6:-8,resets_at:new Date(now+3.5*3600000).toISOString(),stale:false};
+    if(dl)D.account.now.lang=dl;
+    var sp=function(a,b){var o=[];for(var i=0;i<20;i++)o.push(Math.round(a+(b-a)*i/19+((i*37)%11)*1500));return o};
+    var mode=flags.indexOf("manual")>=0?"manual":"approve";
+    D.settings.requested={values:{fleetWarnAt:4,fleetHardAt:2,fleetTotalWarnAt:10,fleetTotalHardAt:20,fleetModelFloor:"sonnet",agentModelDefault:"sonnet",applyMode:"auto",autoScope:["session_model"],dashboardMaskTitles:false},requested_by:"u-demo",requested_at:iso(age+20)};
+    D.settings.applied={accepted:{fleetWarnAt:4,fleetHardAt:8,fleetTotalWarnAt:10,fleetTotalHardAt:20,fleetModelFloor:"sonnet",agentModelDefault:"sonnet",applyMode:mode,autoScope:["session_model"],dashboardMaskTitles:false},rejected:{fleetHardAt:{value:2,reason:"order"},applyMode:{value:"auto",reason:"locked"}},applied_at:iso(age+8),config_hash:"demo"};
+    // proposal text fields use the plugin's real codes (metric "E3,E1,E6", revert.how "set_session_model(sonnet)")
+    D.proposals={
+      p1:{pid:"p1",kind:"session_model",target:{sid:"e5f6a7b8"},params:{from:"opus",to:"sonnet"},basis:{metric:"E3,E1,E6",values:{in_med10:61000,hit:.91},measured_at:iso(age+4)},est_saving:{tokens:310000},revert:{how:"set_session_model(opus)",possible:true},protected:false,status:"proposed",ttl_until:fut(100),created_at:iso(age+3)},
+      p2:{pid:"p2",kind:"session_clear",target:{sid:"a1b2c3d4"},params:{},basis:{metric:"E4",values:{ctx_tokens:182000,idle_sec:2520},measured_at:iso(age+2)},est_saving:{tokens:1820000},revert:{how:"handoff note only",possible:false},protected:false,status:"proposed",ttl_until:fut(90),created_at:iso(age+3)},
+      p3:{pid:"p3",kind:"agent_default_model",target:{scope:"agents"},params:{to:"sonnet"},basis:{metric:"E5",values:{agent_share:.46},measured_at:iso(age+5)},est_saving:{tokens:520000,window:"board_tail"},revert:{how:"config.prev.json",possible:true},protected:false,status:"proposed",ttl_until:fut(110),created_at:iso(age+3)},
+      p4:{pid:"p4",kind:"session_model",target:{sid:"c9d0e1f2"},params:{from:"opus",to:"sonnet"},basis:{metric:"E3,E1,E6",values:{in_med10:405000},measured_at:iso(age+9)},est_saving:{tokens:900000},revert:{how:"set_session_model(opus)",possible:true},protected:true,advice_only:true,status:"proposed",ttl_until:fut(60),created_at:iso(age+3)},
+      p5:{pid:"p5",kind:"fleet_threshold",target:{scope:"fleet"},params:{fleetWarnAt:4},basis:{metric:"E7",values:{peak_24h:6},measured_at:iso(age+30)},revert:{how:"config.prev.json",possible:true},status:"proposed",ttl_until:fut(80),created_at:iso(age+40)},
+      p6:{pid:"p6",kind:"session_model",target:{sid:"a1b2c3d4"},params:{from:"opus",to:"sonnet"},basis:{metric:"E3,E1,E6",values:{in_med10:171000},measured_at:iso(150)},est_saving:{tokens:260000},revert:{how:"set_session_model(opus)",possible:true},status:"proposed",ttl_until:fut(-20),created_at:iso(140)},
+      p7:{pid:"p7",kind:"session_model",target:{sid:"e5f6a7b8"},params:{from:"opus",to:"sonnet"},basis:{metric:"E3,E1,E6",values:{in_med10:58000},measured_at:iso(300)},est_saving:{tokens:280000},revert:{how:"set_session_model(opus)",possible:true},status:"proposed",ttl_until:fut(-100),created_at:iso(290)}};
+    D.decisions={p5:{status:"held",decided_by:"u-demo",decided_at:iso(age+20)},p7:{status:"applied",decided_by:"u-demo",decided_at:iso(280),applied_at:iso(270),applied_by:"sync@desktop"}};
+    D.sessions={};
+    var dt=function(k){return STRINGS[dl||pickLang(null)][k]};
+    var rows=[
+      {sid:"a1b2c3d4",title:dt("demo.t1"),model:"opus",protected:false,in_last:182000,in_med10:171000,in_trend:9000,spark:sp(120000,182000),hit:.82,hit_active:.88,ctx_tokens:182000,fit:"fit",agents_running:2,agent_tokens_done:240000,agent_tokens_live:31000,sample_turns:20,updated_at:iso(age),last_ts:iso(age),sug:"gate"},
+      {sid:"e5f6a7b8",title:dt("demo.t2"),model:"opus",in_last:64000,in_med10:61000,in_trend:-2000,spark:sp(70000,64000),hit:.91,hit_active:.91,ctx_tokens:64000,fit:"lower_candidate",agents_running:0,agent_tokens_done:0,sample_turns:14,updated_at:iso(age+4),last_ts:iso(age+4),sug:"lower"},
+      {sid:"c9d0e1f2",cwd_tail:"project-x",model:"sonnet",protected:true,in_last:410000,in_med10:405000,in_trend:1000,spark:sp(400000,410000),hit:.55,hit_active:.58,ctx_tokens:410000,fit:"fit",clear_candidate:true,agents_running:0,sample_turns:8,updated_at:iso(age+9),last_ts:iso(age+9),sug:"clear"}];
+    rows.forEach(function(r){D.sessions[r.sid]=r});
+    D.summary.now={sessions:3,agents:2,hit:.82,lower:1,clear:1};
+    start(db);
+  }
+
+  LANG=pickLang(null);applyStatic();
+  buildForm();render();
+  var dbp=window.claude&&window.claude.use?window.claude.use("db"):null;
+  if(dbp){startUser();dbp.then(function(db){if(db)start(db);else{store.login=true;render()}}).catch(function(){})}
+  else{demo((location.hash||"#empty").slice(1));render()}
+})();
+</script>

@@ -152,9 +152,9 @@
     <dt>Reads</dt>
     <dd>The usage numbers Claude Code reports for the session, and your session transcripts under <code>~/.claude/projects</code>, to add up usage and build the handoff note, and the subagent files Claude Code keeps there, to count what is running.</dd>
     <dt>Writes</dt>
-    <dd>Only to <code>~/.claude/token-stamina/</code>, and to your settings file during setup if you agree. Handoff notes keep short clips of your recent requests and are not deleted automatically; delete the folder to remove them.</dd>
+    <dd>Only to <code>~/.claude/token-stamina/</code>, and to your settings file during setup if you agree (the optional board preview can also update its own config file when you approve a setting there). Handoff notes keep short clips of your recent requests; after 7 days their text is emptied. Delete the folder to remove them sooner.</dd>
     <dt>Never</dt>
-    <dd>It makes no network requests, sends no telemetry, calls no model and starts no commands. Hint lines and handoff notes it adds to the conversation are sent to the model like the rest of your conversation.</dd>
+    <dd>It makes no network requests of its own (the optional board preview, if you set it up, asks Claude to write to your own private Artifact), sends no telemetry, calls no model and starts no commands. Hint lines and handoff notes it adds to the conversation are sent to the model like the rest of your conversation.</dd>
   </dl>
   <p class="small" style="margin-top:1.2rem">The full file-by-file list is in the <a href="https://github.com/token-stamina/token-stamina#privacy-and-what-runs-on-your-machine">README</a>. To remove everything, uninstall the plugin and delete that folder.</p>
 </section>
