@@ -25,7 +25,7 @@
   <a class="mark" href="/ko/"><svg class="logo" viewBox="0 0 256 256" aria-hidden="true"><polygon points="128.0,20.0 221.5,74.0 221.5,182.0 128.0,236.0 34.5,182.0 34.5,74.0" stroke-width="16" stroke-linejoin="round" fill="#22C55E" stroke="#22C55E"/><g fill="#14213D"><rect x="78" y="74" width="100" height="26" rx="8"/><rect x="115" y="74" width="26" height="104" rx="8"/></g><g fill="#FFFFFF"><rect x="88" y="190" width="80" height="10" rx="5"/></g></svg>token-stamina</a>
   <nav>
     <a href="#install">설치</a>
-    <a href="#board">현황판</a>
+    <a href="#commands">명령</a>
     <a href="#privacy">개인정보</a>
     <a href="https://github.com/token-stamina/token-stamina">GitHub</a>
   </nav>
@@ -45,7 +45,7 @@
   <div class="chrome" aria-hidden="true"><i></i><i></i><i></i><span>claude · ~/work/api</span></div>
   <div class="log">&gt; refactor the billing client and add tests
 <span class="dim">  ✓ 4 files edited · committed "split billing client"</span></div>
-  <div class="sl"><span class="dim">~/work/api  main  │</span><span>7d <span id="sl-used">62%</span></span><span class="sep">·</span><span class="g">today <span id="sl-today">5.4%</span> <span class="gdot" aria-hidden="true"></span></span><span class="sep">·</span><span>reset Mon 15:00</span><span class="sep">·</span><span>ctx 41%</span></div>
+  <div class="sl"><span>7d <span id="sl-used">62%</span></span><span class="sep">·</span><span class="g">today <span id="sl-today">5.4%</span> <span class="gdot" aria-hidden="true"></span></span><span class="sep">·</span><span>reset Mon 15:00</span><span class="sep">·</span><span>ctx 41%</span></div>
 </div>
 
 <div class="demo">
@@ -74,12 +74,12 @@
     <article class="feat">
       <div class="hd"><span class="ico"><svg class="ic" width="18" height="18" viewBox="0 0 24 24" aria-hidden="true"><path d="M6 3h9l4 4v14H6z"/><path d="M14 3v5h5"/><path d="M9 13h7"/><path d="M9 17h5"/></svg></span><h3>인계 메모</h3><span class="tag">자동</span></div>
       <p>턴이 끝날 때마다 하던 자리를 저장해 두고, 압축·비우기 뒤에 다시 넣습니다.</p>
-      <details><summary>자세히</summary><p>턴이 끝날 때마다 최근 요청 몇 개, 커밋, 고친 파일, 할 일 목록을 저장해 두고, 압축하거나 비운 뒤 새 대화에 다시 넣습니다. 메모는 대화 기록에서 뽑아 만들 뿐 모델이 쓰지 않습니다. 그래서 일찍 압축해도 어디까지 했는지 다시 설명할 필요가 없습니다.</p></details>
+      <details><summary>자세히</summary><p>턴이 끝날 때마다 최근 요청 몇 개, 커밋, 고친 파일, 할 일 목록을 저장해 두고, 압축하거나 비운 뒤(데스크탑 앱의 비우기 포함) 새 대화에 다시 넣습니다. 메모는 대화 기록에서 뽑아 만들 뿐 모델이 쓰지 않습니다. 비운 뒤에는 마지막 몇 턴을 화면에만 보여 주고 모델에는 보내지 않습니다. 그래서 일찍 압축해도 어디까지 했는지 다시 설명할 필요가 없습니다.</p></details>
     </article>
     <article class="feat">
       <div class="hd"><span class="ico"><svg class="ic" width="18" height="18" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 14h6v6"/><path d="M20 10h-6V4"/><path d="m14 10 7-7"/><path d="m3 21 7-7"/></svg></span><h3>압축 제안</h3><span class="tag">제안</span></div>
       <p>긴 대화에서 일을 막 끝냈을 때 <code>/compact</code>를 권합니다.</p>
-      <details><summary>자세히</summary><p>대화가 커졌고 방금 뭔가를 끝냈으면(커밋, 수정, 답변) 커밋 제목을 채운 <code>/compact</code>를 권합니다. 대화가 그보다 훨씬 크면 새 세션을 권합니다.</p></details>
+      <details><summary>자세히</summary><p>대화가 커지면 Claude가 일을 마칠 때 <code>/compact</code>를 권하도록 합니다(데스크탑 앱에서는 버튼 카드). 대화가 그보다 훨씬 크면 새 세션을 권합니다. 더 커지면 짧은 주제 확인 줄이 붙어, 다음 요청이 다른 주제일 때 Claude가 비우기를 제안합니다.</p></details>
     </article>
     <article class="feat">
       <div class="hd"><span class="ico"><svg class="ic" width="18" height="18" viewBox="0 0 24 24" aria-hidden="true"><path d="M3.5 18a8.5 8.5 0 1 1 17 0"/><path d="m12 18 4.5-6"/></svg></span><h3>자동 압축 시점</h3><span class="tag">한 번 설정</span></div>
@@ -92,20 +92,20 @@
       <details><summary>자세히</summary><p>등급이 바뀌면 Claude에게 짧은 한 줄이 가고, Claude가 그걸 사용자의 언어로 전합니다. 등급이 그대로면 아무것도 붙지 않습니다.</p></details>
     </article>
     <article class="feat">
-      <div class="hd"><span class="ico"><svg class="ic" width="18" height="18" viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M3 10h18"/><path d="M9 10v10"/></svg></span><h3>데스크탑 앱</h3><span class="tag">선택</span></div>
-      <p>앱의 사용량 수치를 기록하고, 비공개 현황판에 모든 세션을 한 페이지로 모읍니다.</p>
-      <details><summary>자세히</summary><p>데스크탑 앱에는 상태줄이 없어서, 저장된 사용량이 6시간보다 오래되면 세션마다 한 번 Claude에게 앱의 사용량 수치를 읽어 기록해 달라고 합니다. <a href="#board">효율 현황판</a>(미리보기)은 모든 세션을 비공개 페이지 하나에 모아 보여 주고, 휴대폰에서 제안을 승인하거나 거절할 수 있게 합니다.</p></details>
+      <div class="hd"><span class="ico"><svg class="ic" width="18" height="18" viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M3 10h18"/><path d="M9 10v10"/></svg></span><h3>보고</h3><span class="tag">요청할 때</span></div>
+      <p><a href="#commands">명령</a> 네 개로 사용량, 예상 절약, 고정 비용, 돌고 있는 하위 에이전트를 봅니다.</p>
+      <details><summary>자세히</summary><p>내 컴퓨터의 대화 기록과 플러그인 자체 기록을 읽어 표로 보여 줄 뿐, 모델을 부르지 않습니다. 절약 수치는 추정치이고 청구 금액이 아닙니다.</p></details>
     </article>
   </div>
-  <p class="small">메인 대화의 모델을 바꾸거나 요청을 막지 않습니다. 스스로 압축하지도 않는데, Claude Code가 플러그인의 <code>/compact</code> 실행을 막아 두었기 때문입니다. <code>/token-stamina:audit</code>는 모든 대화에 실리는 것들(CLAUDE.md 파일, 플러그인, 안 쓰는 MCP 서버 등)을 보여 줍니다. 보여 주기만 하고 아무것도 바꾸지 않습니다.</p>
+  <p class="small">메인 대화의 모델을 바꾸거나 요청을 막지 않습니다. 스스로 압축하지도 않는데, Claude Code가 플러그인의 <code>/compact</code> 실행을 막아 두었기 때문입니다. 상태줄은 플러그인이 직접 그리고, 상태줄 설정은 건드리지 않습니다.</p>
 </section>
 
 <section id="pace" class="col">
   <h2><span class="n">02</span>등급은 이렇게 정합니다</h2>
-  <p>상태줄에는 Claude Code가 이미 넘겨주는 숫자와 등급이 보입니다.</p>
+  <p>상태줄에는 Claude Code가 이미 알려 주는 사용량 숫자와 등급이 보입니다.</p>
   <div class="term" aria-label="Example status line">
     <div class="bar" aria-hidden="true"><i></i><i></i><i></i></div>
-<pre><span class="dim">~/work/api</span>  main  <span class="dim">│</span>  7d 84% · today 5.3% <span class="y">●</span> · reset Mon 15:00 · ctx 41%</pre>
+<pre>7d 84% · today 5.3% <span class="y">●</span> · reset Mon 15:00 · ctx 41%</pre>
   </div>
   <dl class="anno">
     <dt><code>7d 84%</code></dt><dd>주간 한도 사용량(Claude Code가 알려 주는 값)</dd>
@@ -120,43 +120,41 @@
 
 <section id="install" class="col">
   <h2><span class="n">03</span>설치</h2>
+  <p class="small">Claude Code 2.1.308 이상이 필요합니다. 그보다 낮으면 먼저 <code>claude update</code>를 실행합니다. Node.js는 필요 없습니다.</p>
   <p class="step"><span class="n">1</span>터미널에서 마켓플레이스를 추가합니다:</p>
   <div class="cmd"><pre>claude plugin marketplace add token-stamina/token-stamina</pre><button type="button">복사</button></div>
   <p class="step"><span class="n">2</span>이어서 플러그인을 설치합니다(마켓플레이스 추가만으로는 설치되지 않습니다):</p>
   <div class="cmd"><pre>claude plugin install token-stamina@token-stamina</pre><button type="button">복사</button></div>
-  <p class="step"><span class="n">3</span>Claude Code 새 세션을 엽니다(이미 열려 있던 세션은 플러그인을 못 봅니다). Claude가 setup 실행을 한 번 물어보면 예라고 답하거나, 직접 실행합니다:</p>
-  <div class="cmd"><pre>/token-stamina:setup</pre><button type="button">복사</button></div>
-  <p class="small">플러그인은 상태줄을 스스로 등록할 수 없어서, setup이 <code>~/.claude/settings.json</code>을 고치기 전에 먼저 물어봅니다. 이미 쓰는 상태줄이 있으면 그대로 두고 덧붙일 수 있습니다.</p>  <details class="small">
+  <p class="step"><span class="n">3</span>Claude Code 새 세션을 엽니다(이미 열려 있던 세션은 플러그인을 못 봅니다). 첫 답이 나온 뒤 상태줄이 보입니다. 따로 설정할 것은 없습니다.</p>
+  <p class="small">선택: <code>/token-stamina:setup</code>은 힌트 언어를 정하고, 0.5.x가 남긴 상태줄 항목을 정리하고, 자동 압축 시점을 제안합니다. 파일을 고치기 전에 바뀔 내용을 먼저 보여 주고 동의를 기다립니다. 나중에 업데이트하려면 <code>claude plugin update token-stamina@token-stamina</code>를 실행하고 Claude Code를 다시 시작합니다.</p>  <details class="small">
     <summary>1·2단계를 Claude Code 안에서 하려면</summary>
-    <p>하나씩 실행한 다음 새 세션을 열고 setup을 실행합니다.</p>
+    <p>하나씩 실행한 다음 새 세션을 엽니다.</p>
     <div class="cmd"><pre>/plugin marketplace add token-stamina/token-stamina</pre><button type="button">복사</button></div>
     <div class="cmd"><pre>/plugin install token-stamina@token-stamina</pre><button type="button">복사</button></div>
   </details>
 </section>
 
-<section id="board" class="col">
-  <h2><span class="n">04</span>효율 현황판</h2>
-  <p><span class="tag">데스크탑 앱 · 미리보기</span> 모든 세션을 비공개 페이지 하나에, 휴대폰에서도. 승인하기 전에는 아무것도 바뀌지 않습니다.</p>
-  <div class="shots">
-    <figure><img src="../board-sessions-ko.png" width="372" height="570" loading="lazy" alt="현황판: 맨 위에 주간·5시간·Fable 사용량, 아래에 세션마다 다시 읽는 맥락, 캐시 적중률, 맥락 크기, 돌고 있는 하위 에이전트 카드."><figcaption>사용량, 그리고 세션마다 맥락·캐시 적중·하위 에이전트.</figcaption></figure>
-    <figure><img src="../board-approve-ko.png" width="372" height="330" loading="lazy" alt="제안 카드: 이 세션을 Opus에서 Sonnet으로, 예상 절약 약 31만 토큰, 승인·거절·보류 버튼."><figcaption>예상 절약과 함께 오는 제안. 승인·거절·보류.</figcaption></figure>
-  </div>
-  <p class="small">데모 데이터입니다.</p>
-  <p class="step"><span class="n">1</span>데스크탑 앱에서 Claude에게 플러그인 폴더의 <code>dashboard/index.html</code>을 <code>db</code> 기능을 켠 Artifact로 게시해 달라고 합니다.</p>
-  <p class="step"><span class="n">2</span>그 링크를 <code>~/.claude/token-stamina/config.json</code>의 <code>dashboardUrl</code>에 넣습니다.</p>
-  <p class="step"><span class="n">3</span>Haiku 세션을 따로 열어 15분마다 새로 고칩니다:</p>
-  <div class="cmd"><pre>/loop 15m /token-stamina:board</pre><button type="button">복사</button></div>
+<section id="commands" class="col">
+  <h2><span class="n">04</span>명령</h2>
+  <p>모두 내 컴퓨터의 파일로 표를 보여 줍니다. 모델을 부르지 않고 아무것도 바꾸지 않습니다.</p>
+  <dl class="anno">
+    <dt><code>/ts-report</code></dt><dd>모델별 사용량, 메인 대화와 하위 에이전트 비교. 기본은 최근 30일, 또는 <code>--since YYYY-MM-DD</code>.</dd>
+    <dt><code>/ts-savings</code></dt><dd>플러그인 덕에 아꼈을 토큰. 추정치이고 청구 금액이 아닙니다. 플러그인 자체 기록을 읽기 때문에 0.6.0 이전의 절약은 같은 방식으로 세지 않습니다.</dd>
+    <dt><code>/ts-audit</code></dt><dd>모든 대화에 실리는 것: 늘 읽히는 파일, 플러그인, MCP 서버와 스킬, 그리고 끌 만한 후보.</dd>
+    <dt><code>/ts-fleet</code></dt><dd>지금 돌고 있는 하위 에이전트, 모델별.</dd>
+  </dl>
+  <p class="small" style="margin-top:1.2rem"><code>/token-stamina:autocompact</code>는 Claude Code가 스스로 압축하는 시점(300k, 400k, 600k, 기본값)을 고릅니다. 바뀔 내용을 먼저 보여 주고 묻습니다.</p>
 </section>
 
 <section id="privacy" class="col">
   <h2><span class="n">05</span>내 컴퓨터에서 하는 일</h2>
   <dl class="priv">
     <dt>읽는 것</dt>
-    <dd>Claude Code가 상태줄에 넘겨주는 사용량 숫자와 <code>~/.claude/projects</code> 아래 세션 기록입니다. 사용량을 합산하고 인계 메모를 만드는 데 씁니다. 돌고 있는 하위 에이전트를 세려고 Claude Code가 그 아래 남기는 하위 에이전트 파일도 읽습니다.</dd>
+    <dd>Claude Code가 알려 주는 세션 사용량 숫자와 <code>~/.claude/projects</code> 아래 세션 기록입니다. 사용량을 합산하고 인계 메모를 만드는 데 씁니다. 돌고 있는 하위 에이전트를 세려고 Claude Code가 그 아래 남기는 하위 에이전트 파일도 읽습니다.</dd>
     <dt>쓰는 것</dt>
-    <dd><code>~/.claude/token-stamina/</code> 안에만 씁니다. setup 때 동의하면 설정 파일도 고칩니다. 인계 메모는 7일 뒤 지워집니다. 선택 기능인 현황판만은 데이터를 이 컴퓨터 밖으로 보냅니다. 현황판을 돌리면 Claude가 현황판 행(숫자, 모델 이름, 세션 작업 폴더의 마지막 폴더 이름, 숨기지 않았다면 세션 제목)과 사용량 퍼센트를 claude.ai의 본인 비공개 Artifact에 씁니다.</dd>
+    <dd><code>~/.claude/token-stamina/</code> 안에만 씁니다. setup 때 동의하면 설정 파일도 고칩니다. 인계 메모에는 최근 요청을 짧게 자른 글이 들어가고, 자동으로 지워지지 않습니다. 지우려면 그 폴더를 지웁니다.</dd>
     <dt>하지 않는 것</dt>
-    <dd>스크립트는 사용 통계 전송과 모델 호출을 하지 않습니다. 네트워크 요청은 업데이트 확인 하나뿐입니다. 하루에 많아야 한 번, GitHub에서 공개된 버전 번호만 받아 와 새 버전이 나오면 알려 줍니다(<code>"updateCheck": false</code>로 끕니다). 다만 실행하는 명령 두 개는 스스로 인터넷에 접속할 수 있습니다. 점검할 때 쓰는 <code>claude plugin list</code>와, 감싸 달라고 지정한 상태줄 명령입니다. 대화에 붙이는 힌트 줄과 인계 메모는 다른 대화 내용과 마찬가지로 모델에 전송됩니다.</dd>
+    <dd>네트워크 요청, 사용 통계 전송, 모델 호출, 다른 명령 실행을 하지 않습니다. 대화에 붙이는 힌트 줄과 인계 메모는 다른 대화 내용과 마찬가지로 모델에 전송됩니다.</dd>
   </dl>
   <p class="small" style="margin-top:1.2rem">파일별 전체 목록은 <a href="https://github.com/token-stamina/token-stamina#privacy-and-what-runs-on-your-machine">README</a>(영어)에 있습니다. 모두 지우려면 플러그인을 제거하고 그 폴더를 지우면 됩니다.</p>
 </section>

@@ -1,127 +1,30 @@
 'use strict';
-// Status line: records rate_limits to state.json, prints one short segment.
-// If config.wrap is set, runs that command with the same stdin and prepends its output.
+// Shipped as scripts/statusline.js in the mod build, for users upgrading from the Node versions.
+// Their settings.json still runs the launcher that setup wrote (~/.claude/token-stamina/token-stamina-statusline.js),
+// which loads scripts/statusline.js from the installed version. The mod draws its own status row, so this
+// prints no Token Stamina segment (no second row); it only keeps the user's own status line (config.wrap)
+// running until /token-stamina:setup removes the old entry.
 const cp = require('child_process');
-const pace = require('./pace');
-const langmod = require('./lang');
+const fs = require('fs');
+const os = require('os');
+const path = require('path');
 
-const { tokLabel } = require('./boundary');
-const fleet = require('./fleet');
-
-// Current context size: current_usage (input + cache read + cache creation), else total_input_tokens.
-function contextTokens(cw) {
-  if (!cw) return 0;
-  const u = cw.current_usage;
-  if (u && typeof u === 'object') {
-    const n = (u.input_tokens || 0) + (u.cache_read_input_tokens || 0) + (u.cache_creation_input_tokens || 0);
-    if (n > 0) return n;
-  }
-  return typeof cw.total_input_tokens === 'number' && cw.total_input_tokens > 0 ? cw.total_input_tokens : 0;
-}
-
-const ICON = { green: '🟢', yellow: '🟡', red: '🔴' };
-
-function buildState(input, prev, now) {
-  const rl = input && input.rate_limits;
-  const next = Object.assign({}, prev || {});
-  let changed = false;
-  if (rl) {
-    for (const k of ['seven_day', 'five_hour']) {
-      const w = rl[k];
-      if (w && typeof w.used_percentage === 'number' && typeof w.resets_at === 'number') {
-        next[k] = { pct: w.used_percentage, resets_at: w.resets_at, recorded_at: now };
-        changed = true;
-      }
-    }
-  }
-  if (changed) {
-    // A window this render did not carry keeps the time it was really measured (W7 R1: never refresh an old value).
-    // Its time is unknown when it has no stamp of its own (0.4.8 wrote only the top-level time, which a 5h-only render
-    // bumped) or the stamp is more than 120 s ahead (clock went backwards): such a window is dropped, not re-stamped.
-    for (const k of ['seven_day', 'five_hour']) {
-      if (!next[k] || next[k] !== (prev || {})[k]) continue;
-      const t = next[k].recorded_at;
-      if (typeof t !== 'number' || !isFinite(t) || t > now + 120) delete next[k];
-    }
-    next.recorded_at = now; next.source = 'statusline';
-  }
-  return { state: next, changed };
-}
-
-function segment(input, state, now, cfg) {
-  const lang = cfg.lang || 'en';
-  const L = ({
-    ko: { today: '오늘 몫', reset: '리셋', empty: '소진 예상', turn: '턴' },
-    ja: { today: '今日の枠', reset: 'リセット', empty: '枯渇予想', turn: 'ターン' },
-  })[lang] || { today: 'today', reset: 'reset', empty: 'empty', turn: 'turn' };
-  const parts = [];
-  const a = pace.assess(state, now, cfg);
-  if (a.d7) {
-    parts.push(`7d ${Math.round(a.d7.used)}%`);
-    parts.push(`${L.today} ${pace.fmt1(a.quota)}% ${ICON[a.grade] || ''}`.trim());
-    parts.push(`${L.reset} ${pace.fmtReset(a.d7.resetsAt, lang)}`);
-  } else if (a.h5) {
-    parts.push(`${ICON[a.grade] || ''}`);
-  }
-  if (a.h5 && (a.h5.used >= (cfg.fiveHourShowAt || 80) || a.exhaust5h)) {
-    let s = `5h ${Math.round(a.h5.used)}%`;
-    if (a.exhaust5h) s += ` → ${pace.fmtClock(a.exhaust5h)} ${L.empty} · ${L.reset} ${pace.fmtClock(a.h5.resetsAt)}`;
-    parts.push(s);
-  }
-  const cw = input && input.context_window;
-  const ctx = cw && cw.used_percentage;
-  const tok = contextTokens(cw);
-  let c = '';
-  if (typeof ctx === 'number') c = `ctx ${Math.round(ctx)}%`;
-  if (tok) {
-    // ASCII unit on purpose: some terminals mis-measure the width of 만 in the status line and garble it.
-    const per = `${tokLabel(tok, 'en')}/${L.turn}`;
-    c = c ? `${c} (${per})` : `ctx (${per})`;
-    if (tok >= pace.thresholds(cfg).compactAt) c += ' 🔴';
-    else if (tok >= (cfg.turnCostYellowTokens || 100000)) c += ' 🟡';
-  }
-  if (c) parts.push(c);
-  try {
-    if (!(cfg.fleet === false || cfg.fleetShowAt === 0) && input && typeof input.transcript_path === 'string') {
-      const f = fleet.segment(fleet.scanCached(fleet.sessionDir(input.transcript_path), now, cfg), cfg);
-      if (f) parts.push(f);
-    }
-  } catch (e) { /* the fleet token must never break the status line */ }
-  return parts.filter(Boolean).join(' · ');
+function home() {
+  return process.env.TOKEN_STAMINA_HOME || process.env.TOKEN_PACER_HOME || path.join(os.homedir(), '.claude', 'token-stamina');
 }
 
 function run(raw) {
-  let input = {};
-  try { input = JSON.parse(raw) || {}; } catch (e) { /* ignore */ }
-  const now = Math.floor(Date.now() / 1000);
-  const cfg = langmod.withLang(pace.loadConfig(), input);
-  let state = pace.readState();
+  let wrap = '';
   try {
-    const r = buildState(input, state, now);
-    state = r.state;
-    if (r.changed) pace.writeState(state);
-  } catch (e) { /* ignore */ }
-  let ours = '';
-  try { ours = segment(input, state, now, cfg); } catch (e) { /* ignore */ }
-  let wrapped = '';
-  if (cfg.wrap) {
-    try {
-      const r = cp.spawnSync(cfg.wrap, { input: raw, shell: true, encoding: 'utf8', timeout: 3000 });
-      wrapped = (r.stdout || '').replace(/\s+$/, '');
-    } catch (e) { /* ignore */ }
+    wrap = JSON.parse(fs.readFileSync(path.join(home(), 'config.json'), 'utf8')).wrap || '';
+  } catch (e) { /* no config: nothing to run */ }
+  if (typeof wrap !== 'string' || !wrap) return '';
+  try {
+    const r = cp.spawnSync(wrap, { input: raw, shell: true, encoding: 'utf8', timeout: 3000 });
+    return (r.stdout || '').replace(/\s+$/, '');
+  } catch (e) {
+    return '';
   }
-  if (wrapped && ours) return wrapped + ' │ ' + ours;
-  return wrapped || ours;
 }
 
-module.exports = { buildState, segment, run, contextTokens };
-
-if (require.main === module) {
-  let raw = '';
-  process.stdin.setEncoding('utf8');
-  process.stdin.on('data', (d) => { raw += d; });
-  process.stdin.on('end', () => {
-    try { process.stdout.write(run(raw)); } catch (e) { /* silent */ }
-    process.exit(0);
-  });
-}
+module.exports = { run };

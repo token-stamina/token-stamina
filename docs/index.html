@@ -25,7 +25,7 @@
   <a class="mark" href=""><svg class="logo" viewBox="0 0 256 256" aria-hidden="true"><polygon points="128.0,20.0 221.5,74.0 221.5,182.0 128.0,236.0 34.5,182.0 34.5,74.0" stroke-width="16" stroke-linejoin="round" fill="#22C55E" stroke="#22C55E"/><g fill="#14213D"><rect x="78" y="74" width="100" height="26" rx="8"/><rect x="115" y="74" width="26" height="104" rx="8"/></g><g fill="#FFFFFF"><rect x="88" y="190" width="80" height="10" rx="5"/></g></svg>token-stamina</a>
   <nav>
     <a href="#install">Install</a>
-    <a href="#board">Board</a>
+    <a href="#commands">Commands</a>
     <a href="#privacy">Privacy</a>
     <a href="https://github.com/token-stamina/token-stamina">GitHub</a>
   </nav>
@@ -45,7 +45,7 @@
   <div class="chrome" aria-hidden="true"><i></i><i></i><i></i><span>claude · ~/work/api</span></div>
   <div class="log">&gt; refactor the billing client and add tests
 <span class="dim">  ✓ 4 files edited · committed "split billing client"</span></div>
-  <div class="sl"><span class="dim">~/work/api  main  │</span><span>7d <span id="sl-used">62%</span></span><span class="sep">·</span><span class="g">today <span id="sl-today">5.4%</span> <span class="gdot" aria-hidden="true"></span></span><span class="sep">·</span><span>reset Mon 15:00</span><span class="sep">·</span><span>ctx 41%</span></div>
+  <div class="sl"><span>7d <span id="sl-used">62%</span></span><span class="sep">·</span><span class="g">today <span id="sl-today">5.4%</span> <span class="gdot" aria-hidden="true"></span></span><span class="sep">·</span><span>reset Mon 15:00</span><span class="sep">·</span><span>ctx 41%</span></div>
 </div>
 
 <div class="demo">
@@ -74,12 +74,12 @@
     <article class="feat">
       <div class="hd"><span class="ico"><svg class="ic" width="18" height="18" viewBox="0 0 24 24" aria-hidden="true"><path d="M6 3h9l4 4v14H6z"/><path d="M14 3v5h5"/><path d="M9 13h7"/><path d="M9 17h5"/></svg></span><h3>Handoff note</h3><span class="tag">auto</span></div>
       <p>Saves where you were at the end of every turn and brings it back after a compact or clear.</p>
-      <details><summary>More</summary><p>At the end of each turn it saves the last few requests, commits, edited files and to-dos, and adds them to the new conversation after you compact or clear. The note is put together from your transcript; no model writes it. You can compact early and not have to explain again where you were.</p></details>
+      <details><summary>More</summary><p>At the end of each turn it saves the last few requests, commits, edited files and to-dos, and adds them to the new conversation after you compact or clear, including the desktop app's clear. The note is put together from your transcript; no model writes it. After a clear, the last few turns are also shown on screen only, not sent to the model. You can compact early and not have to explain again where you were.</p></details>
     </article>
     <article class="feat">
       <div class="hd"><span class="ico"><svg class="ic" width="18" height="18" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 14h6v6"/><path d="M20 10h-6V4"/><path d="m14 10 7-7"/><path d="m3 21 7-7"/></svg></span><h3>Compact suggestion</h3><span class="tag">suggestion</span></div>
       <p>Suggests <code>/compact</code> right after you finish something in a long conversation.</p>
-      <details><summary>More</summary><p>Once the conversation is large and you've just finished something (a commit, an edit, an answer), it suggests <code>/compact</code> with the commit subjects filled in. If the conversation is much larger than that, it suggests a new session instead.</p></details>
+      <details><summary>More</summary><p>Once the conversation is large, Claude is asked to end the task with a <code>/compact</code> suggestion (a card with buttons in the desktop app). If the conversation is much larger than that, it suggests a new session instead. Past a higher size, a short topic check asks Claude to offer a clear when your next request is on a different topic.</p></details>
     </article>
     <article class="feat">
       <div class="hd"><span class="ico"><svg class="ic" width="18" height="18" viewBox="0 0 24 24" aria-hidden="true"><path d="M3.5 18a8.5 8.5 0 1 1 17 0"/><path d="m12 18 4.5-6"/></svg></span><h3>Auto-compact point</h3><span class="tag">set once</span></div>
@@ -92,20 +92,20 @@
       <details><summary>More</summary><p>When the grade changes, Claude gets one short line and tells you, in your language. Nothing is added while the grade stays the same.</p></details>
     </article>
     <article class="feat">
-      <div class="hd"><span class="ico"><svg class="ic" width="18" height="18" viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M3 10h18"/><path d="M9 10v10"/></svg></span><h3>Desktop app</h3><span class="tag">optional</span></div>
-      <p>Records the app's usage figures. A private board puts every session on one page.</p>
-      <details><summary>More</summary><p>The desktop app has no status line, so when the saved usage is more than six hours old, Claude is asked once per session to read the app's own usage figures and record them. An <a href="#board">efficiency board</a> (preview) puts all your sessions on one private page and lets you approve or reject its suggestions from your phone.</p></details>
+      <div class="hd"><span class="ico"><svg class="ic" width="18" height="18" viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M3 10h18"/><path d="M9 10v10"/></svg></span><h3>Reports</h3><span class="tag">on request</span></div>
+      <p>Four <a href="#commands">commands</a> show usage, estimated savings, fixed costs and running subagents.</p>
+      <details><summary>More</summary><p>They read your local transcripts and the plugin's own log, print a table and call no model. Savings figures are estimates, not billing.</p></details>
     </article>
   </div>
-  <p class="small">It doesn't change your main conversation's model or block requests. It doesn't compact by itself either: Claude Code doesn't let plugins run <code>/compact</code>. <code>/token-stamina:audit</code> lists what gets loaded into every conversation, such as CLAUDE.md files, plugins and MCP servers you never use. It only reports and doesn't change anything.</p>
+  <p class="small">It doesn't change your main conversation's model or block requests. It doesn't compact by itself either: Claude Code doesn't let plugins run <code>/compact</code>. It draws its own status row and doesn't touch your status line setting.</p>
 </section>
 
 <section id="pace" class="col">
   <h2><span class="n">02</span>How the grade works</h2>
-  <p>The status line shows the numbers Claude Code already passes to it, plus the grade.</p>
-  <div class="term" aria-label="Example status line">
+  <p>The status row shows the usage numbers Claude Code already reports, plus the grade.</p>
+  <div class="term" aria-label="Example status row">
     <div class="bar" aria-hidden="true"><i></i><i></i><i></i></div>
-<pre><span class="dim">~/work/api</span>  main  <span class="dim">│</span>  7d 84% · today 5.3% <span class="y">●</span> · reset Mon 15:00 · ctx 41%</pre>
+<pre>7d 84% · today 5.3% <span class="y">●</span> · reset Mon 15:00 · ctx 41%</pre>
   </div>
   <dl class="anno">
     <dt><code>7d 84%</code></dt><dd>weekly limit used, as reported by Claude Code</dd>
@@ -120,43 +120,41 @@
 
 <section id="install" class="col">
   <h2><span class="n">03</span>Install</h2>
+  <p class="small">Requires Claude Code 2.1.308 or later. On an older version, run <code>claude update</code> first. No Node.js needed.</p>
   <p class="step"><span class="n">1</span>In a terminal, add the marketplace:</p>
   <div class="cmd"><pre>claude plugin marketplace add token-stamina/token-stamina</pre><button type="button">copy</button></div>
   <p class="step"><span class="n">2</span>Then install the plugin (adding the marketplace alone doesn't install it):</p>
   <div class="cmd"><pre>claude plugin install token-stamina@token-stamina</pre><button type="button">copy</button></div>
-  <p class="step"><span class="n">3</span>Start a new Claude Code session (sessions already open don't see the plugin). Claude offers to run setup once; say yes, or run it yourself:</p>
-  <div class="cmd"><pre>/token-stamina:setup</pre><button type="button">copy</button></div>
-  <p class="small">A plugin can't set the status line by itself, so setup asks before it changes <code>~/.claude/settings.json</code>. If you already have a status line, it can keep yours and add to it.</p>  <details class="small">
+  <p class="step"><span class="n">3</span>Start a new Claude Code session (sessions already open don't see the plugin). The status row appears after the first response. There's nothing to set up.</p>
+  <p class="small">Optional: <code>/token-stamina:setup</code> sets the language of the hints, cleans up the status line entry left by 0.5.x and offers an auto-compact point. It shows every file change first and waits for your yes. To update later, run <code>claude plugin update token-stamina@token-stamina</code> and restart Claude Code.</p>  <details class="small">
     <summary>Or do steps 1 and 2 inside Claude Code</summary>
-    <p>Run these one at a time, then start a new session and run setup:</p>
+    <p>Run these one at a time, then start a new session:</p>
     <div class="cmd"><pre>/plugin marketplace add token-stamina/token-stamina</pre><button type="button">copy</button></div>
     <div class="cmd"><pre>/plugin install token-stamina@token-stamina</pre><button type="button">copy</button></div>
   </details>
 </section>
 
-<section id="board" class="col">
-  <h2><span class="n">04</span>Efficiency board</h2>
-  <p><span class="tag">desktop app · preview</span> All your sessions on one private page, on your phone too. Nothing changes until you approve it.</p>
-  <div class="shots">
-    <figure><img src="board-sessions-en.png" width="372" height="570" loading="lazy" alt="Board: weekly, 5-hour and Fable usage at the top, then one card per session with re-read context, cache hit rate, context size and running subagents."><figcaption>Usage, then each session: context, cache hits, subagents.</figcaption></figure>
-    <figure><img src="board-approve-en.png" width="372" height="330" loading="lazy" alt="A suggestion card: lower this session from Opus to Sonnet, estimated saving about 310k tokens, with Approve, Reject and Hold buttons."><figcaption>A suggestion with its estimated saving. Approve, reject or hold.</figcaption></figure>
-  </div>
-  <p class="small">Demo data.</p>
-  <p class="step"><span class="n">1</span>Ask Claude in the desktop app to publish <code>dashboard/index.html</code> from the plugin folder as an Artifact with the <code>db</code> capability.</p>
-  <p class="step"><span class="n">2</span>Put its link in <code>dashboardUrl</code> in <code>~/.claude/token-stamina/config.json</code>.</p>
-  <p class="step"><span class="n">3</span>In a separate Haiku session, refresh it every 15 minutes:</p>
-  <div class="cmd"><pre>/loop 15m /token-stamina:board</pre><button type="button">copy</button></div>
+<section id="commands" class="col">
+  <h2><span class="n">04</span>Commands</h2>
+  <p>Each prints a table from files on your machine. None of them calls a model or changes anything.</p>
+  <dl class="anno">
+    <dt><code>/ts-report</code></dt><dd>usage by model, main conversation vs subagents. Last 30 days by default, or <code>--since YYYY-MM-DD</code>.</dd>
+    <dt><code>/ts-savings</code></dt><dd>tokens the plugin likely saved. An estimate, not billing. It reads the plugin's own log, so savings before 0.6.0 are not counted the same way.</dd>
+    <dt><code>/ts-audit</code></dt><dd>what loads into every conversation: always-loaded files, plugins, MCP servers and skills, and what you could turn off.</dd>
+    <dt><code>/ts-fleet</code></dt><dd>subagents running now, by model.</dd>
+  </dl>
+  <p class="small" style="margin-top:1.2rem"><code>/token-stamina:autocompact</code> picks when Claude Code compacts on its own (300k, 400k, 600k or default). It shows the change and asks first.</p>
 </section>
 
 <section id="privacy" class="col">
   <h2><span class="n">05</span>What runs on your machine</h2>
   <dl class="priv">
     <dt>Reads</dt>
-    <dd>The usage numbers Claude Code passes to the status line, and your session transcripts under <code>~/.claude/projects</code>, to add up usage and build the handoff note, and the subagent files Claude Code keeps there, to count what is running.</dd>
+    <dd>The usage numbers Claude Code reports for the session, and your session transcripts under <code>~/.claude/projects</code>, to add up usage and build the handoff note, and the subagent files Claude Code keeps there, to count what is running.</dd>
     <dt>Writes</dt>
-    <dd>Only to <code>~/.claude/token-stamina/</code>, and to your settings file during setup if you agree. Handoff notes are deleted after seven days. The optional board is the one feature that sends data off your machine: when you run it, Claude writes the board rows (numbers, model names, the last folder name of each session's working folder, and session titles unless you hide them) and your usage percentages to your own private Artifact on claude.ai.</dd>
+    <dd>Only to <code>~/.claude/token-stamina/</code>, and to your settings file during setup if you agree. Handoff notes keep short clips of your recent requests and are not deleted automatically; delete the folder to remove them.</dd>
     <dt>Never</dt>
-    <dd>Its scripts send no telemetry and call no model. Their only network request is the update check: once a day at most, one download of the published version number from GitHub, so it can tell you when a new version is out (<code>"updateCheck": false</code> turns it off). Two commands it can start may go online: <code>claude plugin list</code> during an audit, and a status line command you've asked it to wrap. Hint lines and handoff notes it adds to the conversation are sent to the model like the rest of your conversation.</dd>
+    <dd>It makes no network requests, sends no telemetry, calls no model and starts no commands. Hint lines and handoff notes it adds to the conversation are sent to the model like the rest of your conversation.</dd>
   </dl>
   <p class="small" style="margin-top:1.2rem">The full file-by-file list is in the <a href="https://github.com/token-stamina/token-stamina#privacy-and-what-runs-on-your-machine">README</a>. To remove everything, uninstall the plugin and delete that folder.</p>
 </section>

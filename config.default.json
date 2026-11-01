@@ -67,6 +67,7 @@
   "gateAtTokens": 200000,
   "idleGapSec": 3600,
   "handoffMaxTokens": 1500,
+  "clearRecentTurns": 3,
   "fleet": true,
   "fleetShowAt": 2,
   "fleetStaleSec": 600,
