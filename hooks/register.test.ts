@@ -27,12 +27,13 @@ type Files = Record<string, string>;
 // The engine hands the hooks absolute paths in the platform's form (C:\h\... on Windows): compare them as /h/...
 const norm = (p: string) => String(p).replace(/\\/g, '/').replace(/^[A-Za-z]:/, '');
 
-function world(on: any, files: Files, opts: { host?: string; usage?: any; messages?: any[]; onWrite?: (p: string, text: string) => boolean; ages?: Record<string, number>; denyWrite?: string; noSid?: boolean } = {}) {
+function world(on: any, files: Files, opts: { host?: string; usage?: any; messages?: any[]; onWrite?: (p: string, text: string) => boolean; ages?: Record<string, number>; denyWrite?: string; noSid?: boolean; onRead?: (p: string) => void } = {}) {
   const mtime: Record<string, number> = {};
   for (const p of Object.keys(files)) mtime[p] = Date.now() - ((opts.ages && opts.ages[p]) || 0);
   const status: (string | undefined)[] = [];
   on('fs.read', (_: any, e: any) => {
     const p = norm(e.path);
+    if (opts.onRead) opts.onRead(p);
     if (/config\.default\.json$/.test(p)) return { value: JSON.stringify(DEFAULTS) };
     return p in files ? { value: files[p] } : { deny: 'ENOENT: ' + p };
   });
@@ -227,7 +228,7 @@ test('session.start registers fleet, savings, report and audit', async ($, on) =
   on('session.start', (_: any, e: any) => ({ cwd: e.cwd }));
   world(on, {});
   await $.session.start({ cwd: '/w', surface: 'terminal', isInteractive: true } as any);
-  expect(names.sort().join(',')).toBe('ts-audit,ts-fleet,ts-report,ts-savings');
+  expect(names.sort().join(',')).toBe('ts-advisor,ts-audit,ts-fleet,ts-report,ts-savings');
 });
 
 test('/ts-fleet prints the running subagents of this session and the sessions line', async ($, on) => {
@@ -664,7 +665,9 @@ test('board tool: session.start declares it', async ($, on) => {
   on('session.start', (_: any, e: any) => ({ cwd: e.cwd }));
   world(on, {});
   await $.session.start({ cwd: '/w', surface: 'terminal', isInteractive: true } as any);
-  expect(tools.map((t) => t.name).join(',')).toBe('board');
+  expect(tools.map((t) => t.name).join(',')).toBe('board,advisor');
+  expect(tools[1].isDeferred).toBe(true);
+  expect(tools[1].inputSchema.properties.mode.enum).toEqual(['analyze', 'recommend', 'plan', 'apply', 'revert', 'reject', 'review', 'check']);
   expect(tools[0].inputSchema.properties.mode.enum).toContain('record-push');
 });
 
@@ -773,4 +776,377 @@ test('an event without a session id is not written (it would share one slot acro
   world(on, files, { noSid: true });
   await callBoard($, { mode: 'record-push', tokens: 5, rows: 1 });
   expect(evText(files)).toBe('');
+});
+
+// ---- Usage Advisor: the tool, /ts-advisor, the SessionStart weekly run and card, the hook-side keys ----
+
+const ATOOL = 'mcp__token-stamina__advisor';
+const ADV = HOME + '/advisor';
+const callAdvisor = async ($: any, input: Record<string, unknown>): Promise<{ text: string; isError: boolean }> => {
+  const r: any = await $.tool.call({ tool: ATOOL, ...input } as any);
+  return { text: r.result.content[0].text, isError: r.result.isError };
+};
+// Plays the person at the AskUserQuestion dialog: answers every question with `label` and keeps the question texts.
+const answer: { label: string | null } = { label: null };
+const seenQuestions: any[] = [];
+const person = (on: any, label: string | null, asked: string[] = []) => {
+  answer.label = label;
+  seenQuestions.length = 0;
+  on('session.surfaces', () => ({ value: answer.label === null ? [] : ['terminal'] })); // the tool asks only when someone is at a surface
+  on('tool.call', { tool: 'AskUserQuestion' }, (_: any, e: any) => {
+    for (const q of e.questions || []) { asked.push(q.question); seenQuestions.push(q); }
+    const label = answer.label;
+    if (label === null) return { deny: 'dismissed' };
+    const answers: Record<string, string> = {};
+    for (const q of e.questions || []) answers[q.question] = label;
+    return { result: { questions: e.questions, answers } };
+  });
+  return asked;
+};
+const until = async (ok: () => boolean, ms = 3000) => {
+  const end = Date.now() + ms;
+  while (!ok() && Date.now() < end) await new Promise((r) => setTimeout(r, 25));
+};
+const planDoc = (over: Record<string, unknown> = {}) => JSON.stringify({
+  id: 'pl-abc123', created: Date.now(), expires: Date.now() + 600000, settingsPath: CLAUDE + '/settings.json',
+  items: [{ id: 'R2', rule: 'R2', file: 'config', key: 'advisorMinEffectUsd', before: 5, after: 8, hadKey: true }],
+  notes: [], titles: { R2: 'Effect threshold' }, risks: { R2: 'A' }, follow: {}, ...over,
+});
+
+test('advisor tool: with too little data recommend says so, and plan hands out no planId', async ($, on) => {
+  const files: Files = {};
+  world(on, files);
+  const rec = await callAdvisor($, { mode: 'recommend' });
+  expect(rec.isError).toBe(false);
+  expect(rec.text).toContain('Not enough records yet');
+  const pl = await callAdvisor($, { mode: 'plan', ids: ['R1'] });
+  expect(JSON.parse(pl.text).planId).toBe(null);
+  expect(files[ADV + '/plan.json'] ?? '').toBe('');
+});
+
+test('advisor tool: apply refuses a missing, unknown or expired planId and ids that were not in the plan, and changes nothing', async ($, on) => {
+  const cfg = JSON.stringify({ advisorMinEffectUsd: 5 });
+  const files: Files = { [HOME + '/config.json']: cfg, [ADV + '/plan.json']: planDoc() };
+  world(on, files);
+  const none = await callAdvisor($, { mode: 'apply', ids: ['R2'] });
+  expect(none.isError).toBe(true);
+  expect(none.text).toContain('Nothing changed');
+  const wrong = await callAdvisor($, { mode: 'apply', planId: 'pl-other', ids: ['R2'] });
+  expect(wrong.isError).toBe(true);
+  const extra = await callAdvisor($, { mode: 'apply', planId: 'pl-abc123', ids: ['R2', 'R4'] });
+  expect(extra.isError).toBe(true);
+  expect(extra.text).toContain('Not in the plan: R4');
+  files[ADV + '/plan.json'] = planDoc({ expires: Date.now() - 1000 });
+  const old = await callAdvisor($, { mode: 'apply', planId: 'pl-abc123', ids: ['R2'] });
+  expect(old.isError).toBe(true);
+  expect(old.text).toContain('older than 10 minutes');
+  expect(files[HOME + '/config.json']).toBe(cfg);
+});
+
+test('advisor tool: apply writes the planned value with a backup, a second apply of the same plan is refused, revert puts the old value back', async ($, on) => {
+  const files: Files = { [HOME + '/config.json']: JSON.stringify({ advisorMinEffectUsd: 5 }), [ADV + '/plan.json']: planDoc() };
+  world(on, files);
+  person(on, 'Apply');
+  const ok = await callAdvisor($, { mode: 'apply', planId: 'pl-abc123', ids: ['R2'] });
+  expect(ok.isError).toBe(false);
+  const res = JSON.parse(ok.text);
+  expect(res.applied).toEqual([{ id: 'R2', key: 'advisorMinEffectUsd' }]);
+  expect(JSON.parse(files[HOME + '/config.json']!).advisorMinEffectUsd).toBe(8);
+  expect(Object.keys(files).some((p) => p.startsWith(ADV + '/backups/config-'))).toBe(true);
+  const again = await callAdvisor($, { mode: 'apply', planId: 'pl-abc123', ids: ['R2'] });
+  expect(again.isError).toBe(true);
+  const back = await callAdvisor($, { mode: 'revert', last: true });
+  expect(back.isError).toBe(false);
+  expect(JSON.parse(files[HOME + '/config.json']!).advisorMinEffectUsd).toBe(5);
+});
+
+test('advisor tool: revert does nothing when the value is no longer what apply wrote', async ($, on) => {
+  const files: Files = { [HOME + '/config.json']: JSON.stringify({ advisorMinEffectUsd: 5 }), [ADV + '/plan.json']: planDoc() };
+  world(on, files);
+  person(on, 'Apply');
+  await callAdvisor($, { mode: 'apply', planId: 'pl-abc123', ids: ['R2'] });
+  files[HOME + '/config.json'] = JSON.stringify({ advisorMinEffectUsd: 11 });
+  const back = await callAdvisor($, { mode: 'revert', last: true });
+  expect(back.isError).toBe(true);
+  expect(JSON.parse(files[HOME + '/config.json']!).advisorMinEffectUsd).toBe(11);
+});
+
+test('advisor tool: an unknown mode is an error answer', async ($, on) => {
+  world(on, {});
+  const r = await callAdvisor($, { mode: 'explode' });
+  expect(r.isError).toBe(true);
+  expect(r.text).toContain('unknown mode');
+});
+
+test('/ts-advisor prints the recommendation screen without a model, and --json is JSON', async ($, on) => {
+  world(on, {});
+  const r: any = await $.command.run({ command: 'ts-advisor' } as any);
+  expect(r.text).toContain('Not enough records yet');
+  const j: any = await $.command.run({ command: 'ts-advisor', args: '--json --days 7' } as any);
+  expect(JSON.parse(j.text).schema).toBe(1);
+});
+
+test('SessionStart: the first start seeds next_due a week ahead; the weekly run does not start before it', async ($, on) => {
+  const files: Files = {};
+  world(on, files);
+  on('classic.SessionStart', () => ({}));
+  await $.classic.SessionStart({ source: 'startup', session_id: 'S1', cwd: '/w', transcript_path: '/t/S1.jsonl' } as any);
+  const sch = JSON.parse(files[ADV + '/schedule.json']!);
+  expect(Date.parse(sch.next_due) - Date.now()).toBeGreaterThan(6 * 86400000);
+  expect(sch.checked).toBeUndefined();
+  expect(files[ADV + '/weekly.lock']).toBeUndefined();
+});
+
+test('SessionStart: a due weekly run goes in the background, marks the day tried and finishes into schedule.json; it does not run twice a day', async ($, on) => {
+  const files: Files = { [ADV + '/schedule.json']: JSON.stringify({ next_due: new Date(Date.now() - 1000).toISOString() }) };
+  world(on, files);
+  on('classic.SessionStart', () => ({}));
+  const r: any = await $.classic.SessionStart({ source: 'startup', session_id: 'S1', cwd: '/w', transcript_path: '/t/S1.jsonl' } as any);
+  expect(r).toBeDefined(); // the hook answered without waiting for the run
+  expect(typeof JSON.parse(files[ADV + '/schedule.json']!).checked).toBe('number');
+  await until(() => !!JSON.parse(files[ADV + '/schedule.json']!).last_run);
+  const sch = JSON.parse(files[ADV + '/schedule.json']!);
+  expect(sch.last_result).toBe('insufficient');
+  expect(Date.parse(sch.next_due)).toBeGreaterThan(Date.now());
+  await until(() => files[ADV + '/weekly.lock'] === '');
+  expect(files[ADV + '/weekly.lock']).toBe(''); // released
+  const before = sch.last_run;
+  await $.classic.SessionStart({ source: 'startup', session_id: 'S2', cwd: '/w', transcript_path: '/t/S2.jsonl' } as any);
+  expect(JSON.parse(files[ADV + '/schedule.json']!).last_run).toBe(before);
+});
+
+test('SessionStart: advisor false never reads or writes advisor files', async ($, on) => {
+  const files: Files = { [HOME + '/config.json']: JSON.stringify({ advisor: false }) };
+  world(on, files);
+  on('classic.SessionStart', () => ({}));
+  await $.classic.SessionStart({ source: 'startup', session_id: 'S1', cwd: '/w', transcript_path: '/t/S1.jsonl' } as any);
+  expect(Object.keys(files).filter((p) => p.startsWith(ADV))).toEqual([]);
+});
+
+test('SessionStart: a pending suggestion becomes one card line for Claude, once per 7 days', async ($, on) => {
+  const pend = { id: 'pd-1', created: new Date().toISOString(), items: [{ id: 'R2', rule: 'R2', title: 't', risk: 'A', effect: { lo: 1, hi: 2, unit: 'usd_per_week' } }], shownAt: null, auto: [] };
+  const files: Files = { [ADV + '/pending.json']: JSON.stringify(pend), [ADV + '/schedule.json']: JSON.stringify({ next_due: new Date(Date.now() + 86400000).toISOString() }) };
+  world(on, files);
+  on('session.surfaces', () => ({ value: ['terminal'] }));
+  on('classic.SessionStart', () => ({}));
+  const r1: any = await $.classic.SessionStart({ source: 'startup', session_id: 'S1', cwd: '/w', transcript_path: '/t/S1.jsonl' } as any);
+  const ctx1 = (r1.additionalContext || []).join('\n');
+  expect(ctx1).toContain('1 usage suggestion');
+  expect(ctx1).toContain('mode "review"');
+  expect(JSON.parse(files[ADV + '/pending.json']!).shownAt).not.toBe(null);
+  const r2: any = await $.classic.SessionStart({ source: 'startup', session_id: 'S2', cwd: '/w', transcript_path: '/t/S2.jsonl' } as any);
+  expect((r2.additionalContext || []).join('\n')).not.toContain('usage suggestion');
+});
+
+const bashTool = ($: any, over: Record<string, unknown>) => $.tool.call({ tool: 'Bash', command: 'echo hi', ...over } as any);
+
+test('sub-wait: a long Bash command inside a subagent gets one note per agent; the call itself is not touched', async ($, on) => {
+  const files: Files = { [HOME + '/config.json']: JSON.stringify({ subagentLongCmdAdvice: true }) };
+  world(on, files);
+  let seen: any = null;
+  on('tool.call', (_: any, e: any) => {
+    seen = e;
+    return { result: { ok: true } };
+  });
+  const a = await bashTool($, { agentId: 'a1', timeout: 400000 });
+  expect(seen.command).toBe('echo hi');
+  expect((a.context || []).join('\n')).toContain('may have run over 5 minutes');
+  const b = await bashTool($, { agentId: 'a1', timeout: 400000 });
+  expect(b.context || []).toEqual([]);
+  const c = await bashTool($, { agentId: 'a2', command: 'npm test' });
+  expect((c.context || []).join('\n')).toContain('command: npm test');
+});
+
+test('sub-wait: no note on the main loop, for a background command, a short command, or when the key is off', async ($, on) => {
+  const files: Files = { [HOME + '/config.json']: JSON.stringify({ subagentLongCmdAdvice: true }) };
+  world(on, files);
+  on('tool.call', () => ({ result: {} }));
+  expect(((await bashTool($, { timeout: 400000 })).context || []).length).toBe(0);
+  expect(((await bashTool($, { agentId: 'a1', timeout: 400000, run_in_background: true })).context || []).length).toBe(0);
+  expect(((await bashTool($, { agentId: 'a1', timeout: 1000 })).context || []).length).toBe(0);
+  files[HOME + '/config.json'] = JSON.stringify({ subagentLongCmdAdvice: false });
+  expect(((await bashTool($, { agentId: 'a3', timeout: 400000 })).context || []).length).toBe(0);
+});
+
+test('subagentWaitAdvice: the first Agent call of a session carries one idle-wait sentence, the second none', async ($, on) => {
+  const files: Files = { [HOME + '/config.json']: JSON.stringify({ subagentWaitAdvice: true }) };
+  world(on, files);
+  on('tool.call', () => ({ result: {} }));
+  const agent = () => $.tool.call({ tool: 'Agent', description: 'do the thing', prompt: 'do the thing', subagent_type: 'general-purpose' } as any);
+  const a: any = await agent();
+  expect((a.context || []).join('\n')).toContain('idle for more than 5 minutes');
+  const b: any = await agent();
+  expect((b.context || []).join('\n')).not.toContain('idle for more than 5 minutes');
+});
+
+const gotHint = async ($: any, on: any, cfg: Record<string, unknown>) => {
+  const usage = { startedAt: 0, context: { tokens: 160000, window: 1000000 }, rateLimits: [] };
+  const files: Files = { [HOME + '/config.json']: JSON.stringify(cfg) };
+  world(on, files, { usage });
+  on('classic.UserPromptSubmit', () => ({}));
+  await $.classic.UserPromptSubmit({ session_id: 'S1', cwd: '/w', prompt: 'next', transcript_path: '/t/S1.jsonl' } as any);
+  return evText(files).includes('"event":"inline_hint"');
+};
+
+test('the inline hint comes by default at 160k tokens', async ($, on) => {
+  expect(await gotHint($, on, {})).toBe(true);
+});
+
+test('hintTrigger gap: the inline hint waits for an idle gap', async ($, on) => {
+  expect(await gotHint($, on, { hintTrigger: 'gap' })).toBe(false);
+});
+
+test('hintMinEffectTokens with no computable card: the hint is not suppressed', async ($, on) => {
+  expect(await gotHint($, on, { hintMinEffectTokens: 999999999 })).toBe(true); // no profile here (unknown card): not suppressed
+});
+
+test('oldModelWarn: a session on an older model generation gets one on-screen notice, once', async ($, on) => {
+  const old = line({ type: 'assistant', isSidechain: false, timestamp: new Date().toISOString(), message: { id: 'm1', model: 'claude-opus-4-6-20250805', role: 'assistant', content: [], usage: { input_tokens: 10 } } });
+  const files: Files = { '/t/S1.jsonl': old, [HOME + '/config.json']: JSON.stringify({ oldModelWarn: true }) };
+  world(on, files);
+  const notes: string[] = [];
+  on('session.append', (_: any, e: any, next: any) => {
+    notes.push(JSON.stringify(e.message));
+    return next(e);
+  });
+  on('classic.UserPromptSubmit', () => ({}));
+  const go = () => $.classic.UserPromptSubmit({ session_id: 'S1', cwd: '/w', prompt: 'next', transcript_path: '/t/S1.jsonl' } as any);
+  await go();
+  expect(notes.length).toBe(1);
+  expect(notes[0]).toContain('older model generation');
+  await go();
+  expect(notes.length).toBe(1);
+});
+
+// ---- review fixes (mod side)
+const settingsPlan = () => planDoc({ items: [
+  { id: 'R3', rule: 'R3', file: 'settings', key: 'CLAUDE_CODE_AUTO_COMPACT_WINDOW', before: null, after: '300000', hadKey: false },
+  { id: 'R2', rule: 'R2', file: 'config', key: 'advisorMinEffectUsd', before: 5, after: 8, hadKey: true }] });
+
+test('H1: with no one to ask (the dialog is dismissed or it is a -p run) apply writes nothing and says an interactive session is needed', async ($, on) => {
+  const files: Files = { [HOME + '/config.json']: JSON.stringify({ advisorMinEffectUsd: 5 }), [ADV + '/plan.json']: settingsPlan(), [CLAUDE + '/settings.json']: '{}' };
+  world(on, files);
+  person(on, null);
+  const r = await callAdvisor($, { mode: 'apply', planId: 'pl-abc123', ids: ['R3', 'R2'] });
+  expect(r.isError).toBe(true);
+  expect(r.text).toContain('interactive session needed; nothing changed');
+  expect(files[CLAUDE + '/settings.json']).toBe('{}');
+  expect(JSON.parse(files[HOME + '/config.json']!).advisorMinEffectUsd).toBe(5);
+});
+
+test('H1: the person is asked per item as "file key: before -> after"; Skip writes nothing, Apply writes settings.json', async ($, on) => {
+  const files: Files = { [HOME + '/config.json']: JSON.stringify({ advisorMinEffectUsd: 5 }), [ADV + '/plan.json']: settingsPlan(), [CLAUDE + '/settings.json']: '{}' };
+  world(on, files);
+  const asked: string[] = [];
+  person(on, 'Skip', asked);
+  const skip = await callAdvisor($, { mode: 'apply', planId: 'pl-abc123', ids: ['R3', 'R2'] });
+  expect(skip.isError).toBe(true);
+  expect(asked.some((q) => q.includes('R3 settings env.CLAUDE_CODE_AUTO_COMPACT_WINDOW: (unset) -> 300000'))).toBe(true);
+  expect(asked.some((q) => q.includes('R2 config advisorMinEffectUsd: 5 -> 8'))).toBe(true);
+  expect(files[CLAUDE + '/settings.json']).toBe('{}');
+  answer.label = 'Apply';
+  const yes = await callAdvisor($, { mode: 'apply', planId: 'pl-abc123', ids: ['R3', 'R2'] });
+  expect(yes.isError).toBe(false);
+  expect(JSON.parse(files[CLAUDE + '/settings.json']!).env.CLAUDE_CODE_AUTO_COMPACT_WINDOW).toBe('300000');
+});
+
+const compactPlan = () => planDoc({ items: [
+  { id: 'R3', rule: 'R3', file: 'settings', key: 'CLAUDE_CODE_AUTO_COMPACT_WINDOW', before: null, after: '300000', hadKey: false },
+  { id: 'R3', rule: 'R3', file: 'config', key: 'compactWindowTokens', before: null, after: 300000, hadKey: false },
+  { id: 'R2', rule: 'R2', file: 'config', key: 'advisorMinEffectUsd', before: 5, after: 8, hadKey: true }] });
+
+test('R1 rule-level ask: one question per rule listing all its file lines, Skip is the first option, the question ends with ?; Skip writes neither half, Apply writes both and revert restores both', async ($, on) => {
+  const files: Files = { [HOME + '/config.json']: JSON.stringify({ advisorMinEffectUsd: 5 }), [ADV + '/plan.json']: compactPlan(), [CLAUDE + '/settings.json']: '{\n  "a": 1\n}\n' };
+  world(on, files);
+  const asked: string[] = [];
+  person(on, 'Skip', asked);
+  const skip = await callAdvisor($, { mode: 'apply', planId: 'pl-abc123', ids: ['R3', 'R2'] });
+  expect(skip.isError).toBe(true);
+  expect(asked.length).toBe(2); // R3 (two values) and R2: one question per rule, not per item
+  const r3 = asked.find((q) => q.includes('rule R3'))!;
+  expect(r3).toContain('R3 settings env.CLAUDE_CODE_AUTO_COMPACT_WINDOW: (unset) -> 300000');
+  expect(r3).toContain('R3 config compactWindowTokens: (unset) -> 300000');
+  for (const q of asked) expect(q.trimEnd().endsWith('?')).toBe(true);
+  for (const q of seenQuestions) expect(String(q.options[0].label ?? q.options[0])).toBe('Skip');
+  expect(files[CLAUDE + '/settings.json']).toBe('{\n  "a": 1\n}\n');
+  expect(JSON.parse(files[HOME + '/config.json']!).compactWindowTokens).toBeUndefined();
+  answer.label = 'Apply';
+  const yes = await callAdvisor($, { mode: 'apply', planId: 'pl-abc123', ids: ['R3', 'R2'] });
+  expect(yes.isError).toBe(false);
+  expect(JSON.parse(files[CLAUDE + '/settings.json']!).env.CLAUDE_CODE_AUTO_COMPACT_WINDOW).toBe('300000');
+  expect(JSON.parse(files[HOME + '/config.json']!).compactWindowTokens).toBe(300000);
+  answer.label = 'Restore';
+  const back = await callAdvisor($, { mode: 'revert', last: true });
+  expect(back.isError).toBe(false);
+  expect(seenQuestions[seenQuestions.length - 1].options[0].label ?? seenQuestions[seenQuestions.length - 1].options[0]).toBe('Keep');
+  expect(JSON.parse(files[CLAUDE + '/settings.json']!).env).toBeUndefined();
+  expect(JSON.parse(files[HOME + '/config.json']!).compactWindowTokens).toBeUndefined();
+  expect(JSON.parse(files[HOME + '/config.json']!).advisorMinEffectUsd).toBe(5);
+});
+
+test('R4 nobody at a surface: the tool does not even ask (an auto-answering host cannot approve), nothing is written', async ($, on) => {
+  const files: Files = { [HOME + '/config.json']: JSON.stringify({ advisorMinEffectUsd: 5 }), [ADV + '/plan.json']: compactPlan(), [CLAUDE + '/settings.json']: '{}' };
+  world(on, files);
+  let asks = 0;
+  on('tool.call', { tool: 'AskUserQuestion' }, (_: any, e: any) => {
+    asks++;
+    const answers: Record<string, string> = {};
+    for (const q of e.questions || []) answers[q.question] = 'Apply';
+    return { result: { questions: e.questions, answers } };
+  });
+  on('session.surfaces', () => ({ value: [] }));
+  const r = await callAdvisor($, { mode: 'apply', planId: 'pl-abc123', ids: ['R3', 'R2'] });
+  expect(r.isError).toBe(true);
+  expect(r.text).toContain('interactive session needed; nothing changed');
+  expect(asks).toBe(0);
+  expect(files[CLAUDE + '/settings.json']).toBe('{}');
+  expect(JSON.parse(files[HOME + '/config.json']!).advisorMinEffectUsd).toBe(5);
+});
+
+test('M5: the weekly run and the pending card come only at startup or resume, and the card is not recorded as shown when no one is there', async ($, on) => {
+  const pend = { id: 'pd-1', created: new Date().toISOString(), items: [{ id: 'R2', rule: 'R2', title: 't', risk: 'A', effect: { lo: 1, hi: 2, unit: 'usd_per_week' } }], shownAt: null, auto: [] };
+  const files: Files = { [ADV + '/pending.json']: JSON.stringify(pend), [ADV + '/schedule.json']: JSON.stringify({ next_due: new Date(Date.now() - 1000).toISOString() }) };
+  world(on, files);
+  const surfaces: { list: string[] } = { list: [] };
+  on('session.surfaces', () => ({ value: surfaces.list }));
+  on('classic.SessionStart', () => ({}));
+  const call = (source: string, sid: string) => $.classic.SessionStart({ source, session_id: sid, cwd: '/w', transcript_path: '/t/' + sid + '.jsonl' } as any);
+  const c: any = await call('compact', 'S1');
+  expect((c.additionalContext || []).join('\n')).not.toContain('usage suggestion');
+  expect(JSON.parse(files[ADV + '/schedule.json']!).checked).toBeUndefined();
+  const c2: any = await call('clear', 'S2');
+  expect((c2.additionalContext || []).join('\n')).not.toContain('usage suggestion');
+  const noHuman: any = await call('startup', 'S3'); // no surface: a -p / SDK run
+  expect((noHuman.additionalContext || []).join('\n')).not.toContain('usage suggestion');
+  expect(JSON.parse(files[ADV + '/pending.json']!).shownAt).toBe(null);
+  surfaces.list = ['terminal'];
+  const withHuman: any = await call('resume', 'S4');
+  expect((withHuman.additionalContext || []).join('\n')).toContain('1 usage suggestion');
+  expect(JSON.parse(files[ADV + '/pending.json']!).shownAt).not.toBe(null);
+});
+
+test('L7: sub-wait files untouched for 2 days are emptied (once per process); fresh ones stay', async ($, on) => {
+  const old = HOME + '/sub-wait/old.json';
+  const fresh = HOME + '/sub-wait/fresh.json';
+  const files: Files = { [HOME + '/config.json']: JSON.stringify({ subagentLongCmdAdvice: true }), [old]: '{"ids":["a"]}', [fresh]: '{"ids":["b"]}' };
+  world(on, files, { ages: { [old]: 3 * 86400000 } });
+  on('tool.call', () => ({ result: {} }));
+  await bashTool($, { agentId: 'a1', timeout: 400000 });
+  expect(files[old]).toBe('');
+  expect(files[fresh]).toBe('{"ids":["b"]}');
+});
+
+test('L8: oldModelWarn does not read the transcript once the session was told', async ($, on) => {
+  const old = line({ type: 'assistant', isSidechain: false, timestamp: new Date().toISOString(), message: { id: 'm1', model: 'claude-opus-4-6-20250805', role: 'assistant', content: [], usage: { input_tokens: 10 } } });
+  const files: Files = { '/t/S1.jsonl': old, [HOME + '/config.json']: JSON.stringify({ oldModelWarn: true }), [HOME + '/old-model-warn.json']: JSON.stringify({ S1: Date.now() }) };
+  let transcriptReads = 0;
+  world(on, files, { onRead: (p) => { if (/S1\.jsonl$/.test(p)) transcriptReads++; } });
+  on('classic.UserPromptSubmit', () => ({}));
+  const go = () => $.classic.UserPromptSubmit({ session_id: 'S1', cwd: '/w', prompt: 'next', transcript_path: '/t/S1.jsonl' } as any);
+  await go();
+  const told = transcriptReads; // other hooks read the transcript too: compare with a session that was not told yet
+  transcriptReads = 0;
+  files[HOME + '/old-model-warn.json'] = '{}';
+  await go();
+  expect(transcriptReads).toBeGreaterThan(told);
 });

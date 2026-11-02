@@ -161,3 +161,8 @@ footer a:hover { color: var(--ink); }
 .feat details p { margin: 8px 0 0; font-size: 14px; color: var(--ink-2); }
 html[lang="ko"] { word-break: keep-all; overflow-wrap: break-word; }
 html[lang="ko"] .tag { letter-spacing: 0; font-family: var(--sans); text-transform: none; }
+
+/* Usage Advisor examples: wide terminal text scrolls inside its block. */
+.term.adv pre { font-size: 12.5px; line-height: 1.55; }
+details .term.adv { margin-top: .6rem; }
+@media (max-width: 560px) { .term.adv pre { font-size: 11px; } }

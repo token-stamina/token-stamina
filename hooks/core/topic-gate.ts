@@ -19,6 +19,10 @@ export interface TopicGateCfg {
   inlineCompactHint?: boolean;
   idleGapSec?: number;
   topicGate?: boolean;
+  // Usage Advisor R2: 'gap' = the inline hint only comes after an idle/cwd gap; 'always' (default) = as before.
+  hintTrigger?: string;
+  // Usage Advisor R2: no inline hint unless the clear card's low estimate reaches this (0 = off). Applied by register.ts via meetsMinEffect().
+  hintMinEffectTokens?: number;
   [key: string]: unknown;
 }
 
@@ -156,11 +160,13 @@ export function hintMessage(
 export interface HintResult { hint: boolean; hintAt: number | null }
 
 // Pure. hintAt = tokens when the last hint was given (null if none or reset by a compact).
+// gap (optional): result of decide(); with hintTrigger "gap" the hint only comes after an idle/cwd gap (advisor R2).
 export function decideHint(
   tokens: number,
   cfg: TopicGateCfg,
   user: Record<string, unknown> | undefined,
   hintAt: number | null | undefined,
+  gap?: DecideResult,
 ): HintResult {
   let ha: number | null = typeof hintAt === 'number' ? hintAt : null;
   if (cfg.inlineCompactHint === false || !tokens) return { hint: false, hintAt: ha };
@@ -168,6 +174,7 @@ export function decideHint(
   const grow = cfg.renotifyGrowthTokens || 100000;
   if (typeof ha === 'number' && tokens < ha) ha = null; // context shrank: compacted
   if (tokens < at) return { hint: false, hintAt: ha };
+  if (cfg.hintTrigger === 'gap' && gap !== undefined && !(gap && (gap.gate || gap.gapMet))) return { hint: false, hintAt: ha };
   if (typeof ha === 'number' && tokens < ha + grow) return { hint: false, hintAt: ha };
   return { hint: true, hintAt: tokens };
 }
@@ -186,7 +193,7 @@ export function sameTree(a: unknown, b: unknown): boolean {
 
 export interface DecideInfo { tokens: number; lastAssistantMs: number | null; nowMs: number; cwd?: string }
 export interface DecideRec { cwd?: string; gatedAt?: number }
-export interface DecideResult { gate: boolean; reason?: string; idleSec?: number; cwdChanged?: boolean }
+export interface DecideResult { gate: boolean; reason?: string; idleSec?: number; cwdChanged?: boolean; gapMet?: boolean }
 
 // Pure decision. rec = {cwd, gatedAt} previously recorded for this session.
 export function decide(
@@ -195,17 +202,25 @@ export function decide(
   user: Record<string, unknown> | undefined,
   rec: DecideRec | null | undefined,
 ): DecideResult {
-  if (cfg.topicGate === false) return { gate: false, reason: 'off' };
+  if (cfg.topicGate === false) {
+    // The gate card is off, but the idle/cwd gap is still measured: hintTrigger "gap" depends on it, not on the gate card.
+    const idle = info.lastAssistantMs ? Math.max(0, (info.nowMs - info.lastAssistantMs) / 1000) : 0;
+    const moved = !!(rec && rec.cwd && info.cwd && !sameTree(rec.cwd, info.cwd));
+    return { gate: false, reason: 'off', gapMet: idle >= (cfg.idleGapSec || 3600) || moved };
+  }
   const gateAt = thresholds(cfg, user).gateAt;
   const idleGap = cfg.idleGapSec || 3600;
   const grow = cfg.renotifyGrowthTokens || 100000;
-  if (!info.tokens || info.tokens < gateAt) return { gate: false, reason: 'below_threshold' };
+  // The gap is measured before any size check: the inline hint (hintTrigger "gap") starts at compactAt, below gateAt, and
+  // reads gapMet from every outcome, not only from the ones that got past the size check.
   const idleSec = info.lastAssistantMs ? Math.max(0, (info.nowMs - info.lastAssistantMs) / 1000) : 0;
   const cwdChanged = !!(rec && rec.cwd && info.cwd && !sameTree(rec.cwd, info.cwd));
-  if (!(idleSec >= idleGap || cwdChanged)) return { gate: false, reason: 'no_gap' };
+  const gapMet = idleSec >= idleGap || cwdChanged;
+  if (!info.tokens || info.tokens < gateAt) return { gate: false, reason: 'below_threshold', gapMet };
+  if (!gapMet) return { gate: false, reason: 'no_gap', gapMet: false };
   if (rec && typeof rec.gatedAt === 'number' && info.tokens >= rec.gatedAt && info.tokens < rec.gatedAt + grow)
-    return { gate: false, reason: 'renotify_suppressed' };
-  return { gate: true, idleSec, cwdChanged };
+    return { gate: false, reason: 'renotify_suppressed', gapMet };
+  return { gate: true, idleSec, cwdChanged, gapMet };
 }
 
 // NOTE: the original module's impure `run(raw)` orchestration (reads/writes topic-gate.json via

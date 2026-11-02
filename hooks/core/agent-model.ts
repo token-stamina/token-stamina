@@ -16,6 +16,8 @@
 import { sha1Hex, joinPath } from './text.ts';
 import { assess, attributed, type PaceConfig, type PaceState } from './pacer.ts';
 import { textProtected } from './decisions.ts';
+import { classifyTask } from './task-class.ts';
+import { ADVISOR_DEFAULTS } from './advisor-defaults.ts';
 
 export const BUILTIN_WITH_MODEL = new Set(['explore', 'statusline-setup', 'claude-code-guide']);
 
@@ -68,6 +70,9 @@ export interface AgentModelMsgTable {
   explicitSuggest: (req: string, to: string, why: string, marker: string) => string;
   explicitKept: (req: string, w: string) => string; // row Q, only with explicitDowngradeVerbose
   escalationKept: (req: string) => string; // row Q''
+  // explicitDowngradePressure 'always' (row R without a pace reason): no pace text, the key name is the reason.
+  explicitAlwaysInject: (req: string, to: string, marker: string) => string;
+  explicitAlwaysSuggest: (req: string, to: string, marker: string) => string;
   agentDefault: (m: string) => string;
   explicitWhy: (g: string, w: string | null | undefined, n: number | null, s: number | null) => string;
 }
@@ -105,6 +110,10 @@ export const T: Record<string, AgentModelMsgTable> = {
       + '. If ' + req + ' is really needed, add \'' + marker + '\' to the description or start the same task again.',
     explicitSuggest: (req, to, why, marker) => 'Token Stamina: usage is running fast (' + why + '). Consider model="' + to + '" instead of the requested ' + req
       + '. If ' + req + ' is really needed, add \'' + marker + '\' to the description.',
+    explicitAlwaysInject: (req, to, marker) => 'Token Stamina: explicitDowngradePressure is "always", so model="' + to + '" was set instead of the requested ' + req
+      + '. If ' + req + ' is really needed, add \'' + marker + '\' to the description or start the same task again.',
+    explicitAlwaysSuggest: (req, to, marker) => 'Token Stamina: explicitDowngradePressure is "always". Consider model="' + to + '" instead of the requested ' + req
+      + '. If ' + req + ' is really needed, add \'' + marker + '\' to the description.',
     explicitKept: (req, w) => 'Token Stamina: this looks like a judgment task (' + w + '), so the requested ' + req + ' was kept.',
     escalationKept: (req) => 'Token Stamina: the same task was started again, so ' + req + ' was allowed.',
     agentDefault: (m) => 'Token Stamina: the default subagent model is set to ' + m + ', so model="' + m + '" was set for this subagent. Pass an explicit model to override.',
@@ -128,6 +137,8 @@ export const T: Record<string, AgentModelMsgTable> = {
       + marker + '\' 를 붙이거나 같은 작업을 다시 띄우세요.',
     explicitSuggest: (req, to, why, marker) => 'Token Stamina: 사용 속도가 빨라요(' + why + '). 지정한 ' + req + ' 대신 model="' + to + '" 을 고려하세요. 꼭 필요하면 설명에 \''
       + marker + '\' 를 붙이세요.',
+    explicitAlwaysInject: (req, to, marker) => 'Token Stamina: explicitDowngradePressure 가 "always" 라서 지정한 ' + req + ' 대신 model="' + to + '" 을 넣었어요. 꼭 필요하면 설명에 \'' + marker + '\' 를 붙이거나 같은 작업을 다시 띄우세요.',
+    explicitAlwaysSuggest: (req, to, marker) => 'Token Stamina: explicitDowngradePressure 가 "always" 예요. 지정한 ' + req + ' 대신 model="' + to + '" 을 고려하세요. 꼭 필요하면 설명에 \'' + marker + '\' 를 붙이세요.',
     explicitKept: (req, w) => 'Token Stamina: 판단이 필요한 작업으로 보여(' + w + ') 지정한 ' + req + ' 을 그대로 뒀어요.',
     escalationKept: (req) => 'Token Stamina: 같은 작업을 다시 띄워 ' + req + ' 을 허용했어요.',
     agentDefault: (m) => 'Token Stamina: 하위 에이전트 기본 모델이 ' + m + ' 로 설정돼 있어서 이 하위 에이전트에 model="' + m + '" 을 지정했어요. 바꾸려면 model 을 명시해서 호출하세요.',
@@ -150,6 +161,10 @@ export const T_SESSION: Record<string, Partial<AgentModelMsgTable>> = {
     explicitSuggest: (req, to, why, marker) => 'Token Stamina: usage is running fast (' + why + '). Consider model="' + to + '" for this new session instead of the requested ' + req
       + '. If ' + req + ' is really needed, add \'' + marker + '\' to the session title or prompt.',
     escalationKept: (req) => 'Token Stamina: the same session was started again, so ' + req + ' was allowed.',
+    explicitAlwaysInject: (req, to, marker) => 'Token Stamina: explicitDowngradePressure is "always", so model="' + to + '" was set for this new session instead of the requested ' + req
+      + '. If ' + req + ' is really needed, add \'' + marker + '\' to the session title or prompt, or start the same session again.',
+    explicitAlwaysSuggest: (req, to, marker) => 'Token Stamina: explicitDowngradePressure is "always". Consider model="' + to + '" for this new session instead of the requested ' + req
+      + '. If ' + req + ' is really needed, add \'' + marker + '\' to the session title or prompt.',
   },
   ko: {
     suggest: (w, m) => 'Token Stamina: 사용 속도가 빨라요(' + w + ' 빨강). 이 새 세션은 model="' + m + '" 을 고려하세요.',
@@ -161,6 +176,8 @@ export const T_SESSION: Record<string, Partial<AgentModelMsgTable>> = {
     explicitSuggest: (req, to, why, marker) => 'Token Stamina: 사용 속도가 빨라요(' + why + '). 이 새 세션은 지정한 ' + req + ' 대신 model="' + to + '" 을 고려하세요. 꼭 필요하면 세션 제목이나 지시문에 \''
       + marker + '\' 를 붙이세요.',
     escalationKept: (req) => 'Token Stamina: 같은 세션을 다시 띄워 ' + req + ' 을 허용했어요.',
+    explicitAlwaysInject: (req, to, marker) => 'Token Stamina: explicitDowngradePressure 가 "always" 라서 이 새 세션에 지정한 ' + req + ' 대신 model="' + to + '" 을 넣었어요. 꼭 필요하면 세션 제목이나 지시문에 \'' + marker + '\' 를 붙이거나 같은 세션을 다시 띄우세요.',
+    explicitAlwaysSuggest: (req, to, marker) => 'Token Stamina: explicitDowngradePressure 가 "always" 예요. 이 새 세션은 지정한 ' + req + ' 대신 model="' + to + '" 을 고려하세요. 꼭 필요하면 세션 제목이나 지시문에 \'' + marker + '\' 를 붙이세요.',
   },
 };
 export function textsFor(input: { kind?: string } | null | undefined, lang: string | undefined): AgentModelMsgTable {
@@ -200,6 +217,12 @@ export interface AgentModelCfg extends PaceConfig {
   lang?: string;
   judgmentKeywords?: string[];
   simpleKeywords?: string[];
+  implementationKeywords?: string[];
+  // 'pace' (default) | 'always': with 'always' an explicit upper-tier model is downgraded without pace pressure.
+  explicitDowngradePressure?: string;
+  // Usage Advisor R4: one sentence per session on the first Agent call (waitAdvice).
+  subagentWaitAdvice?: boolean;
+  _langAuto?: boolean;
   // Fleet (DESIGN-v2 §5.2). Missing -> the defaults below; a non-number threshold or <= 0 switches
   // that row off (conservative: the decision falls back to the pre-fleet one).
   fleet?: boolean;
@@ -381,7 +404,9 @@ export interface DecideResult {
 // it structurally (row O: never a downgrade, and no fleet advice either).
 //   M not upper tier                         -> pass has_model (unchanged)
 //   N explicitDowngrade 'off' (or missing)   -> pass has_model (unchanged)
-//   P no pressure (green, yellow w/o fleet)  -> pass has_model (unchanged)
+//   P no pressure (green, yellow w/o fleet)  -> pass has_model (unchanged); with explicitDowngradePressure 'always' (default
+//     'pace') there is always pressure for rows Q-R: no usage record, a stale one and green/yellow count too. Judgment word (Q),
+//     keep-model marker (Q') and escalation (Q'') still keep the requested model; fleet rows are untouched.
 //   pressure = red || (yellow && fleet pressure); then, in this order:
 //   Q   judgment word                        -> pass keep_judgment:<w> (message only if verbose)
 //   Q'  keep-model marker                    -> pass keep_marker
@@ -420,7 +445,8 @@ function decideBase(
   const advise = cfg.fleetAdvise !== false;
   const truncOnly = fl && fl.truncated ? tx.fleetTrunc() : '';
   const trunc = (ses ? tx.fleetSessions(ses) : '') + truncOnly;
-  if (!a.grade || a.stale) {
+  const always = cfg.explicitDowngradePressure === 'always';
+  if ((!a.grade || a.stale) && !(requested && always)) {
     const g = !a.grade ? 'no_state' : 'stale';
     if (!requested && atWarn && advise) {
       return { action: 'suggest', reason: 'fleet_advise_nostate', message: tx.fleetAdvise(n, fleetDist(fl!.models), g) + trunc, fleet_running: n };
@@ -429,11 +455,17 @@ function decideBase(
   }
   const text = ((ti.description || '') + ' ' + String(ti.prompt || '').slice(0, 600)).toLowerCase();
   if (requested) {
-    if (!(a.grade === 'red' || (a.grade === 'yellow' && atWarn))) return { action: 'pass', reason: 'has_model' }; // row P
+    const paced = !a.stale && (a.grade === 'red' || (a.grade === 'yellow' && atWarn));
+    if (!paced && !always) return { action: 'pass', reason: 'has_model' }; // row P
     const hash = descHash(ti.description);
     const tag: { requested_model: string; desc_hash?: string } = { requested_model: requested };
     if (hash) tag.desc_hash = hash;
-    const xjw = includesAny(text, cfg.judgmentKeywords);
+    // always path: the shared classifier (same as the advisor's R1b estimate); the pace path keeps the plain text check
+    let xjw: string | null;
+    if (always) {
+      const tc = classifyTask(ti.description, ti.prompt, { implementationKeywords: ADVISOR_DEFAULTS.implementationKeywords, ...cfg } as any);
+      xjw = tc.cls === 'judgment' ? tc.word : null;
+    } else xjw = includesAny(text, cfg.judgmentKeywords);
     if (xjw) {
       const q: DecideResult = { action: 'pass', reason: 'keep_judgment:' + xjw, grade: a.grade, worst: a.worst, ...tag };
       if (cfg.explicitDowngradeVerbose === true) q.message = tx.explicitKept(requested, xjw);
@@ -449,14 +481,14 @@ function decideBase(
     const marks = Array.isArray(cfg.keepModelMarker) ? cfg.keepModelMarker.filter((m) => typeof m === 'string' && m) : [];
     const marker = marks.length ? String(marks[0]) : EXPLICIT_DEFAULTS.keepModelMarker[0];
     const yellow = a.grade === 'yellow';
-    const why = tx.explicitWhy(String(a.grade), a.worst, yellow ? n : null, yellow ? ses : null);
+    const why = paced ? tx.explicitWhy(String(a.grade), a.worst, yellow ? n : null, yellow ? ses : null) : '';
     const extra = fl ? { fleet_running: n } : {};
     if (xd === 'inject' && mode === 'inject') {
       return { action: 'inject', reason: 'explicit_downgrade', model: to, grade: a.grade, worst: a.worst,
-        message: tx.explicitInject(requested, to, why, marker) + truncOnly, ...extra, ...tag };
+        message: (paced ? tx.explicitInject(requested, to, why, marker) : tx.explicitAlwaysInject(requested, to, marker)) + truncOnly, ...extra, ...tag };
     }
     return { action: 'suggest', reason: 'explicit_suggest', model: to, grade: a.grade, worst: a.worst,
-      message: tx.explicitSuggest(requested, to, why, marker) + truncOnly, ...extra, ...tag };
+      message: (paced ? tx.explicitSuggest(requested, to, why, marker) : tx.explicitAlwaysSuggest(requested, to, marker)) + truncOnly, ...extra, ...tag };
   }
   if (a.grade !== 'red') {
     if (a.grade === 'green' && atWarn && advise) {
@@ -567,6 +599,29 @@ export function recordLedger(ledger: any, sid: string, kind: string, hash: strin
   for (const k of keys.slice(0, LEDGER_PER_SESSION).reverse()) kept[k] = cur[k]; // stored oldest first, so insertion order breaks ts ties
   book[sid] = kept;
   return book;
+}
+
+// subagentWaitAdvice (advisor R4): one sentence, once per session, on the first Agent call.
+// Node keeps the per-session book in agent-model-advice.json; here the caller reads/writes it and hands it in:
+// waitAdvice(input, kind, cfg, book, now) -> {text, book}; text '' = nothing to say (book then unchanged).
+export const WAIT_ADVICE: Record<string, string> = {
+  en: 'Token Stamina: a subagent left idle for more than 5 minutes rewrites its prompt cache, so collect its result promptly instead of leaving it waiting.',
+  ko: 'Token Stamina: 하위 에이전트를 5분 넘게 놀리면 프롬프트 캐시를 다시 쓰게 돼요. 결과를 바로 받아 가고 대기시키지 마세요.',
+  ja: 'Token Stamina: サブエージェントを5分以上待たせるとプロンプトキャッシュが再書き込みされます。結果は待たせずにすぐ受け取ってください。',
+};
+export function waitAdvice(input: any, kind: string, cfg: AgentModelCfg, book?: unknown, now?: number): { text: string; book: Record<string, number> } {
+  const b0: Record<string, number> = book && typeof book === 'object' && !Array.isArray(book) ? (book as Record<string, number>) : {};
+  try {
+    if (cfg.subagentWaitAdvice !== true || kind !== 'Agent') return { text: '', book: b0 };
+    const sid = input && typeof input.session_id === 'string' && input.session_id ? input.session_id : null;
+    if (!sid) return { text: '', book: b0 };
+    if (b0[sid]) return { text: '', book: b0 };
+    const b = { ...b0 };
+    b[sid] = now === undefined ? Date.now() : now;
+    const keys = Object.keys(b);
+    if (keys.length > 50) keys.sort((x, y) => b[x] - b[y]).slice(0, keys.length - 50).forEach((k) => delete b[k]);
+    return { text: attributed(WAIT_ADVICE[cfg.lang as string] || WAIT_ADVICE.en, cfg.lang, cfg._langAuto), book: b };
+  } catch (e) { return { text: '', book: b0 }; }
 }
 
 // Convenience re-export so register.ts's `tool.call` handler can attribute d.message the same

@@ -16,7 +16,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="site.css?v=0.5.1-2">
+<link rel="stylesheet" href="site.css?v=0.6.3">
 </head>
 <body>
 <div class="wrap">
@@ -26,6 +26,7 @@
   <nav>
     <a href="#install">Install</a>
     <a href="#commands">Commands</a>
+    <a href="#advisor">Usage Advisor</a>
     <a href="#privacy">Privacy</a>
     <a href="https://github.com/token-stamina/token-stamina">GitHub</a>
   </nav>
@@ -146,13 +147,94 @@
   <p class="small" style="margin-top:1.2rem"><code>/token-stamina:autocompact</code> picks when Claude Code compacts on its own (300k, 400k, 600k or default). It shows the change and asks first.</p>
 </section>
 
+<section id="advisor" class="col">
+  <h2><span class="n">05</span>Usage Advisor</h2>
+  <p><span class="tag">since 0.6.3</span> Token Stamina already acts on your pace. The Usage Advisor looks further back: it reads your last 30 days of local session records, shows where the usage goes, and proposes concrete changes to your settings. Nothing is changed until you approve it, one item at a time.</p>
+  <ol class="does">
+    <li><b>Analyze.</b> Adds up the last 30 days by main session, subagents, cache reads, cache writes and output, and finds the biggest leaks: subagents on an upper-tier model doing implementation work, caches that expired while a subagent waited, returns after a long idle, and sessions still on an old model.</li>
+    <li><b>Recommend.</b> A short list ranked by the expected saving, each item with its current value, the recommended value, the evidence and a one-line reason. Items that would make little or no difference are listed separately as "no change needed" instead of being pushed on you.</li>
+    <li><b>Apply, item by item.</b> You see the before and after for each item first, and only the items you say yes to are written. Each item is confirmed in a Claude Code confirmation dialog, and the previous file is backed up first. Each change can be reverted later.</li>
+    <li><b>Re-check weekly.</b> From one week after install, the advisor runs the same analysis again when you start a session and, if something changed, offers a card the next time you open one.</li>
+  </ol>
+  <p class="step"><span class="n">&rarr;</span>Run the full flow (analyze, recommend, approve each item, apply, revert):</p>
+  <div class="cmd"><pre>/token-stamina:advisor</pre><button type="button">copy</button></div>
+  <p class="small">Or just look, without changing anything: <code>/ts-advisor</code> prints the same analysis and recommendations as a read-only report (<code>--days N</code> to change the window, <code>--json</code> for raw output).</p>
+  <dl class="priv">
+    <dt>Reads</dt>
+    <dd>Only the session transcripts already on this device, under <code>~/.claude/projects</code>. The last 30 days, this device only.</dd>
+    <dt>Sends</dt>
+    <dd>Nothing. No network request, no telemetry.</dd>
+    <dt>Models</dt>
+    <dd>None. The analysis is deterministic arithmetic and every sentence comes from fixed templates filled with numbers, so the same records give the same screen.</dd>
+    <dt>Changes</dt>
+    <dd>A change is written only for an item you approve yourself, one by one, in a Claude Code confirmation dialog that shows <code>file key: before -&gt; after</code>. Your answer to Claude in the chat is not enough, and in a non-interactive (<code>-p</code>) run nothing is written. A backup copy of the file is saved first (<code>settings.json.bak-token-stamina-&lt;time&gt;</code> next to <code>settings.json</code>; the Token Stamina config is backed up inside its own folder). Each change can be reverted, and only while the value is still the one the advisor set. The weekly check can apply by itself only if you list a rule in <code>advisorAutoApply</code> (off by default) and only to Token Stamina's own config, never to <code>settings.json</code>.</dd>
+    <dt>Weekly re-check</dt>
+    <dd>It runs in the background when a Claude Code session starts or resumes, from one week after install, and only reads local records. There is no operating-system scheduled task, so if you don't open Claude Code it doesn't run, and it catches up the next time you do. Set <code>"advisor": false</code> in the config to turn it off.</dd>
+    <dt>Money</dt>
+    <dd>Shown as the API list-price equivalent, an estimate. On a subscription you are not billed this; your plan limit fills in the same proportion.</dd>
+    <dt>Limit</dt>
+    <dd>A transcript over 4 MiB can't be read by the plugin, so it is counted and left out. Those are mostly long main sessions, so the main-session figures are a lower bound, and the screen says so.</dd>
+  </dl>
+  <p class="small" style="margin-top:1.4rem">Example screens, shown abridged. Every name and number here is synthetic demo data, not from a real account.</p>
+  <p class="step"><span class="n">1</span>What the analysis shows:</p>
+  <div class="term adv" aria-label="Usage Advisor analysis example">
+    <div class="bar" aria-hidden="true"><i></i><i></i><i></i></div>
+<pre>Based on the last 30 days of this device's local records (cleanupPeriodDays = 30). Reads local records only, sends nothing anywhere.
+Read 118 of 118 transcript files (100% of bytes).
+
+Your pattern in one look
+  About $520/wk API-equivalent: main session 72%, subagents 28%.
+  Cost parts: cache read $103, cache write $387, output $30.
+
+Where the money goes: top 3 (figures can overlap, do not add them up)
+  1. Opus/Fable subagents on implementation or simple work: $120/wk ($54 with a model named, $66 without)
+  2. Subagent cache rewritten after 5 min: $107/wk (184 rewrites)
+  3. Returning after more than 1 h idle: $89/wk (27 returns)</pre>
+  </div>
+  <p class="step"><span class="n">2</span>The recommended settings:</p>
+  <div class="term adv" aria-label="Usage Advisor recommendations example">
+    <div class="bar" aria-hidden="true"><i></i><i></i><i></i></div>
+<pre>Recommendations
+#  item                               current          recommended    evidence                                 expected effect (API-equiv, est.)
+1  Subagents waiting &gt;5 min (A)       -                warn once      5-min cache rewrites $107/wk             $54-107/wk if avoided
+<span class="dim">   Why: after 5 min idle the stored context is dropped; rewriting costs about 25x a cache read per token.</span>
+2  Subagent default model (B)         (none)           sonnet         impl. Opus/Fable subagents $66/wk, no    $33-53/wk
+                                                                      model named in 50% of Agent calls
+<span class="dim">   Why: subagents write fresh context and much code; Opus costs 2x Sonnet there (in $4 vs $2, out $20 vs $10).</span>
+3  Explicit upper-tier subagents (B)  pace / suggest   always / inject impl./simple Opus/Fable subagents with a $27-43/wk
+                                                                      model named $54/wk (50% of Agent calls
+                                                                      name one); add 'keep-model' to a
+                                                                      description to keep a model
+<span class="dim">   Why: subagents write fresh context and much code; Opus costs 2x Sonnet there (in $4 vs $2, out $20 vs $10).</span>
+4  Old-model sessions (A)             -                warn once      old models $72/wk in 1 session           up to $37/wk
+<span class="dim">   Why: old Opus versions charge 2.5x the current cache-read price ($0.5 vs $0.2/MTok).</span>
+5  Compact/clear hints (A)            always           gap mode       hints 9/wk, followed 0%, saved ~$0       money ~$0; ~9 fewer hints/wk
+<span class="dim">   Why: 100% of hints were ignored and only interrupt; gap mode shows hints only after a real gap.</span>
+
+Little or no effect (no change needed)
+  - Auto-compact point (default): no change needed: the best cap saves at most $18/wk before the compaction cost.
+  - Return after idle: no change needed: idle returns cost $89/wk and the topic gate is already on.
+
+Prices: claude-api skill pricing table, cached 2026-10-06. All money is API-list-price equivalent, an estimate.
+On a subscription this is not billed; the plan limit fills in the same proportion.</pre>
+  </div>
+  <p class="small">Layout, wording and prices follow the real screen; the numbers are made up.</p>
+  <details class="small">
+    <summary>What the cost terms mean</summary>
+    <div class="term adv"><pre>cache read: re-reading the stored conversation on every call (cheap per token).
+cache write: storing new context for reuse (costs more than a normal input token).
+output: the text and code the model writes (the dearest per token).
+context: everything sent with a call: tools, system text and the conversation.</pre></div>
+  </details>
+</section>
+
 <section id="privacy" class="col">
-  <h2><span class="n">05</span>What runs on your machine</h2>
+  <h2><span class="n">06</span>What runs on your machine</h2>
   <dl class="priv">
     <dt>Reads</dt>
     <dd>The usage numbers Claude Code reports for the session, and your session transcripts under <code>~/.claude/projects</code>, to add up usage and build the handoff note, and the subagent files Claude Code keeps there, to count what is running.</dd>
     <dt>Writes</dt>
-    <dd>Only to <code>~/.claude/token-stamina/</code>, and to your settings file during setup if you agree (the optional board preview can also update its own config file when you approve a setting there). Handoff notes keep short clips of your recent requests; after 7 days their text is emptied. Delete the folder to remove them sooner.</dd>
+    <dd>Only to <code>~/.claude/token-stamina/</code>, and to your settings file during setup or an approved Usage Advisor change, if you agree (the optional board preview can also update its own config file when you approve a setting there). Handoff notes keep short clips of your recent requests; after 7 days their text is emptied. Delete the folder to remove them sooner.</dd>
     <dt>Never</dt>
     <dd>It makes no network requests of its own (the optional board preview, if you set it up, asks Claude to write to your own private Artifact), sends no telemetry, calls no model and starts no commands. Hint lines and handoff notes it adds to the conversation are sent to the model like the rest of your conversation.</dd>
   </dl>

@@ -62,17 +62,71 @@ Grades: green `u <= elapsed%`, yellow up to +10 points, red beyond or `u >= 90`.
 /ts-fleet --all                 # subagents running now, by model
 /token-stamina:autocompact 400k # pick when auto-compact happens: 300k / 400k / 600k / default
 /token-stamina:setup            # language, old status line cleanup, defaults
+/token-stamina:advisor          # Usage Advisor: analyze, recommend, apply (with your yes), revert, review
+/ts-advisor --days 30           # Usage Advisor report, read-only (also --json, --brief)
 /token-stamina:board            # (preview) push the efficiency board to your own dashboard Artifact
 ```
 
 - `/ts-report` also takes `--until YYYY-MM-DD`.
 - `/ts-savings` is an estimate, not billing. It reads the plugin's own event log (`events/`, and `events.jsonl` from older versions). `--since YYYY-MM-DD`, `--json`.
 - `/ts-audit` changes nothing. `--cwd <path>`, `--days 30`, `--json`.
-- The four `/ts-…` commands print a table and call no model.
+- The `/ts-…` commands print a table or report and call no model.
 
 Config: `~/.claude/token-stamina/config.json` overrides `config.default.json`. Set `TOKEN_STAMINA_HOME` to move the data folder.
 
 Language: `/token-stamina:setup` asks first, or set `"lang"` yourself: `auto` (default; follows the language of your prompts), `en`, `ko`, `ja`, `zh`. The status row and screen lines have en/ko/ja text (other languages show English); lines for Claude ask it to answer in your language.
+
+## Usage Advisor (0.6.3)
+
+The Usage Advisor reads your local Claude Code session records (last 30 days, or `cleanupPeriodDays` if that is shorter), adds up where the usage goes, and proposes settings changes. It is deterministic arithmetic: no LLM call, no network request, and the same records give the same screen. Everything it reads and writes stays on your machine.
+
+```
+/token-stamina:advisor            # recommend (default); also: analyze, apply, revert, review
+/ts-advisor                       # the same analysis and recommendations, read-only, no model
+/ts-advisor --days 7 --brief      # --days N, --brief, --json
+```
+
+- `/token-stamina:advisor` modes: **analyze** (where the usage goes), **recommend** (a ranked list; items with little or no effect are listed as "no change needed"), **apply** (below), **revert** (undo the last apply or a named one), **review** (suggestions the weekly check left waiting, and anything it changed itself). A first analysis is offered in `/token-stamina:setup`.
+- **Apply needs your yes for every item.** Claude shows a `before -> after` preview, then asks per item. Before anything is written, the plugin asks you itself in a Claude Code confirmation dialog (`file key: before -> after`, Apply / Skip), so a "yes" typed to Claude is not enough. A dismissed dialog, or a non-interactive (`-p`) run, writes nothing. A plan is valid for 10 minutes. The file is backed up first (`settings.json.bak-token-stamina-<time>` next to `settings.json`; config backups under `advisor/backups/`), a `settings.json` that is not valid JSON is never touched, and unrelated keys are left alone.
+- **Revert** restores a value only while the file still holds what the advisor wrote.
+- `/ts-advisor` has no apply option.
+
+The rules, each evaluated on the last 7 days and confirmed on 30:
+
+| Rule | What it looks at | Proposed change |
+|---|---|---|
+| R1 | Opus/Fable subagents doing implementation or simple work with no model named | `agentModelDefault` to `sonnet` (risk B) |
+| R1b | The same, where the call named the model itself | `explicitDowngradePressure: always`, `explicitDowngrade: inject` (risk B) |
+| R2 | Compact/clear hints that are mostly ignored | `hintTrigger: gap`, `hintMinEffectTokens`, `topicCheck` |
+| R3 | Auto-compact point | `CLAUDE_CODE_AUTO_COMPACT_WINDOW` in `settings.json` (risk B) |
+| R4 | Subagents left waiting over 5 minutes (prompt cache expired and rewritten) | `subagentWaitAdvice`, `subagentLongCmdAdvice` (one informational line, never blocks) |
+| R5 | Sessions still on an old model | `oldModelWarn` (one notice per session) |
+| R6 | Returning after more than 1 hour idle | `topicGate`, `idleGapSec` |
+
+- **Money is an estimate.** Figures are API list-price equivalents. On a subscription you are not billed this; your plan limit fills in the same proportion.
+- **Transcripts over 4 MiB cannot be read** by the plugin (a mod cannot read part of a file). They are counted by size and left out, and the screen always shows a line like `Read N of M transcript files (P% of bytes)`. They are mostly long main sessions, so main-session figures, R3 and R6 are lower bounds, and R2 is shown as information only when 25% or more of the bytes were left out. Subagent records are almost all read, so R1, R1b and R4 are close to complete.
+- **Weekly re-check.** From one week after install, when a Claude Code session starts or resumes, the plugin runs the analysis in the background (it reads only `~/.claude/projects` and writes only the `advisor/` folder), keeps a history snapshot, and, if a suggestion appears in two weeks in a row, leaves it for `review` and shows one line and a card at a later session start. There is no operating-system scheduled task: if you don't open Claude Code it doesn't run, and it catches up when you do. `"advisor": false` turns the whole feature off.
+- **Auto-apply is off by default.** `advisorAutoApply` lists the rules the weekly check may apply by itself. Only risk A rules that change Token Stamina's own config can be listed; `settings.json` is never written automatically. A week after any apply, a check compares before and after and may propose a fine-tune or an undo.
+
+New config keys (`config.default.json`; your `~/.claude/token-stamina/config.json` overrides them):
+
+| Key | Default | Meaning |
+|---|---|---|
+| `advisor` | `true` | Weekly background re-check at session start. `false` turns it off. The commands still work. |
+| `advisorMinEffectUsd` | `5` | A suggestion saving less than this per week (API-equivalent) is listed as "no change needed". |
+| `advisorAutoApply` | `[]` | Risk A rule ids the weekly check may apply by itself, for example `["R4"]`. |
+| `advisorHistoryKeep` | `12` | Weekly history snapshots kept. |
+| `advisorRejectCooldownSec` | `2419200` | How long a refused suggestion is not proposed again (28 days). |
+| `advisorDevice` | `null` | Optional short label stored in history snapshots. |
+| `advisorNotifyCommand`, `advisorExportDir` | `null` | Present for config compatibility; the mod never runs a command and has no export. |
+| `explicitDowngradePressure` | `"pace"` | `always` lowers explicit upper-tier subagent models without waiting for yellow/red (used with `explicitDowngrade: "inject"`). |
+| `hintTrigger` | `"always"` | `gap` shows compact/clear hints only after a real idle gap. |
+| `hintMinEffectTokens` | `0` | Hints appear only when the estimated saving reaches this many tokens. |
+| `subagentWaitAdvice` | `false` | One sentence per session on the first Agent call about the 5-minute cache. |
+| `subagentLongCmdAdvice` | `false` | When a subagent runs a long foreground command, one informational line (once per agent per session). |
+| `longCmdPatterns` | built-in list | Regular expressions that count as a long command. |
+| `oldModelWarn` | `false` | One notice per session when the last assistant model is an old generation. |
+| `implementationKeywords` | built-in list | Words in a subagent description that count as implementation work. |
 
 ## Efficiency board (preview, desktop app)
 
@@ -85,6 +139,11 @@ An optional board for people who run several sessions at once. It shows, per ses
 - To set it up, ask Claude in the desktop app to publish `dashboard/index.html` from the plugin folder as an Artifact with the `db` capability, then put its link in `dashboardUrl` in `~/.claude/token-stamina/config.json`.
 - Suggestions (a lower subagent default model, a clear at a work boundary, a setting) appear as cards. `applyMode` is `"manual"` by default: nothing is applied until you press approve, and the next board run applies it. Only what the local ledger (`board/decisions.json`) proposed can be applied, at most `applyMaxPerRun` (3) per run and one per session. Clearing a session is always left to you; the board never clears one. Protected sessions are shown but never get a suggestion that changes them. Suggestions for another session's model are advice only for now.
 - Config keys: `board`, `boardTailBytes`, `boardKeepSec`, `boardIdleSec`, `boardDailyTokens`, `dashboardUrl`, `dashboardMaskTitles`, `managerExcludeCwd`, `managerProtectKeywords`, `managerProtectSegments`, `applyMode`, `proposalTtlSec`, `heldTtlSec`, `rejectCooldownSec`, `applyMaxPerRun`, `savingTurns`, `agentShareProposeAt`, `agentModelDefault`. `"board": false` stops the rows.
+
+## v0.6.3
+
+- New: Usage Advisor. `/token-stamina:advisor` and the read-only `/ts-advisor` (see above): analysis of the last 30 days, rules R1 to R6, per-item apply with a confirmation dialog and backups, revert, a weekly background re-check at session start, and new config keys. `/token-stamina:setup` offers a first analysis.
+- Transcripts over 4 MiB are counted and left out of the advisor's figures; the screen says so.
 
 ## v0.6.2
 
@@ -121,7 +180,8 @@ Token Stamina works locally. It makes no network requests of its own, sends no t
 - Subagent metadata files Claude Code keeps there (`agent-*.meta.json`) to count running subagents, and the start of other active session transcripts to count sessions.
 - Each prompt's text, only to detect its language and for the handoff note (see below).
 - To choose a subagent model: the call's description and prompt, and `model:` from `.claude/agents/<name>.md` (project and user). Not stored.
-- `~/.claude/settings.json`: at startup, to see whether the old 0.5.x status line entry is still there; and for `/ts-audit`, the list of enabled plugins.
+- `~/.claude/settings.json`: at startup, to see whether the old 0.5.x status line entry is still there; for `/ts-audit`, the list of enabled plugins; and for the Usage Advisor, `cleanupPeriodDays` and the auto-compact setting.
+- Usage Advisor: the same `~/.claude/projects/**/*.jsonl` transcripts, only the usage numbers, model names, timestamps, tool and subagent call counts and sizes of each call. Text, file paths and ids are classified in memory and dropped; ids are kept only as salted hashes. Files over 4 MiB are not read. It sends nothing anywhere.
 - For `/ts-audit`: your always-loaded files (`CLAUDE.md`, `CLAUDE.local.md`, `.claude/CLAUDE.md` in the folder and its parents, the project `MEMORY.md`), only to count characters; `plugins/installed_plugins.json`; and MCP server **names** from `~/.claude.json` and `.mcp.json` (no keys or values are copied).
 
 **What it writes**
@@ -134,8 +194,10 @@ Everything goes under `~/.claude/token-stamina/` (or `TOKEN_STAMINA_HOME`):
 - `audit-cache.json`: transcript paths and MCP/skill names, so `/ts-audit` doesn't re-read unchanged files.
 - `legacy-statusline.json`: marks that the one-time upgrade line was shown.
 - Board preview, only after you set `dashboardUrl`: `board/` (one row per session; rows older than `boardKeepSec` are emptied, and the suggestion ledger `decisions.json`) and `board-push/` (the last batch the board command sent). `/token-stamina:board` may also update `config.json` when you approve a setting on the board, keeping the previous one in `config.prev.json`.
+- `advisor/` (Usage Advisor; numbers, hashes, rule ids and setting names and values only, no text from your sessions, no paths, no session ids): `analysis-latest.json` (the last analysis), `history/` (weekly snapshots, the newest `advisorHistoryKeep`; older ones are emptied), `baseline.json` and `pending.json` (change detection and waiting suggestions), `plan.json` (the plan you are asked to approve; valid 10 minutes), `apply-log.jsonl` (each apply: item, before and after values, backup names; at 3 MiB it moves to `apply-log.old.jsonl`), `applied/` (before-and-after numbers for the one-week check), `backups/` (copies of `config.json` made before an apply), `scan-cache/` (64 small files with per-transcript numbers and hashes, so the next scan skips unchanged files), `schedule.json` (when the next weekly run is due), `salt` (a random value used for the hashes; it stays on your machine) and `weekly.lock`. Files the plugin cannot delete are emptied instead.
+- `sub-wait/<session>.json`: only when `subagentLongCmdAdvice` is on; subagent ids already warned about; emptied after 2 days.
 - `handoff/` (see below).
-- `config.json` is written only by `/token-stamina:setup` or `/token-stamina:autocompact`, after you agree.
+- `config.json` is written only by `/token-stamina:setup`, `/token-stamina:autocompact` or an approved `/token-stamina:advisor` item (and by the weekly check only for rules you listed in `advisorAutoApply`), after you agree.
 
 `handoff/` holds **text from your session**:
 - `<session>.md` and `latest-<hash>.md`: the working folder path and session id, up to the last 3 requests (clipped to 200 characters each), commit subjects, edited file paths and to-do items, capped by `handoffMaxTokens`.
@@ -145,9 +207,9 @@ Everything goes under `~/.claude/token-stamina/` (or `TOKEN_STAMINA_HOME`):
 
 Files in `handoff/` (notes, side files and markers) unchanged for 7 days are **emptied** when a session starts: their text is overwritten with nothing, and the empty file names stay (the plugin cannot delete files). Delete the `handoff/` folder to remove everything at once. `"handoff": false` stops writing and restoring notes but does not delete existing ones; to stop Claude-written notes too, also set `"topicGate": false`, `"topicCheck": false` and `"inlineCompactHint": false`.
 
-Outside that folder, only `/token-stamina:setup` and `/token-stamina:autocompact` change anything, and only after you agree to a preview: `env.CLAUDE_CODE_AUTO_COMPACT_WINDOW` or the old `statusLine` entry in `~/.claude/settings.json` (a `settings.json.bak-token-stamina-<timestamp>` backup is saved first), and, if you accept, a `/compact` keybinding in `~/.claude/keybindings.json`.
+Outside that folder, only `/token-stamina:setup`, `/token-stamina:autocompact` and `/token-stamina:advisor` change anything, and only after you agree: `env.CLAUDE_CODE_AUTO_COMPACT_WINDOW` or the old `statusLine` entry in `~/.claude/settings.json` (a `settings.json.bak-token-stamina-<timestamp>` backup is saved first; for the advisor you approve each item in a Claude Code confirmation dialog, and it never writes `settings.json` automatically), and, if you accept, a `/compact` keybinding in `~/.claude/keybindings.json`.
 
-To remove everything: uninstall the plugin, delete `~/.claude/token-stamina/` (or your `TOKEN_STAMINA_HOME`), remove any leftover Token Stamina `statusLine` and `env.CLAUDE_CODE_AUTO_COMPACT_WINDOW` from `~/.claude/settings.json` (or restore a `settings.json.bak-token-stamina-*` backup), and drop the keybinding if you added one.
+To remove everything: uninstall the plugin, delete `~/.claude/token-stamina/` (or your `TOKEN_STAMINA_HOME`), remove any leftover Token Stamina `statusLine` and `env.CLAUDE_CODE_AUTO_COMPACT_WINDOW` from `~/.claude/settings.json` (or restore a `settings.json.bak-token-stamina-*` backup; the advisor's backups of `settings.json` sit next to it), and drop the keybinding if you added one.
 
 ## Support
 Token Stamina is free. Coffee-money support is welcome at [ko-fi.com/tokenstamina](https://ko-fi.com/tokenstamina). Project site: [tokenstamina.com](https://tokenstamina.com).

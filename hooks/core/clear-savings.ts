@@ -274,3 +274,32 @@ export function hintLine(
   const when = r.when!.startsWith('쉬') ? 'resuming after idle' : 'mostly cache reads, ~1/10 price';
   return `(estimate) ${kv} now saves about ${cspan} full-price-equivalent tokens over the next ${turns} turns (${span} tokens less re-read — ${when}${r.note ? ', incl. ' + r.note.replace(/\D/g, '') + ' auto-compact(s) in between' : ''})`;
 }
+
+// Low end of the re-read tokens a hint would save (card range[0]), or null when there is no card / unknown profile.
+// Used by hintMinEffectTokens (topic-gate, boundary).
+export function effectLo(
+  ctxTokens: number,
+  mode: 'clear' | 'compact',
+  cfg: { savingsTurns?: number } | undefined,
+  prof: ProfileResult | null | undefined,
+): number | null {
+  if (!prof || !prof.fixed || !prof.threshold) return null;
+  const turns = (cfg && cfg.savingsTurns) || DEFAULT_TURNS;
+  const r = card(Math.max(0, Math.round(ctxTokens) - prof.fixed), turns, { mode, fixed: prof.fixed, threshold: prof.threshold });
+  return r.range ? r.range[0] : null;
+}
+
+// hintMinEffectTokens gate: true when the gate is off (value 0 / unset) or the card's low estimate reaches the value.
+// No computable card (unknown profile, context above the compact point): the hint is NOT suppressed; only a computed
+// card whose low end is below the value suppresses it.
+export function meetsMinEffect(
+  ctxTokens: number,
+  mode: 'clear' | 'compact',
+  cfg: { savingsTurns?: number; hintMinEffectTokens?: number } | undefined,
+  prof: ProfileResult | null | undefined,
+): boolean {
+  const min = cfg && cfg.hintMinEffectTokens;
+  if (!(typeof min === 'number' && min > 0)) return true;
+  const lo = effectLo(ctxTokens, mode, cfg, prof);
+  return lo === null || lo >= min;
+}

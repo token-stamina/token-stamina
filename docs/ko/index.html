@@ -16,7 +16,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;700&family=Noto+Sans+KR:wght@400;500;700&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="/site.css?v=0.5.1-2">
+<link rel="stylesheet" href="/site.css?v=0.6.3">
 </head>
 <body>
 <div class="wrap">
@@ -26,6 +26,7 @@
   <nav>
     <a href="#install">설치</a>
     <a href="#commands">명령</a>
+    <a href="#advisor">사용량 어드바이저</a>
     <a href="#privacy">개인정보</a>
     <a href="https://github.com/token-stamina/token-stamina">GitHub</a>
   </nav>
@@ -146,13 +147,94 @@
   <p class="small" style="margin-top:1.2rem"><code>/token-stamina:autocompact</code>는 Claude Code가 스스로 압축하는 시점(300k, 400k, 600k, 기본값)을 고릅니다. 바뀔 내용을 먼저 보여 주고 묻습니다.</p>
 </section>
 
+<section id="advisor" class="col">
+  <h2><span class="n">05</span>사용량 어드바이저</h2>
+  <p><span class="tag">0.6.3부터</span> Token Stamina는 지금도 사용 속도에 맞춰 움직입니다. 사용량 어드바이저는 한 걸음 더 나아가 최근 30일의 로컬 세션 기록을 읽어 사용량이 어디로 새는지 보여 주고, 설정을 어떻게 바꾸면 좋을지 구체적으로 제안합니다. 승인하기 전에는 아무것도 바뀌지 않으며, 항목마다 하나씩 승인합니다.</p>
+  <ol class="does">
+    <li><b>분석.</b> 최근 30일을 메인 세션, 하위 에이전트, 캐시 읽기, 캐시 쓰기, 출력으로 나눠 합산하고 가장 큰 새는 곳을 찾습니다. 구현 작업에 상위 모델을 쓰는 하위 에이전트, 하위 에이전트가 기다리는 사이 만료된 캐시, 오래 쉬다 돌아온 세션, 아직 구형 모델을 쓰는 세션 등입니다.</li>
+    <li><b>권장.</b> 절감 효과가 큰 순서로 짧은 목록을 보여 줍니다. 항목마다 현재 값, 권장 값, 근거, 한 줄 이유가 붙습니다. 효과가 작거나 없는 항목은 억지로 권하지 않고 "바꿀 필요 없음"으로 따로 알려 드립니다.</li>
+    <li><b>항목별 적용.</b> 항목마다 바꾸기 전과 후를 먼저 보여 드리고, 승인한 항목만 씁니다. 항목마다 Claude Code 확인 창에서 직접 승인하고, 쓰기 전에 기존 파일을 백업하며, 바꾼 내용은 나중에 되돌릴 수 있습니다.</li>
+    <li><b>주간 재분석.</b> 설치 일주일 뒤부터 세션을 시작할 때 같은 분석을 다시 돌리고, 달라진 점이 있으면 다음에 세션을 열 때 카드로 알려 드립니다.</li>
+  </ol>
+  <p class="step"><span class="n">&rarr;</span>전체 흐름(분석, 권장, 항목별 승인, 적용, 되돌리기)을 실행하려면:</p>
+  <div class="cmd"><pre>/token-stamina:advisor</pre><button type="button">복사</button></div>
+  <p class="small">아무것도 바꾸지 않고 보기만 하려면 <code>/ts-advisor</code>를 쓰세요. 같은 분석과 권장 사항을 읽기 전용 보고서로 출력합니다(<code>--days N</code>으로 기간 변경, <code>--json</code>으로 원본 출력).</p>
+  <dl class="priv">
+    <dt>읽는 것</dt>
+    <dd>이 컴퓨터의 <code>~/.claude/projects</code> 아래에 이미 있는 세션 기록만 읽습니다. 최근 30일, 이 기기 기준입니다.</dd>
+    <dt>보내는 것</dt>
+    <dd>없습니다. 네트워크 요청도, 사용 통계 전송도 없습니다.</dd>
+    <dt>모델</dt>
+    <dd>쓰지 않습니다. 분석은 정해진 계산이고, 모든 문장은 정해진 틀에 숫자를 채워 만들기 때문에 같은 기록이면 항상 같은 화면이 나옵니다.</dd>
+    <dt>바꾸는 것</dt>
+    <dd>항목마다 Claude Code 확인 창(<code>file key: before -&gt; after</code> 표시)에서 직접 승인한 항목만 씁니다. 채팅에서 Claude에게 한 대답만으로는 쓰지 않고, 비대화형(<code>-p</code>) 실행에서는 아무것도 쓰지 않습니다. 쓰기 전에 파일을 백업합니다(<code>settings.json</code> 옆에 <code>settings.json.bak-token-stamina-&lt;시각&gt;</code>, Token Stamina 설정은 자기 폴더 안). 바꾼 내용은 되돌릴 수 있고, 값이 어드바이저가 정한 그대로일 때만 되돌립니다. 주간 점검은 <code>advisorAutoApply</code>에 규칙을 적었을 때만(기본은 꺼짐) Token Stamina 자체 설정에 한해 스스로 적용하며, <code>settings.json</code>은 절대 자동으로 쓰지 않습니다.</dd>
+    <dt>주간 재분석</dt>
+    <dd>설치 일주일 뒤부터 Claude Code 세션을 시작하거나 이어 열 때 백그라운드에서 돌며 로컬 기록만 읽습니다. 운영체제 예약 작업은 쓰지 않으므로 Claude Code를 열지 않으면 돌지 않고, 다음에 열 때 밀린 만큼 따라잡습니다. 설정에서 <code>"advisor": false</code>로 끕니다.</dd>
+    <dt>금액</dt>
+    <dd>API 정가 환산 추정치로 보여 줍니다. 구독이면 실제로 청구되지 않고, 플랜 한도가 같은 비율로 찹니다.</dd>
+    <dt>한계</dt>
+    <dd>4 MiB가 넘는 대화 기록은 플러그인이 읽지 못해서 개수만 세고 제외합니다. 대부분 긴 메인 세션이라 메인 세션 수치는 하한이고, 화면에도 그렇게 표시합니다.</dd>
+  </dl>
+  <p class="small" style="margin-top:1.4rem">예시 화면입니다(일부만 실었어요). 이름과 숫자는 모두 꾸며 낸 데모 데이터이며 실제 계정의 것이 아닙니다.</p>
+  <p class="step"><span class="n">1</span>분석 결과는 이렇게 보입니다.</p>
+  <div class="term adv" aria-label="사용량 어드바이저 분석 예시">
+    <div class="bar" aria-hidden="true"><i></i><i></i><i></i></div>
+<pre>이 PC의 로컬 기록 최근 30일을 기준으로 해요 (cleanupPeriodDays = 30). 로컬 기록만 읽고 어디로도 보내지 않아요.
+대화 기록 파일 118개 중 118개를 읽었어요 (바이트 100%).
+
+한눈에 보는 사용 패턴
+  API 환산 주 약 $520: 메인 세션 72%, 서브에이전트 28%.
+  비용 구성: 캐시 읽기 $103, 캐시 쓰기 $387, 출력 $30.
+
+돈이 새는 곳 상위 3 (수치는 서로 겹칠 수 있어서 더하면 안 돼요)
+  1. 구현·단순 작업에 쓴 Opus/Fable 서브에이전트: 주 $120 (모델 지정 $54, 미지정 $66)
+  2. 5분 뒤 서브에이전트 캐시 재작성: 주 $107 (184회)
+  3. 1시간 넘게 쉰 뒤 복귀: 주 $89 (27회)</pre>
+  </div>
+  <p class="step"><span class="n">2</span>추천 세팅은 이렇게 보입니다.</p>
+  <div class="term adv" aria-label="사용량 어드바이저 추천 세팅 예시">
+    <div class="bar" aria-hidden="true"><i></i><i></i><i></i></div>
+<pre>권장 사항
+#  항목                               현재             권장           근거                                     예상 효과 (API 환산, 추정)
+1  5분 넘게 대기한 서브에이전트 (A)   -                한 번 경고     5분 캐시 재작성 $107/주                  피하면 $54-107/주
+<span class="dim">   이유: 서브에이전트가 5분 넘게 기다리면 저장된 컨텍스트가 버려져 다시 써요. 다시 쓰는 비용이 토큰당 캐시 읽기의 약 25배예요.</span>
+2  서브에이전트 기본 모델 (B)         (없음)           sonnet         구현형 Opus/Fable 서브에이전트 $66/주,   $33-53/주
+                                                                      Agent 호출의 50%가 모델 미지정
+<span class="dim">   이유: 서브에이전트는 새 컨텍스트와 코드를 많이 써서 Opus가 Sonnet의 2배 (입력 $4 대 $2, 출력 $20 대 $10)예요.</span>
+3  모델을 지정한 상위 서브에이전트    pace / suggest   always / inject 구현·단순형 Opus/Fable 서브에이전트(모델 $27-43/주
+   (B)                                                                지정) $54/주, Agent 호출의 50%가 모델을
+                                                                      지정; 설명에 'keep-model' 를 붙이면 그
+                                                                      모델을 유지
+<span class="dim">   이유: 서브에이전트는 새 컨텍스트와 코드를 많이 써서 Opus가 Sonnet의 2배 (입력 $4 대 $2, 출력 $20 대 $10)예요.</span>
+4  구형 모델 세션 (A)                 -                한 번 경고     구형 모델 $72/주, 세션 1개               최대 $37/주
+<span class="dim">   이유: 구형 Opus는 현재 버전 캐시 읽기 단가의 2.5배예요 ($0.5 대 $0.2/MTok).</span>
+5  압축/비우기 힌트 (A)               항상             간격 모드      힌트 주 9회, 따른 비율 0%, 절약 약 $0    돈 효과 거의 없음, 힌트 주 약 9회 줄어듦
+<span class="dim">   이유: 힌트의 100%를 무시해서 방해만 돼요. 간격 모드는 실제로 쉬었을 때만 힌트를 보여줘요.</span>
+
+효과가 작거나 없음 (바꿀 필요 없음)
+  - 자동 압축 시점 (기본값): 바꿀 필요 없어요: 가장 좋은 상한도 압축 비용을 빼기 전 주 $18 이하예요.
+  - 쉬었다 돌아온 세션: 바꿀 필요 없어요: 복귀 비용이 주 $89이고 주제 게이트가 이미 켜져 있어요.
+
+단가: claude-api skill pricing table, 2026-10-06 기준. 모든 금액은 API 정가 환산 추정치예요.
+구독이면 실제 청구는 없고, 플랜 한도가 같은 비율로 차요.</pre>
+  </div>
+  <p class="small">화면 모양과 문구, 단가는 실제 화면을 따르고, 숫자는 꾸며 낸 것입니다.</p>
+  <details class="small">
+    <summary>비용 용어 설명</summary>
+    <div class="term adv"><pre>캐시 읽기: 호출마다 저장된 대화를 다시 읽는 것 (토큰당 쌈).
+캐시 쓰기: 새 컨텍스트를 재사용하려고 저장하는 것 (보통 입력보다 비쌈).
+출력: 모델이 쓰는 글과 코드 (토큰당 가장 비쌈).
+컨텍스트: 호출마다 같이 보내는 전부: 도구, 시스템 글, 대화.</pre></div>
+  </details>
+</section>
+
 <section id="privacy" class="col">
-  <h2><span class="n">05</span>내 컴퓨터에서 하는 일</h2>
+  <h2><span class="n">06</span>내 컴퓨터에서 하는 일</h2>
   <dl class="priv">
     <dt>읽는 것</dt>
     <dd>Claude Code가 알려 주는 세션 사용량 숫자와 <code>~/.claude/projects</code> 아래 세션 기록입니다. 사용량을 합산하고 인계 메모를 만드는 데 씁니다. 돌고 있는 하위 에이전트를 세려고 Claude Code가 그 아래 남기는 하위 에이전트 파일도 읽습니다.</dd>
     <dt>쓰는 것</dt>
-    <dd><code>~/.claude/token-stamina/</code> 안에만 씁니다. setup 때 동의하면 설정 파일도 고칩니다(선택 기능인 현황판 미리보기에서 설정을 승인하면 자기 설정 파일을 고칩니다). 인계 메모에는 최근 요청을 짧게 자른 글이 들어가고, 7일이 지나면 내용이 비워집니다. 더 빨리 지우려면 그 폴더를 지웁니다.</dd>
+    <dd><code>~/.claude/token-stamina/</code> 안에만 씁니다. setup 때, 또는 사용량 어드바이저에서 승인한 항목에 한해 동의하면 설정 파일도 고칩니다(선택 기능인 현황판 미리보기에서 설정을 승인하면 자기 설정 파일을 고칩니다). 인계 메모에는 최근 요청을 짧게 자른 글이 들어가고, 7일이 지나면 내용이 비워집니다. 더 빨리 지우려면 그 폴더를 지웁니다.</dd>
     <dt>하지 않는 것</dt>
     <dd>스스로 네트워크 요청을 하지 않고(선택 기능인 현황판 미리보기를 켜면 Claude 가 내 비공개 Artifact 에 씁니다), 사용 통계 전송, 모델 호출, 다른 명령 실행을 하지 않습니다. 대화에 붙이는 힌트 줄과 인계 메모는 다른 대화 내용과 마찬가지로 모델에 전송됩니다.</dd>
   </dl>

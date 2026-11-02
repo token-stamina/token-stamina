@@ -95,6 +95,25 @@ export function flagFileName(dir: string): string {
   return joinPath(dir, 'setup-nudge.json');
 }
 
+// ---- Usage Advisor card texts of scripts/first-run.js (ADV_CARD / ADV_AUTO_ONLY). Only the two pure text tables
+// are ported; first-run's advisorStep (schedule.json / pending.json / lock files / detached spawn of
+// usage-advisor.js, and advisorContext's `node ... revert` lines) is Node-only: the mod's weekly check lives in the
+// advisor-* modules and register.ts (DESIGN-usage-advisor-mod.md, decision 2).
+export const ADV_CARD: Record<string, (n: number) => string> = {
+  en: (n) => `Token Stamina advisor: ${n} usage suggestion${n === 1 ? '' : 's'} from the weekly check. Claude will offer to review ${n === 1 ? 'it' : 'them'}.`,
+  ko: (n) => `Token Stamina 어드바이저: 주간 점검에서 사용량 제안 ${n}건이 나왔어요. Claude가 확인할지 물어봐요.`,
+  ja: (n) => `Token Stamina アドバイザー: 週次チェックで使用量の提案が${n}件あります。Claude が確認するか尋ねます。`,
+};
+export const ADV_AUTO_ONLY: Record<string, string> = {
+  en: 'Token Stamina advisor: the weekly check changed a setting automatically. Claude will tell you how to undo it.',
+  ko: 'Token Stamina 어드바이저: 주간 점검이 설정을 자동으로 바꿨어요. Claude가 되돌리는 방법을 알려줘요.',
+  ja: 'Token Stamina アドバイザー: 週次チェックが設定を自動で変更しました。元に戻す方法は Claude が案内します。',
+};
+// n suggestions -> ADV_CARD; none (auto-applied only) -> ADV_AUTO_ONLY. Same choice as first-run.js advisorStep.
+export function advisorCardMessage(n: number, lang: string | undefined): string {
+  return n ? (ADV_CARD[lang as string] || ADV_CARD.en)(n) : (ADV_AUTO_ONLY[lang as string] || ADV_AUTO_ONLY.en);
+}
+
 // NOTE: the original module's impure `run(raw, settingsPath)` orchestration (reads stdin, calls
 // lang.withLang(pace.loadConfig(), input), checks cfg.setupNudge === false, reads/writes the flag
 // file via pace.readJson/writeJson, calls classify + decide, appends an event, and formats the

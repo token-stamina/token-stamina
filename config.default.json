@@ -116,4 +116,31 @@
   "managerProtectKeywords": ["trade", "trading"],
   "managerProtectSegments": ["trading"],
   "excludeCwd": []
+,
+  "advisor": true,
+  "advisorMinEffectUsd": 5,
+  "advisorAutoApply": [],
+  "advisorNotifyCommand": null,
+  "advisorDevice": null,
+  "advisorExportDir": null,
+  "advisorHistoryKeep": 12,
+  "advisorRejectCooldownSec": 2419200,
+  "explicitDowngradePressure": "pace",
+  "implementationKeywords": ["implement", "build", "port", "fix", "refactor", "write tests", "구현", "수정", "포팅", "작성", "테스트 작성", "이식", "배선", "wiring", "fix pass"],
+  "hintTrigger": "always",
+  "hintMinEffectTokens": 0,
+  "subagentWaitAdvice": false,
+  "oldModelWarn": false,
+  "subagentLongCmdAdvice": false,
+  "longCmdPatterns": [
+    "(?:^|[\\s;&|(])(?:sleep|Start-Sleep(?:\\s+-(?:Seconds|s))?)\\s+(?:[3-9]\\d{2}|\\d{4,})(?:\\s|$|;|&|\\|)",
+    "\\b(?:while|until)\\b[^\\n]*\\b(?:sleep|Start-Sleep)\\b",
+    "\\bnode\\s+--test\\s*(?:$|[;&|]|\\d*>)",
+    "\\b(?:npm|pnpm|yarn)\\s+(?:run\\s+)?test\\s*(?:$|[;&|]|\\d*>)",
+    "\\bpytest\\b(?![^;&|\\n]*(?:\\s-k\\b|\\.py\\b|::|/))",
+    "\\bcargo\\s+test\\b",
+    "\\bgo\\s+test\\s+\\./\\.\\.\\.",
+    "\\bgradle(?:w)?\\s+test\\b",
+    "\\bmvn(?:w)?\\s+test\\b"
+  ]
 }

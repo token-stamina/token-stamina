@@ -123,6 +123,50 @@ export function syncHint(
   return { text: head + SYNC_BODY[lang](root), reason, age_sec: ageSec };
 }
 
+// oldModelWarn (advisor R5): one systemMessage per session when the transcript tail's last assistant model is an old tier.
+// Node's oldModelNotice reads the tail (boundary.readTail), old-model-warn.json (pace.readJson/writeJson) and
+// advisor/pricing itself; here the caller hands them in through deps and persists the returned book:
+//   deps.entries  parsed transcript tail (boundary.parseTailLines)
+//   deps.book     contents of old-model-warn.json ({[sid]: ms}) or null
+//   deps.priceOf  model id -> {tier, key?}  (advisor pricing)
+//   deps.strip    optional model-id shortener used when priceOf gives no key
+//   deps.now      optional clock
+// Returns {text, book}; text '' = nothing to say (book unchanged).
+export const OLD_MODEL: Record<string, (m: string) => string> = {
+  en: (m) => `Token Stamina: this session runs ${m}, an older model generation with higher prices. Starting a new session on the current model is usually cheaper.`,
+  ko: (m) => `Token Stamina: 이 세션은 구세대 모델(${m})로 돌아가고 있어요. 단가가 더 높으니 현재 세대 모델로 새 세션을 여는 편이 보통 더 싸요.`,
+  ja: (m) => `Token Stamina: このセッションは旧世代のモデル(${m})で動いています。単価が高いため、現行モデルで新しいセッションを始める方が通常は安くなります。`,
+};
+export interface OldModelDeps {
+  entries: any[];
+  book?: unknown;
+  priceOf: (model: string) => { tier?: string; key?: string };
+  strip?: (model: string) => string;
+  now?: number;
+}
+export function oldModelNotice(
+  input: { transcript_path?: string; session_id?: string } | null | undefined,
+  cfg: { oldModelWarn?: boolean; lang?: string },
+  sid: string,
+  deps: OldModelDeps,
+): { text: string; book: Record<string, number> } {
+  const b0: Record<string, number> = deps && deps.book && typeof deps.book === 'object' && !Array.isArray(deps.book) ? (deps.book as Record<string, number>) : {};
+  try {
+    if (cfg.oldModelWarn !== true || !input || !input.transcript_path || !input.session_id) return { text: '', book: b0 };
+    if (b0[sid]) return { text: '', book: b0 };
+    let model: string | null = null;
+    for (const o of deps.entries || []) if (o && o.type === 'assistant' && !o.isSidechain && o.message && o.message.model && o.message.model !== '<synthetic>') model = o.message.model;
+    if (!model) return { text: '', book: b0 };
+    const p = deps.priceOf(model);
+    if (!p || p.tier !== 'old') return { text: '', book: b0 };
+    const b = { ...b0 };
+    b[sid] = deps.now === undefined ? Date.now() : deps.now;
+    const keys = Object.keys(b);
+    if (keys.length > 50) keys.sort((x, y) => b[x] - b[y]).slice(0, keys.length - 50).forEach((k) => delete b[k]);
+    return { text: (OLD_MODEL[cfg.lang as string] || OLD_MODEL.en)(p.key || (deps.strip ? deps.strip(model) : model)), book: b };
+  } catch (e) { return { text: '', book: b0 }; }
+}
+
 // NOTE: the original module's impure `run(raw)` (reads stdin, pace.loadConfig/readState/
 // readJson/writeJson/appendEvent/attributed, lang.withLang) is NOT ported here -- that is
 // register.ts's job (desktop-only, unverified on this PC).

@@ -29,13 +29,14 @@ import type { Register, EngineInterface } from 'claude-code';
 import type { RecentBand } from '../types';
 
 import { resolveLang, withLang, type LangBook } from './core/lang.ts';
-import { decide as nudgeDecide, type NudgeCfg } from './core/nudge.ts';
+import { decide as nudgeDecide, oldModelNotice, type NudgeCfg } from './core/nudge.ts';
 import {
   decide as agentModelDecide,
   attributed,
   adaptSession,
   definitionPaths,
   recordLedger,
+  waitAdvice,
   type AgentModelCfg,
   type AgentModelInput,
   type DecideResult as AgentDecision,
@@ -94,7 +95,7 @@ import {
   staleNotes,
   noteText,
 } from './core/handoff.ts';
-import { computeProfile, cacheIsFresh, firstCallTokensFromText, type ProfileResult } from './core/clear-savings.ts';
+import { computeProfile, cacheIsFresh, firstCallTokensFromText, meetsMinEffect, type ProfileResult } from './core/clear-savings.ts';
 import { segment as statuslineSegment, legacyStatusNotice } from './core/statusline.ts';
 import { joinPath, estimateTokens, encodeCwd } from './core/text.ts';
 import { splitArgs, dayAgo, skippedLine, walkJsonl, type CmdIO } from './core/cmd-io.ts';
@@ -136,6 +137,13 @@ import {
   type BoardEntry,
 } from './core/board.ts';
 import { buildReport as auditBuild, render as auditRender, parseArgs as auditArgs } from './core/audit.ts';
+import * as advRun from './core/advisor-run.ts';
+import * as advApply from './core/advisor-apply.ts';
+import * as advWeekly from './core/advisor-weekly.ts';
+import type { AdvisorCtx } from './core/advisor-io.ts';
+import { priceOf as advPriceOf, strip as advStrip } from './core/advisor-pricing.ts';
+import { decide as subWaitDecide } from './core/sub-wait.ts';
+import { advisorCardMessage } from './core/setup-nudge.ts';
 
 type $T = EngineInterface;
 type Cfg = Record<string, any>;
@@ -554,6 +562,8 @@ async function onSessionStart($: $T, e: any): Promise<string[]> {
 
   const n = await nudge($, env, cfg, usage.state, sid, 'SessionStart', nowMs);
   if (n) out.push(n);
+  out.push(...(await advisorSessionStart($, env, cfg, nowMs, e.source)));
+  await oldModelWarn($, env, cfg, e, sid, nowMs);
 
   if (e.source === 'startup') await legacyStatusOnce($, env, cfg.lang || 'en', nowMs);
   if (cfg.handoff !== false) await pruneNotes($, env, nowMs);
@@ -620,10 +630,16 @@ async function onUserPromptSubmit($: $T, e: any): Promise<string[]> {
       const book = await readJson<Record<string, any>>($, file, {});
       const rec = book[sid];
       const noteFile = sessionFileName(joinPath(env.home, 'handoff'), safeId(sid), true);
-      const h = decideHint(tokens, cfg as TopicGateCfg, user, rec && rec.hintAt);
       // no timestamps in a transcript rebuilt from $.session.messages: the last Stop time stands in
       const stopAt = t.raw == null ? (await readJson<Accumulated>($, joinPath(env.home, 'handoff', `${safeId(sid)}.json`), {} as Accumulated)).stopAt : undefined;
       const d = topicGateDecide({ tokens, lastAssistantMs: lastActiveMs(entries, stopAt, rec && rec.promptAt), nowMs, cwd: e.cwd }, cfg as TopicGateCfg, user, rec);
+      // hintTrigger "gap" needs the idle/cwd gap `d` measured; hintMinEffectTokens drops a hint whose card is too small.
+      let h = decideHint(tokens, cfg as TopicGateCfg, user, rec && rec.hintAt, d);
+      let hintProf: ProfileResult | null = null;
+      if (h.hint) {
+        hintProf = await buildProfile($, env, cfg, entries, t.raw);
+        if (!meetsMinEffect(tokens, 'clear', cfg as any, hintProf)) h = { hint: false, hintAt: rec && typeof rec.hintAt === 'number' ? rec.hintAt : null };
+      }
       let offeredAt = rec && rec.offeredAt;
       if (typeof offeredAt === 'number' && tokens < offeredAt) offeredAt = null;
       if (typeof offeredAt !== 'number' && clearOffered(entries)) offeredAt = tokens;
@@ -648,8 +664,7 @@ async function onUserPromptSubmit($: $T, e: any): Promise<string[]> {
       }
       if (h.hint) {
         await appendEvent($, env, { event: 'inline_hint', session: sid, tokens });
-        const prof = await buildProfile($, env, cfg, entries, t.raw);
-        lines.push(hintMessage(cfg.lang || 'en', tokens, noteFile, cfg as TopicGateCfg, prof as any, app));
+        lines.push(hintMessage(cfg.lang || 'en', tokens, noteFile, cfg as TopicGateCfg, hintProf as any, app));
       }
       if (tc.check) {
         const line = topicCheckMessage(cfg.lang || 'en', tokens, noteFile, app);
@@ -670,6 +685,7 @@ async function onUserPromptSubmit($: $T, e: any): Promise<string[]> {
 
   const n = await nudge($, env, cfg, usage.state, sid, 'UserPromptSubmit', nowMs);
   if (n) out.push(n);
+  await oldModelWarn($, env, cfg, e, sid, nowMs);
   return out;
 }
 
@@ -701,13 +717,14 @@ async function onStop($: $T, e: any): Promise<void> {
     const file = joinPath(env.home, 'boundary.json');
     const book = await readJson<Record<string, { tokens: number; ts: number }>>($, file, {});
     const d = boundaryDecide(res, cfg as any, user, book[sid]?.tokens);
-    if (d.notify) {
+    const bprof = d.notify ? await buildProfile($, env, cfg, entries, t.raw) : null;
+    // hintMinEffectTokens: a notice whose card is too small is not given (and not remembered)
+    if (d.notify && meetsMinEffect(res.tokens, (d as any).level === 'new_session' ? 'clear' : 'compact', cfg as any, bprof)) {
       book[sid] = { tokens: res.tokens, ts: nowMs };
       trimBook(book);
       await writeJson($, file, book);
       await appendEvent($, env, { event: 'boundary', session: sid, tokens: res.tokens, kind: (d as any).kind, level: (d as any).level, commits: res.commitCount });
-      const prof = await buildProfile($, env, cfg, entries, t.raw);
-      const text = boundaryMessage(res, cfg.lang || 'en', (d as any).level, cfg as any, prof as any);
+      const text = boundaryMessage(res, cfg.lang || 'en', (d as any).level, cfg as any, bprof as any);
       await $.session.append({ message: { type: 'system', content: [{ type: 'text', text }] } });
     }
   } catch {
@@ -884,9 +901,23 @@ async function agentModel($: $T, e: any, next: (e: any) => Promise<any>): Promis
   });
   // PreToolUse's updatedInput is the rewrite passed to next; its additionalContext is read by the
   // model after the result here (a tool.call answer's `context`), never instead of the result.
+  const msgs: string[] = d.message ? [d.message] : [];
+  // subagentWaitAdvice (advisor R4): one sentence per session, on the first Agent call
+  try {
+    if (kind === 'Agent' && cfgL.subagentWaitAdvice === true) {
+      const wf = joinPath(env.home, 'agent-model-advice.json');
+      const w = waitAdvice({ session_id: sessionId }, kind, cfgL as AgentModelCfg, await readJson<any>($, wf, null), nowMs);
+      if (w.text) {
+        msgs.push(w.text);
+        await writeJson($, wf, w.book);
+      }
+    }
+  } catch {
+    /* the advice is best-effort */
+  }
   const ran = await next(d.action === 'inject' && d.model ? { ...e, model: d.model } : e);
-  if (!d.message || !ran || ran.deny !== undefined) return ran;
-  return { ...ran, context: [...(ran.context || []), d.message] };
+  if (!msgs.length || !ran || ran.deny !== undefined) return ran;
+  return { ...ran, context: [...(ran.context || []), ...msgs] };
 }
 
 // ============================================================================
@@ -1393,6 +1424,237 @@ async function boardTool($: $T, e: any): Promise<{ result: { content: { type: 't
 }
 
 // ============================================================================
+// Usage Advisor. The pure logic is core/advisor-*.ts over an AdvisorCtx (CmdIO + config); this is
+// the file access, the SessionStart weekly run, the `advisor` tool and /ts-advisor.
+// ============================================================================
+
+async function advisorCtxFrom($: $T, env: Env, cfg: Cfg, nowMs: number): Promise<AdvisorCtx> {
+  const cfgDefaults = await readJson<Cfg>($, joinPath($.plugin.root, 'config.default.json'), {});
+  const st = await readJson<any>($, joinPath(env.home, 'state.json'), {});
+  const ra = Number(st && st.seven_day && st.seven_day.resets_at);
+  // yieldFn: the background scan hands the turn back every few files so other hooks are not held up behind it.
+  return { io: cmdIO($), home: env.home, claudeDir: env.configDir, cfg, cfgDefaults, nowMs, sevenDayResetsAt: Number.isFinite(ra) && ra > 0 ? ra : null, yieldFn: () => $.clock.sleep(1) };
+}
+
+const ADV_REVIEW_HINT = 'To review: call the token-stamina advisor tool (mode "review"), show its output as it is and ask per item whether to apply it. Never apply without a yes.';
+
+// A weekly run goes on in the background; the person gets one toast when it ends. Never throws.
+function advisorBackgroundRun($: $T, ctx: AdvisorCtx, lang: string): void {
+  void (async () => {
+    try {
+      const res = await advWeekly.run(ctx, { gather: (o: any) => advRun.gather(ctx, o), ifDue: true, budgetSec: advWeekly.BUDGET_MS / 1000, lang, now: ctx.nowMs });
+      const line = (res.out || '').trim().split('\n')[0];
+      const msg = line || (res.result === 'ok' ? 'Token Stamina advisor: weekly check done, nothing to change.' : '');
+      if (msg && res.result !== 'error') $.ui.toast(msg);
+    } catch {
+      /* the weekly check is best-effort */
+    }
+  })();
+}
+
+// SessionStart: seed the weekly schedule on first sight, start the weekly run when it is due, and show
+// the pending card (one line + a request to Claude, once per 7 days).
+// The weekly run and the pending card belong to a fresh start or a resume (not clear/compact), and the card is only recorded as
+// shown when a person is there to read it (a -p / SDK run has no surface).
+async function hasHuman($: $T): Promise<boolean> {
+  try {
+    return (await $.session.surfaces()).length > 0;
+  } catch {
+    return false;
+  }
+}
+
+async function advisorSessionStart($: $T, env: Env, cfg: Cfg, nowMs: number, source?: string): Promise<string[]> {
+  try {
+    if (cfg.advisor === false) return [];
+    if (source !== 'startup' && source !== 'resume') return [];
+    const ctx = await advisorCtxFrom($, env, cfg, nowMs);
+    const out: string[] = [];
+    const lang = cfg.lang || 'en';
+    if (!(await advWeekly.readSchedule(ctx)).next_due) await advRun.markNextDue(ctx, nowMs);
+    const notice = (await hasHuman($)) ? await advWeekly.pendingNotice(ctx, nowMs) : null;
+    if (notice) {
+      const card = advisorCardMessage(notice.count, lang);
+      out.push(attributed(card + ' ' + ADV_REVIEW_HINT, lang, cfg._langAuto));
+      try {
+        $.ui.toast(card);
+      } catch {
+        /* no toast */
+      }
+    }
+    if (await advWeekly.dueToRun(ctx, nowMs)) {
+      await advWeekly.writeSchedule(ctx, { checked: nowMs });
+      advisorBackgroundRun($, ctx, lang);
+    }
+    return out;
+  } catch {
+    return [];
+  }
+}
+
+// oldModelWarn (advisor R5): one notice per session when the last assistant model is an old generation.
+async function oldModelWarn($: $T, env: Env, cfg: Cfg, e: any, sid: string, nowMs: number): Promise<void> {
+  try {
+    if (cfg.oldModelWarn !== true || !e.transcript_path || !e.session_id) return;
+    const file = joinPath(env.home, 'old-model-warn.json');
+    const book = await readJson<any>($, file, null);
+    if (book && typeof book === 'object' && book[sid]) return; // already told this session: skip the transcript read
+    const t = await readTranscript($, e.transcript_path);
+    const r = oldModelNotice(e, cfg as any, sid, { entries: tail(t, 64 * 1024), book, priceOf: (m: string) => advPriceOf(m) as any, strip: advStrip, now: nowMs });
+    if (!r.text) return;
+    await writeJson($, file, r.book);
+    await $.session.append({ message: { type: 'system', content: [{ type: 'text', text: r.text }] } });
+  } catch {
+    /* best-effort */
+  }
+}
+
+// Bash | PowerShell inside a subagent: one note per agent when the command may run over 5 minutes
+// (subagentLongCmdAdvice). A tool.call hook cannot add context before the call, so the note is the call's
+// context line (read by the model right after the result). It never blocks.
+// The config read is cached per process: this hook runs on every Bash call of a subagent.
+// It is re-read only when config.json changed (mtime and size), so a key switched off mid-session still takes effect.
+let subWaitCfg: { env: Env; cfg0: Cfg; key: string } | null = null;
+
+async function subWaitConfigKey($: $T, env: Env): Promise<string> {
+  try {
+    const st = await $.fs.stat(joinPath(env.home, 'config.json'));
+    return st.mtimeMs + ':' + st.size;
+  } catch {
+    return 'none';
+  }
+}
+let subWaitPruned = false;
+
+// Empties (a mod cannot delete) sub-wait/<session>.json files untouched for 2 days; once per process.
+async function pruneSubWait($: $T, env: Env, nowMs: number): Promise<void> {
+  if (subWaitPruned) return;
+  subWaitPruned = true;
+  try {
+    const dir = joinPath(env.home, 'sub-wait');
+    for (const x of await $.fs.list(dir)) {
+      if (x.kind === 'file' && x.size > 0 && nowMs - x.mtimeMs > 2 * 24 * 3600 * 1000) await $.fs.write(joinPath(dir, x.name), '');
+    }
+  } catch {
+    /* nothing to prune */
+  }
+}
+
+async function subWait($: $T, e: any, next: (e: any) => Promise<any>): Promise<any> {
+  const ran = await next(e);
+  try {
+    if (!e.agentId || !ran || ran.deny !== undefined) return ran;
+    const env0 = subWaitCfg ? subWaitCfg.env : await readEnv($);
+    const key = await subWaitConfigKey($, env0);
+    if (!subWaitCfg || subWaitCfg.key !== key) subWaitCfg = { env: env0, cfg0: (await loadConfig($, env0)).cfg, key };
+    const { env, cfg0 } = subWaitCfg;
+    if (cfg0.subagentLongCmdAdvice !== true) return ran;
+    await pruneSubWait($, env, Date.now());
+    const cfg = await withLangFrom($, env, cfg0, null, undefined, Date.now());
+    const sid = safeId((await $.session.id()) || 'unknown');
+    const file = joinPath(env.home, 'sub-wait', sid + '.json');
+    const toolInput: Record<string, unknown> = {};
+    for (const k of Object.keys(e)) if (!RESERVED.has(k)) toolInput[k] = e[k];
+    const seen = await readJson<any>($, file, null);
+    const r = subWaitDecide({ agent_id: e.agentId, session_id: sid, tool_input: toolInput }, cfg as any, seen && seen.ids);
+    if (!r.text) return ran;
+    await writeJson($, file, { ids: r.seenIds });
+    return { ...ran, context: [...(ran.context || []), r.text] };
+  } catch {
+    return ran;
+  }
+}
+
+const idsArg = (x: unknown): string[] => (Array.isArray(x) ? x : typeof x === 'string' ? x.split(/[\s,]+/) : []).map((v) => String(v).trim()).filter(Boolean);
+
+// The person's own yes, asked here and not taken from the model's text. One question per rule, because a rule's values belong
+// together (the compact window is a settings.json value and a config value): the question lists every `file key: before -> after`
+// line of the rule, and a yes applies all of them, anything else none. The first option is Skip, so a host that auto-answers
+// with the first option declines. No person at a surface (-p / SDK run), a dismissed dialog or any other failure means no.
+async function askItems($: $T, items: advApply.PlanItem[], settingsNew: boolean): Promise<advApply.PlanItem[] | null> {
+  if (!(await hasHuman($))) return null;
+  const yes: advApply.PlanItem[] = [];
+  try {
+    for (const rule of Array.from(new Set(items.map((i) => i.rule)))) {
+      const group = items.filter((i) => i.rule === rule);
+      const q = `Token Stamina advisor, rule ${rule}: these changes belong together.\n` + group.map((i) => advApply.itemLine(i, settingsNew)).join('\n') + '\n\nApply all of them?';
+      if ((await $.ui.ask(q, { options: ['Skip', 'Apply'], header: 'Apply?' })) === 'Apply') yes.push(...group);
+    }
+  } catch {
+    return null;
+  }
+  return yes.length ? yes : null;
+}
+
+// Keep is the first option for the same reason as Skip above.
+async function askRestore($: $T, lines: string[]): Promise<boolean> {
+  if (!(await hasHuman($))) return false;
+  try {
+    return (await $.ui.ask('Token Stamina advisor: restore these settings.json values?\n' + lines.join('\n') + '\n\nRestore them?', { options: ['Keep', 'Restore'], header: 'Restore?' })) === 'Restore';
+  } catch {
+    return false;
+  }
+}
+
+// Runs one advisor mode. Text results come back as they are (the command shows them verbatim); the plan/apply/revert
+// results are JSON.
+async function advisorRun($: $T, a: Record<string, any>): Promise<{ text: string; isError: boolean }> {
+  const c = await cmdContext($);
+  const ctx = await advisorCtxFrom($, c.env, c.cfg, c.nowMs);
+  const base = { days: numArg(a.days) ?? null, brief: !!a.brief, json: !!a.json, lang: typeof a.lang === 'string' ? a.lang : null };
+  const mode = String(a.mode || '');
+  const asText = (v: unknown) => (typeof v === 'string' ? v : JSON.stringify(v, null, 2));
+  switch (mode) {
+    case 'analyze':
+      return { text: await advRun.analyze(ctx, { ...base, firstRun: !!a.first }), isError: false };
+    case 'recommend':
+      return { text: await advRun.recommend(ctx, base), isError: false };
+    case 'review':
+      return { text: await advRun.review(ctx, { json: base.json, lang: base.lang }), isError: false };
+    case 'check':
+      return { text: await advRun.check(ctx, { ...base, id: typeof a.id === 'string' ? a.id : undefined, force: !!a.force }), isError: false };
+    case 'reject':
+      return { text: await advRun.reject(ctx, typeof a.rule === 'string' ? a.rule : undefined), isError: false };
+    case 'plan': {
+      const r = await advRun.planChanges(ctx, { ...base, ids: idsArg(a.ids) });
+      return { text: asText(r), isError: !!r.error };
+    }
+    case 'apply': {
+      const r = await advRun.applyPlan(ctx, { planId: typeof a.planId === 'string' ? a.planId : undefined, approved: idsArg(a.ids), lang: base.lang, confirm: (items, isNew) => askItems($, items, isNew) });
+      return { text: asText(r), isError: !r.ok };
+    }
+    case 'revert': {
+      const r = await advRun.revertApply(ctx, { id: typeof a.id === 'string' ? a.id : undefined, last: !!a.last, lang: base.lang, confirmSettings: (lines) => askRestore($, lines) });
+      return { text: asText(r), isError: !r.ok };
+    }
+    default:
+      return { text: 'unknown mode: ' + mode + ' (analyze, recommend, plan, apply, revert, reject, review, check)', isError: true };
+  }
+}
+
+async function advisorTool($: $T, e: any): Promise<{ result: { content: { type: 'text'; text: string }[]; isError: boolean } }> {
+  let r: { text: string; isError: boolean };
+  try {
+    r = await advisorRun($, e);
+  } catch (err) {
+    r = { text: 'advisor: ' + (err instanceof Error ? err.message : String(err)), isError: true };
+  }
+  return { result: { content: [{ type: 'text', text: r.text }], isError: r.isError } };
+}
+
+// /ts-advisor [--json] [--days N] [--brief]: the read-only analysis, no model.
+async function advisorCommand($: $T, args: string): Promise<string> {
+  const toks = splitArgs(args);
+  const a: Record<string, any> = { mode: 'recommend' };
+  for (let i = 0; i < toks.length; i++) {
+    if (toks[i] === '--json') a.json = true;
+    else if (toks[i] === '--brief') a.brief = true;
+    else if (toks[i] === '--days') a.days = toks[++i];
+  }
+  return (await advisorRun($, a)).text;
+}
+
+// ============================================================================
 // Wiring.
 // ============================================================================
 
@@ -1469,6 +1731,8 @@ export const register: Register = (on) => {
 
   on('tool.call', { tool: 'Agent' }, ($, e, next) => agentModel($, e, next)).catch(($, e, next) => next(e));
   on('tool.call', { tool: 'mcp__ccd_session__start_session' }, ($, e, next) => agentModel($, e, next)).catch(($, e, next) => next(e));
+  on('tool.call', { tool: 'Bash' }, ($, e, next) => subWait($, e, next)).catch(($, e, next) => next(e));
+  on('tool.call', { tool: 'PowerShell' }, ($, e, next) => subWait($, e, next)).catch(($, e, next) => next(e));
 
   // The four commands that only print a table. Each is registered by a literal name (the validator
   // reads the names off the source) and in its own try, so one refused name leaves the others. The
@@ -1522,13 +1786,47 @@ export const register: Register = (on) => {
     } catch {
       /* name taken or the engine has no tool.register */
     }
+    try {
+      await $.command.register({ name: 'ts-advisor', description: 'Usage Advisor: find the settings that cost the most and what to change (read-only, no LLM; to apply, use /token-stamina:advisor)', argumentHint: '[--json] [--days N] [--brief]' });
+    } catch {
+      /* name taken */
+    }
+    // The advisor tool (mcp__token-stamina__advisor), served by the tool.call hook below; /token-stamina:advisor calls it.
+    try {
+      await $.tool.register({
+        name: 'advisor',
+        isDeferred: true, // only /token-stamina:advisor and setup use it
+        description: 'Token Stamina Usage Advisor: analyze / recommend / review / check / reject are read-only (reject only remembers a refusal); plan returns a planId (valid 10 minutes) and a before -> after preview and writes nothing but the plan; apply takes only that planId and ids that were in it; revert undoes an apply when the current value still equals what apply wrote.',
+        inputSchema: {
+          type: 'object',
+          properties: {
+            mode: { type: 'string', enum: ['analyze', 'recommend', 'plan', 'apply', 'revert', 'reject', 'review', 'check'] },
+            days: { type: 'number', description: 'analyze/recommend/plan: look-back days' },
+            brief: { type: 'boolean' },
+            json: { type: 'boolean' },
+            first: { type: 'boolean', description: 'analyze: the first-step screen of setup' },
+            ids: { type: 'array', items: { type: 'string' }, description: 'plan: recommendation ids (R1, R2 ...); apply: the ids of the plan the person said yes to' },
+            planId: { type: 'string', description: 'apply: the planId plan returned' },
+            id: { type: 'string', description: 'revert/check: an apply id' },
+            last: { type: 'boolean', description: 'revert: the most recent apply' },
+            rule: { type: 'string', description: 'reject: the rule id (R1 ...)' },
+            force: { type: 'boolean', description: 'check: judge again' },
+          },
+          required: ['mode'],
+        },
+      });
+    } catch {
+      /* name taken or the engine has no tool.register */
+    }
     return next(e);
   }).catch(($, e, next) => next(e));
 
+  on('tool.call', { tool: 'mcp__token-stamina__advisor' }, ($, e) => advisorTool($, e));
   on('tool.call', { tool: 'mcp__token-stamina__board' }, ($, e) => boardTool($, e));
 
   on('command.run', { command: 'ts-fleet' }, ($, e) => answer('ts-fleet', () => fleetCommand($, e.args)));
   on('command.run', { command: 'ts-savings' }, ($, e) => answer('ts-savings', () => savingsCommand($, e.args)));
   on('command.run', { command: 'ts-report' }, ($, e) => answer('ts-report', () => reportCommand($, e.args)));
   on('command.run', { command: 'ts-audit' }, ($, e) => answer('ts-audit', () => auditCommand($, e.args)));
+  on('command.run', { command: 'ts-advisor' }, ($, e) => answer('ts-advisor', () => advisorCommand($, e.args)));
 };
