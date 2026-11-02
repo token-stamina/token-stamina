@@ -16,13 +16,17 @@
 //   every hook above          statusline.js, as $.ui.status from $.session.usage()
 //   command.run fleet / savings / report / audit   scripts/{fleet,savings,report,audit}.js, answered as { text }
 //                             (registered in session.start; setup, autocompact and board are mod/commands/*.md)
+//   session.start / ui.render AbovePrompt   the last turns before a desktop clear, drawn above the prompt until the first prompt (screen only)
 //   classic.Stop / UserPromptSubmit   board.js (the per-session board row, only with dashboardUrl set)
 //   tool.call mcp__token-stamina__board   board.js --rows / --apply / --record-apply / --record-push / --json
 //                             (the tool is declared in session.start; mod/commands/board.md calls it)
 // Not ported here (no longer needed): first-run/setup-nudge (the status line needs no setup in a mod),
 // the desktop usage-sync hint. Not in the board tool: board.js --json --live (the transcript scan).
 
+import { atom, read, update } from 'claude-code';
 import type { Register, EngineInterface } from 'claude-code';
+
+import type { RecentBand } from '../types';
 
 import { resolveLang, withLang, type LangBook } from './core/lang.ts';
 import { decide as nudgeDecide, type NudgeCfg } from './core/nudge.ts';
@@ -443,6 +447,7 @@ async function restoreMarked($: $T, env: Env, sid: string, nowMs: number, via: s
     const pf = pendingClearName(dir, env.host);
     const mk = await readJson<any>($, pf, null);
     if (!mk || !mk.from) return null;
+    if (via === 'clear_start') await loadBand($); // the band reads the marker, which the next line spends
     await $.fs.write(pf, '{}'); // consumed on every attempt, as the Node script's unlink
     if (decidePrompt(mk, sid, nowMs) !== 'restore') return null;
     const cf = sessionFileName(dir, mk.from, true);
@@ -465,6 +470,26 @@ async function showRecent($: $T, env: Env, from: string, lang: string): Promise<
     for (const line of recentLog((acc && acc.recent) || [], lang)) $.ui.log(line);
   } catch {
     /* on-screen replay is best-effort */
+  }
+}
+
+// The old session's last turns for the band above the prompt, drawn before the first prompt of the cleared
+// session. Reads the clear marker without consuming it (the first prompt does that) and applies the same
+// freshness and own-session test; null when there is nothing to show.
+async function loadRecentBand($: $T): Promise<{ lines: string[]; ko: boolean } | null> {
+  try {
+    const env = await readEnv($);
+    if (!env.host) return null;
+    const { cfg } = await loadConfig($, env);
+    if (cfg.handoff === false) return null;
+    const mk = await readJson<any>($, pendingClearName(joinPath(env.home, 'handoff'), env.host), null);
+    if (!mk || decidePrompt(mk, safeId(await $.session.id()), Date.now()) !== 'restore') return null;
+    const acc = await readJson<Accumulated | null>($, joinPath(env.home, 'handoff', `${safeId(mk.from)}.json`), null);
+    const lang = cfg.lang || 'en';
+    const lines = recentLog((acc && acc.recent) || [], lang);
+    return lines.length ? { lines, ko: lang === 'ko' } : null;
+  } catch {
+    return null;
   }
 }
 
@@ -1371,7 +1396,59 @@ async function boardTool($: $T, e: any): Promise<{ result: { content: { type: 't
 // Wiring.
 // ============================================================================
 
+// The band above the prompt after a desktop clear: the old session's last turns, until the first prompt.
+// Written with h() calls, not JSX: this module is a .ts file.
+const bandAtom = atom({ plugin: 'token-stamina', key: 'band' } as const, null);
+const bandOpen = atom({ plugin: 'token-stamina', key: 'isOpen' } as const, false);
+const bandGone = atom({ plugin: 'token-stamina', key: 'isGone' } as const, false);
+
+async function loadBand($: $T): Promise<void> {
+  try {
+    if (await read($, bandGone)) return;
+    const b = await loadRecentBand($);
+    if (b) await update($, bandAtom, () => b);
+  } catch {
+    /* the band is best-effort */
+  }
+}
+
+// session.start loads it too: that hook is in register, below, with the commands.
+function registerBand(on: any): void {
+  // The desktop attaches after the process starts: look again if session.start found nothing.
+  on('session.attach', async ($: $T, e: any, next: any) => {
+    if (!(await read($, bandAtom))) await loadBand($);
+    return next(e);
+  }).catch(($: $T, e: any, next: any) => next(e));
+
+  // Any prompt retires the band for good; classic.UserPromptSubmit consumes the marker on its own.
+  on('prompt.submit', async ($: $T, e: any, next: any) => {
+    await update($, bandGone, () => true);
+    return next(e);
+  }).catch(($: $T, e: any, next: any) => next(e));
+
+  on('ui.render', { component: 'AbovePrompt' }, async ($: $T, e: any, next: any) => {
+    const b = (await read($, bandAtom)) as RecentBand | null;
+    if (!b || e.props.hasSurvey || (await read($, bandGone))) return next(e);
+    const open = await read($, bandOpen);
+    const { Box, Text, Button } = $.ui.resolve(e) as any;
+    const label = open ? (b.ko ? '접기' : 'Collapse') : b.ko ? '펼치기' : 'Expand';
+    return h(
+      Box,
+      { flexDirection: 'column' },
+      ...(open ? b.lines : b.lines.slice(0, 1)).map((l, i) => h(Text, { key: 'l' + i, dimColor: true }, l)),
+      h(
+        Box,
+        null,
+        h(Button, { key: 'toggle', label, onPress: () => update($, bandOpen, (v: boolean) => !v) }),
+        h(Text, null, ' '),
+        h(Button, { key: 'close', label: b.ko ? '닫기' : 'Close', onPress: () => update($, bandGone, () => true) }),
+      ),
+    );
+  });
+}
+
 export const register: Register = (on) => {
+  registerBand(on);
   on('classic.SessionStart', async ($, e, next) => {
     const add = await onSessionStart($, e);
     const r = await next(e);
@@ -1397,6 +1474,7 @@ export const register: Register = (on) => {
   // reads the names off the source) and in its own try, so one refused name leaves the others. The
   // run hooks answer their own command: they never read `next`.
   on('session.start', async ($, e, next) => {
+    await loadBand($);
     try {
       await $.command.register({ name: 'ts-fleet', description: 'Show how many subagents are running now and on which models (read-only, no LLM)', argumentHint: '[--all]' });
     } catch {

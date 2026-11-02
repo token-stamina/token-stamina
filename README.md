@@ -86,6 +86,11 @@ An optional board for people who run several sessions at once. It shows, per ses
 - Suggestions (a lower subagent default model, a clear at a work boundary, a setting) appear as cards. `applyMode` is `"manual"` by default: nothing is applied until you press approve, and the next board run applies it. Only what the local ledger (`board/decisions.json`) proposed can be applied, at most `applyMaxPerRun` (3) per run and one per session. Clearing a session is always left to you; the board never clears one. Protected sessions are shown but never get a suggestion that changes them. Suggestions for another session's model are advice only for now.
 - Config keys: `board`, `boardTailBytes`, `boardKeepSec`, `boardIdleSec`, `boardDailyTokens`, `dashboardUrl`, `dashboardMaskTitles`, `managerExcludeCwd`, `managerProtectKeywords`, `managerProtectSegments`, `applyMode`, `proposalTtlSec`, `heldTtlSec`, `rejectCooldownSec`, `applyMaxPerRun`, `savingTurns`, `agentShareProposeAt`, `agentModelDefault`. `"board": false` stops the rows.
 
+## v0.6.2
+
+- After a clear in the desktop app, the last few turns of the old session now show in a band above the prompt (Expand / Collapse / Close) until your first prompt. They are on screen only and are not sent to the model.
+- Fixes from an adversarial review of 0.6.1.
+
 ## v0.6.1
 
 - Event log: each session now writes its own file under `events/`, so two sessions writing at the same moment no longer lose each other's lines. The same session open in two windows at once can still collide.

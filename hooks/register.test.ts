@@ -127,6 +127,53 @@ test('after the clear the last turns are drawn with ui.log (not the clearing tur
   expect((r.additionalContext || []).join('\n')).not.toContain('parser fixed');
 });
 
+// Nothing draws beneath the plugin: where the band passes, this stands for the engine's own band.
+const engineBand = (on: any) => on('ui.render', ($: any, e: any) => h($.ui.resolve(e).Text, null, 'engine'));
+const BAND = { plugin: 'token-stamina', component: 'AbovePrompt', requestId: 'band', props: { hasSurvey: false, isWorking: false, maxRows: 10, bodyColumns: 80, scroll: { offset: 0, bodyRows: 10 } } } as const;
+
+test('the band above the prompt shows the last turns before the first prompt of a cleared session, then goes', async ($, on) => {
+  const transcript = prompt('fix the parser') + asst([{ type: 'text', text: 'parser fixed' }])
+    + prompt('wrap up and clear') + asst([{ type: 'tool_use', id: 'c1', name: 'mcp__ccd_session_mgmt__clear_session', input: { session_id: 'self' } }]) + result('c1');
+  const files: Files = { '/t/OLD.jsonl': transcript };
+  world(on, files, { host: HOST });
+  on('classic.Stop', () => ({}));
+  on('session.start', (_: any, e: any) => ({ cwd: e.cwd }));
+  on('command.register', () => ({ value: { command: 'x' } }));
+  on('tool.register', () => ({ value: undefined }));
+  engineBand(on);
+  on('prompt.submit', (_: any, e: any) => ({ text: e.text }));
+  await $.classic.Stop({ session_id: 'OLD', cwd: '/w', transcript_path: '/t/OLD.jsonl' } as any);
+  // The marker stays until the first prompt: the band only reads it.
+  await $.session.start({ cwd: '/w', surface: 'desktop', isInteractive: true });
+  expect(JSON.parse(files[pendingClearName(DIR, HOST)]!).from).toBe('OLD');
+
+  const ui = await $.ui.mount({ ...BAND, surface: 'desktop' });
+  expect((await ui.find({ type: 'Text', text: /last 1 turns/ }))?.text).toContain('on screen only');
+  expect(await ui.find({ type: 'Text', text: /parser fixed/ })).toBeFalsy(); // collapsed: the header only
+  await ui.press({ key: 'toggle' });
+  expect(await ui.find({ type: 'Text', text: /parser fixed/ })).toBeTruthy();
+  expect(await ui.find({ type: 'Text', text: /wrap up and clear/ })).toBeFalsy(); // not the clearing turn
+  await ui.unmount();
+
+  await $.prompt.submit({ text: 'hello' } as any);
+  const after = await $.ui.mount({ ...BAND, surface: 'desktop' });
+  expect(await after.find({ type: 'Text', text: /last 1 turns/ })).toBeFalsy();
+  await after.unmount();
+});
+
+test('no band without a fresh marker (an expired one, or no desktop host)', async ($, on) => {
+  const files: Files = { [pendingClearName(DIR, HOST)]: JSON.stringify({ from: 'OLD', host: HOST, at: Date.now() - 61 * 60 * 1000 }), [DIR + '/OLD.json']: JSON.stringify({ recent: [{ ts: 'x', user: 'u', claude: 'c' }] }) };
+  world(on, files, { host: HOST });
+  on('session.start', (_: any, e: any) => ({ cwd: e.cwd }));
+  on('command.register', () => ({ value: { command: 'x' } }));
+  on('tool.register', () => ({ value: undefined }));
+  engineBand(on);
+  await $.session.start({ cwd: '/w', surface: 'desktop', isInteractive: true });
+  const ui = await $.ui.mount({ ...BAND, surface: 'desktop' });
+  expect(await ui.find({ type: 'Text', text: /last/ })).toBeFalsy();
+  await ui.unmount();
+});
+
 test('the first prompt restores from the marker when SessionStart did not; a marker over 60 minutes old is dropped', async ($, on) => {
   const files: Files = {
     [pendingClearName(DIR, HOST)]: JSON.stringify({ from: 'OLD', host: HOST, cwd: '/w', at: Date.now() - 1000 }),
