@@ -140,6 +140,10 @@ An optional board for people who run several sessions at once. It shows, per ses
 - Suggestions (a lower subagent default model, a clear at a work boundary, a setting) appear as cards. `applyMode` is `"manual"` by default: nothing is applied until you press approve, and the next board run applies it. Only what the local ledger (`board/decisions.json`) proposed can be applied, at most `applyMaxPerRun` (3) per run and one per session. Clearing a session is always left to you; the board never clears one. Protected sessions are shown but never get a suggestion that changes them. Suggestions for another session's model are advice only for now.
 - Config keys: `board`, `boardTailBytes`, `boardKeepSec`, `boardIdleSec`, `boardDailyTokens`, `dashboardUrl`, `dashboardMaskTitles`, `managerExcludeCwd`, `managerProtectKeywords`, `managerProtectSegments`, `applyMode`, `proposalTtlSec`, `heldTtlSec`, `rejectCooldownSec`, `applyMaxPerRun`, `savingTurns`, `agentShareProposeAt`, `agentModelDefault`. `"board": false` stops the rows.
 
+## v0.6.5
+
+- No behavior change. A byte-order mark in the settings writer is now spelled as an escape (`\uFEFF`) instead of an invisible character, the website icon is a PNG instead of an `.ico`, and the README explains for directory review which environment variables are read, which files are written and that no hook makes a permission decision.
+
 ## v0.6.4
 
 - Code form only, no behavior change: calls that hand `$` to a helper no longer carry TypeScript type arguments, so the plugin directory's static check can read them.
@@ -214,6 +218,13 @@ Files in `handoff/` (notes, side files and markers) unchanged for 7 days are **e
 Outside that folder, only `/token-stamina:setup`, `/token-stamina:autocompact` and `/token-stamina:advisor` change anything, and only after you agree: `env.CLAUDE_CODE_AUTO_COMPACT_WINDOW` or the old `statusLine` entry in `~/.claude/settings.json` (a `settings.json.bak-token-stamina-<timestamp>` backup is saved first; for the advisor you approve each item in a Claude Code confirmation dialog, and it never writes `settings.json` automatically), and, if you accept, a `/compact` keybinding in `~/.claude/keybindings.json`.
 
 To remove everything: uninstall the plugin, delete `~/.claude/token-stamina/` (or your `TOKEN_STAMINA_HOME`), remove any leftover Token Stamina `statusLine` and `env.CLAUDE_CODE_AUTO_COMPACT_WINDOW` from `~/.claude/settings.json` (or restore a `settings.json.bak-token-stamina-*` backup; the advisor's backups of `settings.json` sit next to it), and drop the keybinding if you added one.
+
+## Notes for plugin directory review
+
+- **Environment variables it reads.** `TOKEN_STAMINA_HOME` (and the old `TOKEN_PACER_HOME`) for its data folder; `USERPROFILE`, `HOME` and `CLAUDE_CONFIG_DIR` to find `~/.claude`; `CLAUDE_CODE_ENTRYPOINT` to tell the desktop app from the CLI; `CLAUDE_CODE_HOST_SESSION_ID`, the desktop app's id for the current session, to name the marker it leaves when Claude clears its own session; `CLAUDE_CODE_AUTO_COMPACT_WINDOW` and `CLAUDE_AUTOCOMPACT_PCT_OVERRIDE` to show when auto-compact will run. None of them is a credential, and nothing is sent anywhere.
+- **Files it writes.** Only the files listed under "What it writes" above. The only files outside its own folder that other tools obey are `~/.claude/settings.json` and `~/.claude/keybindings.json`, and they are written only by `/token-stamina:setup`, `/token-stamina:autocompact` and `/token-stamina:advisor` after you approve the change, with a backup first. The write helper takes a path variable because file names carry per-session slots; every path is built from the data folder or is one of those two files.
+- **Permission decisions.** It never allows, denies or asks for a tool call on your behalf, and never changes the permission mode or Remote Control. Its hooks on `Bash` and `PowerShell` calls let the call run unchanged and, only when `subagentLongCmdAdvice` is on, add an advice line afterwards. Its hooks on `Agent` and `mcp__ccd_session__start_session` calls can set the `model` of the subagent or new session: that is the subagent model feature (`"mode": "inject"` by default; `"suggest"` only adds a note, `"off"` turns it off). It changes which model runs, not whether the call runs. Its `command.run` hooks answer only its own `/ts-*` commands.
+- **Website files.** `docs/` is the project website (GitHub Pages), not part of the plugin's behaviour.
 
 ## Support
 Token Stamina is free. Coffee-money support is welcome at [ko-fi.com/tokenstamina](https://ko-fi.com/tokenstamina). Project site: [tokenstamina.com](https://tokenstamina.com).

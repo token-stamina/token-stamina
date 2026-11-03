@@ -54,7 +54,7 @@ export function serializeSettings(obj: any, fmt?: Partial<Fmt>): string {
   const eol = f.eol || '\n';
   if (eol !== '\n') s = s.replace(/\n/g, eol);
   if (f.finalNewline !== false) s += eol;
-  return (f.bom ? '﻿' : '') + s;
+  return (f.bom ? '\uFEFF' : '') + s;
 }
 
 export async function readSettings(ctx: AdvisorCtx, p: string): Promise<SettingsRead> {
@@ -186,7 +186,7 @@ export async function writeSettingsEnv(ctx: AdvisorCtx, file: string, key: strin
   let backup: string | null = null;
   if (!st.isNew) {
     backup = file + '.bak-token-stamina-' + stamp(now);
-    if (!(await ctx.io.exists(backup))) await ctx.io.write(backup, (st.bom ? '﻿' : '') + (st.raw as string));
+    if (!(await ctx.io.exists(backup))) await ctx.io.write(backup, (st.bom ? '\uFEFF' : '') + (st.raw as string));
   }
   await ctx.io.write(file, serializeSettings(next, st.fmt));
   return { ok: true, changed: true, backup };
@@ -257,7 +257,7 @@ export async function apply(ctx: AdvisorCtx, p: Plan, opts?: ApplyOpts): Promise
     catch { lines.push(t.rollbackFailed(res.backups.find((b: string) => b.includes('.bak-token-stamina-')) || '(no backup)')); }
   };
   if (settingsItems.length) {
-    origSettings = stIn!.isNew ? '{}\n' : (stIn!.bom ? '﻿' : '') + (stIn!.raw as string);
+    origSettings = stIn!.isNew ? '{}\n' : (stIn!.bom ? '\uFEFF' : '') + (stIn!.raw as string);
     for (const it of settingsItems) {
       let r: { ok: boolean; backup?: string | null; message?: string };
       try { r = await writeSettingsEnv(ctx, p.settingsPath, it.key, it.after, now); } catch (e: any) { r = { ok: false, message: 'Cannot write settings file: ' + (e && e.message || e) }; }
