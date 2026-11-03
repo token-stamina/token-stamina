@@ -290,19 +290,19 @@ function appendEvent($: $T, env: Env, ev: Record<string, unknown>): Promise<void
 // ============================================================================
 
 async function loadUserConfigRaw($: $T, env: Env): Promise<Cfg> {
-  const c = await readJson<Cfg | null>($, joinPath(env.home, 'config.json'), {});
+  const c = await readJson($, joinPath(env.home, 'config.json'), {} as Cfg | null);
   return c && typeof c === 'object' ? c : {};
 }
 
 async function loadConfig($: $T, env: Env): Promise<{ cfg: Cfg; user: Cfg }> {
-  const def = await readJson<Cfg>($, joinPath($.plugin.root, 'config.default.json'), {});
+  const def = await readJson($, joinPath($.plugin.root, 'config.default.json'), {} as Cfg);
   const user = await loadUserConfigRaw($, env);
   return { cfg: Object.assign({}, def, user), user };
 }
 
 async function withLangFrom($: $T, env: Env, cfg: Cfg, prompt: string | null, sid: string | undefined, nowMs: number): Promise<Cfg> {
   const bookFile = joinPath(env.home, 'lang.json');
-  const book = await readJson<LangBook>($, bookFile, {});
+  const book = await readJson($, bookFile, {} as LangBook);
   const r = resolveLang(cfg as any, prompt, sid, book, nowMs);
   if (r.nextBook) await writeJson($, bookFile, r.nextBook);
   return withLang(cfg, r.lang);
@@ -364,7 +364,7 @@ async function readUsage($: $T, env: Env, nowMs: number): Promise<Usage> {
     const resets = rl && rl.resetsAt ? Math.floor(Date.parse(rl.resetsAt) / 1000) : NaN;
     if (key && pct != null && Number.isFinite(resets)) fresh[key] = { pct, resets_at: resets, recorded_at: nowSec };
   }
-  const prev = await readJson<Record<string, any>>($, stateFile, {});
+  const prev = await readJson($, stateFile, {} as Record<string, any>);
   let state: PaceState = prev && typeof prev === 'object' ? (prev as PaceState) : {};
   if (Object.keys(fresh).length) {
     state = Object.assign({}, prev, fresh, { recorded_at: nowSec, source: 'mod' }) as PaceState;
@@ -402,7 +402,7 @@ function updateStatus($: $T, usage: Usage, cfg: Cfg, user: Cfg): void {
 // ============================================================================
 
 async function buildProfile($: $T, env: Env, cfg: Cfg, entries: any[], raw: string | null): Promise<ProfileResult> {
-  const cache = await readJson<{ ts: number; threshold: number | null } | null>($, joinPath(env.home, 'compact-point.json'), null);
+  const cache = await readJson($, joinPath(env.home, 'compact-point.json'), null as { ts: number; threshold: number | null } | null);
   const cached = cache ? cacheIsFresh(cache, Date.now()) : undefined;
   return computeProfile({
     cfgFixedTokens: num(cfg.fixedTokens),
@@ -430,7 +430,7 @@ function trimBook(book: Record<string, { ts: number }>, max = 50): void {
 async function nudge($: $T, env: Env, cfg: Cfg, state: PaceState, sid: string, event: string, nowMs: number): Promise<string | null> {
   try {
     const file = joinPath(env.home, 'nudge.json');
-    const book = await readJson<Record<string, { grade: string; ts: number }>>($, file, {});
+    const book = await readJson($, file, {} as Record<string, { grade: string; ts: number }>);
     const last = book[sid]?.grade;
     const d = nudgeDecide({ hook_event_name: event }, state, cfg as NudgeCfg, Math.floor(nowMs / 1000), last);
     if (d.grade && d.grade !== last) {
@@ -453,7 +453,7 @@ async function restoreMarked($: $T, env: Env, sid: string, nowMs: number, via: s
     if (!env.host) return null;
     const dir = joinPath(env.home, 'handoff');
     const pf = pendingClearName(dir, env.host);
-    const mk = await readJson<any>($, pf, null);
+    const mk = await readJson($, pf, null as any);
     if (!mk || !mk.from) return null;
     if (via === 'clear_start') await loadBand($); // the band reads the marker, which the next line spends
     await $.fs.write(pf, '{}'); // consumed on every attempt, as the Node script's unlink
@@ -474,7 +474,7 @@ async function restoreMarked($: $T, env: Env, sid: string, nowMs: number, via: s
 // After a clear, draw the old session's last turns on screen ($.ui.log is not sent to the model).
 async function showRecent($: $T, env: Env, from: string, lang: string): Promise<void> {
   try {
-    const acc = await readJson<Accumulated | null>($, joinPath(env.home, 'handoff', `${safeId(from)}.json`), null);
+    const acc = await readJson($, joinPath(env.home, 'handoff', `${safeId(from)}.json`), null as Accumulated | null);
     for (const line of recentLog((acc && acc.recent) || [], lang)) $.ui.log(line);
   } catch {
     /* on-screen replay is best-effort */
@@ -490,9 +490,9 @@ async function loadRecentBand($: $T): Promise<{ lines: string[]; ko: boolean } |
     if (!env.host) return null;
     const { cfg } = await loadConfig($, env);
     if (cfg.handoff === false) return null;
-    const mk = await readJson<any>($, pendingClearName(joinPath(env.home, 'handoff'), env.host), null);
+    const mk = await readJson($, pendingClearName(joinPath(env.home, 'handoff'), env.host), null as any);
     if (!mk || decidePrompt(mk, safeId(await $.session.id()), Date.now()) !== 'restore') return null;
-    const acc = await readJson<Accumulated | null>($, joinPath(env.home, 'handoff', `${safeId(mk.from)}.json`), null);
+    const acc = await readJson($, joinPath(env.home, 'handoff', `${safeId(mk.from)}.json`), null as Accumulated | null);
     const lang = cfg.lang || 'en';
     const lines = recentLog((acc && acc.recent) || [], lang);
     return lines.length ? { lines, ko: lang === 'ko' } : null;
@@ -627,11 +627,11 @@ async function onUserPromptSubmit($: $T, e: any): Promise<string[]> {
       // row (what the Node script read) only when the engine has no reading yet.
       const tokens = usage.tokens || boundaryAnalyze(entries).tokens;
       const file = joinPath(env.home, 'topic-gate.json');
-      const book = await readJson<Record<string, any>>($, file, {});
+      const book = await readJson($, file, {} as Record<string, any>);
       const rec = book[sid];
       const noteFile = sessionFileName(joinPath(env.home, 'handoff'), safeId(sid), true);
       // no timestamps in a transcript rebuilt from $.session.messages: the last Stop time stands in
-      const stopAt = t.raw == null ? (await readJson<Accumulated>($, joinPath(env.home, 'handoff', `${safeId(sid)}.json`), {} as Accumulated)).stopAt : undefined;
+      const stopAt = t.raw == null ? (await readJson($, joinPath(env.home, 'handoff', `${safeId(sid)}.json`), {} as Accumulated)).stopAt : undefined;
       const d = topicGateDecide({ tokens, lastAssistantMs: lastActiveMs(entries, stopAt, rec && rec.promptAt), nowMs, cwd: e.cwd }, cfg as TopicGateCfg, user, rec);
       // hintTrigger "gap" needs the idle/cwd gap `d` measured; hintMinEffectTokens drops a hint whose card is too small.
       let h = decideHint(tokens, cfg as TopicGateCfg, user, rec && rec.hintAt, d);
@@ -715,7 +715,7 @@ async function onStop($: $T, e: any): Promise<void> {
       (res as any).endsWithAnswer = true;
     }
     const file = joinPath(env.home, 'boundary.json');
-    const book = await readJson<Record<string, { tokens: number; ts: number }>>($, file, {});
+    const book = await readJson($, file, {} as Record<string, { tokens: number; ts: number }>);
     const d = boundaryDecide(res, cfg as any, user, book[sid]?.tokens);
     const bprof = d.notify ? await buildProfile($, env, cfg, entries, t.raw) : null;
     // hintMinEffectTokens: a notice whose card is too small is not given (and not remembered)
@@ -737,12 +737,12 @@ async function onStop($: $T, e: any): Promise<void> {
       const dir = joinPath(env.home, 'handoff');
       const entries = tail(t, HANDOFF_TAIL_BYTES);
       const sideFile = joinPath(dir, `${sid}.json`);
-      const prevAcc = await readJson<Accumulated>($, sideFile, { commits: [], files: [] });
+      const prevAcc = await readJson($, sideFile, { commits: [], files: [] } as Accumulated);
       const fromFallback = t.raw == null;
       let sc = handoffScan(entries);
       if (fromFallback) {
         // no timestamps in the rows: the prompt times topic-gate.json recorded stand in (read only)
-        const book = await readJson<Record<string, any>>($, joinPath(env.home, 'topic-gate.json'), {});
+        const book = await readJson($, joinPath(env.home, 'topic-gate.json'), {} as Record<string, any>);
         sc = fallbackPromptTs(sc, book[e.session_id || 'unknown'], prevAcc, nowMs);
       }
       const acc = accumulate(prevAcc, sc);
@@ -868,7 +868,7 @@ async function agentModel($: $T, e: any, next: (e: any) => Promise<any>): Promis
   if (!d) {
     const usage = await readUsage($, env, nowMs);
     fl = await fleetSnapshot($, env, transcripts.get(sessionId), cfg, now);
-    const ledger = await readJson<any>($, joinPath(env.home, LEDGER), null);
+    const ledger = await readJson($, joinPath(env.home, LEDGER), null as any);
     const st = (dIn.tool_input || {}).subagent_type;
     const defs = new Map<string, string | null>();
     for (const p of definitionPaths(st, cwd, env.userHome)) defs.set(p, await readText($, p));
@@ -882,7 +882,7 @@ async function agentModel($: $T, e: any, next: (e: any) => Promise<any>): Promis
   if (d.message) d.message = attributed(d.message, cfg.lang, cfg._langAuto);
   if ((d.reason === 'explicit_downgrade' || d.reason === 'explicit_suggest') && d.desc_hash && sessionId) {
     const file = joinPath(env.home, LEDGER);
-    await writeJson($, file, recordLedger(await readJson<any>($, file, null), sessionId, kind === 'start_session' ? 'session' : 'agent', d.desc_hash, d.requested_model || null, now));
+    await writeJson($, file, recordLedger(await readJson($, file, null as any), sessionId, kind === 'start_session' ? 'session' : 'agent', d.desc_hash, d.requested_model || null, now));
   }
   await appendEvent($, env, {
     event: 'agent_model',
@@ -906,7 +906,7 @@ async function agentModel($: $T, e: any, next: (e: any) => Promise<any>): Promis
   try {
     if (kind === 'Agent' && cfgL.subagentWaitAdvice === true) {
       const wf = joinPath(env.home, 'agent-model-advice.json');
-      const w = waitAdvice({ session_id: sessionId }, kind, cfgL as AgentModelCfg, await readJson<any>($, wf, null), nowMs);
+      const w = waitAdvice({ session_id: sessionId }, kind, cfgL as AgentModelCfg, await readJson($, wf, null as any), nowMs);
       if (w.text) {
         msgs.push(w.text);
         await writeJson($, wf, w.book);
@@ -1277,7 +1277,7 @@ async function boardVersions($: $T, arg: unknown): Promise<Record<string, number
     found = true;
     for (const n of names) {
       if (!n.name.endsWith('.json')) continue;
-      const v = boardDocVersion(await readJson<any>($, joinPath(arg, col, n.name), null));
+      const v = boardDocVersion(await readJson($, joinPath(arg, col, n.name), null as any));
       if (v !== null) out[col + '/' + n.name.slice(0, -5)] = v;
     }
   }
@@ -1305,16 +1305,16 @@ async function boardRows($: $T, env: Env, e: any): Promise<any> {
   const evs = (await readEvents(cmdIO($), env.home, nowMs - 86400 * 1000)).filter((x) => x && x.event === 'board_push');
   const eventsText = evs.map((x) => JSON.stringify(x)).join('\n');
   const pendArg = numArg(e.pending);
-  const ledgerDoc = await readJson<any>($, joinPath(boardDir(env), 'decisions.json'), null);
+  const ledgerDoc = await readJson($, joinPath(boardDir(env), 'decisions.json'), null as any);
   const usage = await readUsage($, env, nowMs);
   const out = boardRowsPayload({
     now, cfg, state: usage.state, rows, activeSessions: active,
     titles: await boardArg($, e.titles), versions: await boardVersions($, e.versions), eventsText,
-    last: await readJson<any>($, joinPath(pushDir(env), 'last.json'), null),
+    last: await readJson($, joinPath(pushDir(env), 'last.json'), null as any),
     pending: pendArg !== undefined ? pendArg || 0 : boardPending(ledgerDoc),
-    manager: await readJson<any>($, joinPath(boardDir(env), 'manager.json'), null),
+    manager: await readJson($, joinPath(boardDir(env), 'manager.json'), null as any),
     ledger: boardLedgerOf(ledgerDoc),
-    detectedLang: boardLastDetected(await readJson<any>($, joinPath(env.home, 'lang.json'), {})),
+    detectedLang: boardLastDetected(await readJson($, joinPath(env.home, 'lang.json'), {} as any)),
   });
   if (out.skip) return out;
   if (out.proposals.length) {
@@ -1348,7 +1348,7 @@ async function boardApply($: $T, env: Env, e: any, sid: string | undefined): Pro
     if (!userCfg || typeof userCfg !== 'object' || Array.isArray(userCfg)) throw new Error('config.json is not an object; nothing was applied');
   }
   const ledgerFile = joinPath(boardDir(env), 'decisions.json');
-  const led = boardLedgerOf(await readJson<any>($, ledgerFile, null));
+  const led = boardLedgerOf(await readJson($, ledgerFile, null as any));
   const rows = boardReadEntries(await boardEntries($, env), now, cfg);
   const usage = await readUsage($, env, now * 1000);
   const r = boardApplyPayload({
@@ -1369,7 +1369,7 @@ async function boardApply($: $T, env: Env, e: any, sid: string | undefined): Pro
 async function boardRecordApply($: $T, env: Env, e: any, sid: string | undefined): Promise<any> {
   const now = Math.floor(Date.now() / 1000);
   const ledgerFile = joinPath(boardDir(env), 'decisions.json');
-  const led = boardLedgerOf(await readJson<any>($, ledgerFile, null));
+  const led = boardLedgerOf(await readJson($, ledgerFile, null as any));
   const rr = boardRecordApplyResult(led, await boardArg($, e.results), now);
   if (rr.ledger) await $.fs.write(ledgerFile, JSON.stringify(rr.ledger));
   await appendEvent($, env, { ...rr.event, session: sid });
@@ -1378,7 +1378,7 @@ async function boardRecordApply($: $T, env: Env, e: any, sid: string | undefined
 
 async function boardRecordPush($: $T, env: Env, e: any, sid: string | undefined): Promise<any> {
   const now = Math.floor(Date.now() / 1000);
-  const pend = await readJson<any>($, joinPath(pushDir(env), 'pending.json'), null);
+  const pend = await readJson($, joinPath(pushDir(env), 'pending.json'), null as any);
   const rec = boardPushRecord({ tokens: numArg(e.tokens), rows: numArg(e.rows) }, pend, now);
   await $.fs.write(joinPath(pushDir(env), 'last.json'), JSON.stringify(rec));
   await appendEvent($, env, { event: 'board_push', session: sid, rows: rec.rows, tokens: rec.tokens, hash: rec.hash });
@@ -1429,8 +1429,8 @@ async function boardTool($: $T, e: any): Promise<{ result: { content: { type: 't
 // ============================================================================
 
 async function advisorCtxFrom($: $T, env: Env, cfg: Cfg, nowMs: number): Promise<AdvisorCtx> {
-  const cfgDefaults = await readJson<Cfg>($, joinPath($.plugin.root, 'config.default.json'), {});
-  const st = await readJson<any>($, joinPath(env.home, 'state.json'), {});
+  const cfgDefaults = await readJson($, joinPath($.plugin.root, 'config.default.json'), {} as Cfg);
+  const st = await readJson($, joinPath(env.home, 'state.json'), {} as any);
   const ra = Number(st && st.seven_day && st.seven_day.resets_at);
   // yieldFn: the background scan hands the turn back every few files so other hooks are not held up behind it.
   return { io: cmdIO($), home: env.home, claudeDir: env.configDir, cfg, cfgDefaults, nowMs, sevenDayResetsAt: Number.isFinite(ra) && ra > 0 ? ra : null, yieldFn: () => $.clock.sleep(1) };
@@ -1497,7 +1497,7 @@ async function oldModelWarn($: $T, env: Env, cfg: Cfg, e: any, sid: string, nowM
   try {
     if (cfg.oldModelWarn !== true || !e.transcript_path || !e.session_id) return;
     const file = joinPath(env.home, 'old-model-warn.json');
-    const book = await readJson<any>($, file, null);
+    const book = await readJson($, file, null as any);
     if (book && typeof book === 'object' && book[sid]) return; // already told this session: skip the transcript read
     const t = await readTranscript($, e.transcript_path);
     const r = oldModelNotice(e, cfg as any, sid, { entries: tail(t, 64 * 1024), book, priceOf: (m: string) => advPriceOf(m) as any, strip: advStrip, now: nowMs });
@@ -1555,7 +1555,7 @@ async function subWait($: $T, e: any, next: (e: any) => Promise<any>): Promise<a
     const file = joinPath(env.home, 'sub-wait', sid + '.json');
     const toolInput: Record<string, unknown> = {};
     for (const k of Object.keys(e)) if (!RESERVED.has(k)) toolInput[k] = e[k];
-    const seen = await readJson<any>($, file, null);
+    const seen = await readJson($, file, null as any);
     const r = subWaitDecide({ agent_id: e.agentId, session_id: sid, tool_input: toolInput }, cfg as any, seen && seen.ids);
     if (!r.text) return ran;
     await writeJson($, file, { ids: r.seenIds });

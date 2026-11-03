@@ -140,6 +140,10 @@ An optional board for people who run several sessions at once. It shows, per ses
 - Suggestions (a lower subagent default model, a clear at a work boundary, a setting) appear as cards. `applyMode` is `"manual"` by default: nothing is applied until you press approve, and the next board run applies it. Only what the local ledger (`board/decisions.json`) proposed can be applied, at most `applyMaxPerRun` (3) per run and one per session. Clearing a session is always left to you; the board never clears one. Protected sessions are shown but never get a suggestion that changes them. Suggestions for another session's model are advice only for now.
 - Config keys: `board`, `boardTailBytes`, `boardKeepSec`, `boardIdleSec`, `boardDailyTokens`, `dashboardUrl`, `dashboardMaskTitles`, `managerExcludeCwd`, `managerProtectKeywords`, `managerProtectSegments`, `applyMode`, `proposalTtlSec`, `heldTtlSec`, `rejectCooldownSec`, `applyMaxPerRun`, `savingTurns`, `agentShareProposeAt`, `agentModelDefault`. `"board": false` stops the rows.
 
+## v0.6.4
+
+- Code form only, no behavior change: calls that hand `$` to a helper no longer carry TypeScript type arguments, so the plugin directory's static check can read them.
+
 ## v0.6.3
 
 - New: Usage Advisor. `/token-stamina:advisor` and the read-only `/ts-advisor` (see above): analysis of the last 30 days, rules R1 to R6, per-item apply with a confirmation dialog and backups, revert, a weekly background re-check at session start, and new config keys. `/token-stamina:setup` offers a first analysis.
