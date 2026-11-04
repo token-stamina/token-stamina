@@ -27,7 +27,7 @@ type Files = Record<string, string>;
 // The engine hands the hooks absolute paths in the platform's form (C:\h\... on Windows): compare them as /h/...
 const norm = (p: string) => String(p).replace(/\\/g, '/').replace(/^[A-Za-z]:/, '');
 
-function world(on: any, files: Files, opts: { host?: string; usage?: any; messages?: any[]; onWrite?: (p: string, text: string) => boolean; ages?: Record<string, number>; denyWrite?: string; noSid?: boolean; onRead?: (p: string) => void } = {}) {
+function world(on: any, files: Files, opts: { host?: string; usage?: any; messages?: any[]; onWrite?: (p: string, text: string) => boolean; ages?: Record<string, number>; denyWrite?: string; denyPath?: RegExp; noSid?: boolean; onRead?: (p: string) => void } = {}) {
   const mtime: Record<string, number> = {};
   for (const p of Object.keys(files)) mtime[p] = Date.now() - ((opts.ages && opts.ages[p]) || 0);
   const status: (string | undefined)[] = [];
@@ -40,6 +40,7 @@ function world(on: any, files: Files, opts: { host?: string; usage?: any; messag
   on('fs.write', (_: any, e: any) => {
     if (opts.denyWrite) return { deny: opts.denyWrite };
     const p = norm(e.path);
+    if (opts.denyPath && opts.denyPath.test(p)) return { deny: 'EPERM: ' + p };
     if (!(opts.onWrite && opts.onWrite(p, String(e.text)))) files[p] = String(e.text);
     mtime[p] = Date.now();
     return { value: undefined };
@@ -1149,4 +1150,232 @@ test('L8: oldModelWarn does not read the transcript once the session was told', 
   files[HOME + '/old-model-warn.json'] = '{}';
   await go();
   expect(transcriptReads).toBeGreaterThan(told);
+});
+
+// ---- 0.6.6 WP4: clear handoff reproductions, nudge machine-wide stamp, line_tokens ----
+
+const evList = (files: Files): any[] => evText(files).split('\n').filter(Boolean).map((l) => JSON.parse(l)).filter((x) => x && x.event);
+const evOf = (files: Files, name: string) => evList(files).filter((x) => x.event === name);
+const MIN = 60 * 1000;
+const marker = (from: string, ageMs: number, extra: object = {}) => JSON.stringify({ from, host: HOST, cwd: '/w', at: Date.now() - ageMs, ...extra });
+const autoNote = (body: string) => '# Handoff note (auto, no LLM)\n' + body + '\n';
+const ctxOf = (r: any) => (r.additionalContext || []).join('\n');
+const clearTranscript = () => prompt('wrap up and clear') + asst([{ type: 'tool_use', id: 'c1', name: 'mcp__ccd_session_mgmt__clear_session', input: { session_id: 'self' } }]) + result('c1');
+
+test('repro 1: Stop -> startup restores once -> the first prompt of the new session injects nothing again', async ($, on) => {
+  const files: Files = { '/t/S1.jsonl': clearTranscript(), [sessionFileName(DIR, 'S1', true)]: '# note by Claude\nship the mod\n' };
+  world(on, files, { host: HOST });
+  on('classic.Stop', () => ({}));
+  on('classic.SessionStart', () => ({}));
+  on('classic.UserPromptSubmit', () => ({}));
+  await $.classic.Stop({ session_id: 'S1', cwd: '/w', transcript_path: '/t/S1.jsonl' } as any);
+  const r1: any = await $.classic.SessionStart({ source: 'startup', session_id: 'S2', cwd: '/w', transcript_path: '/t/S2.jsonl' } as any);
+  expect(ctxOf(r1)).toContain('ship the mod');
+  const r2: any = await $.classic.UserPromptSubmit({ session_id: 'S2', cwd: '/w', prompt: 'hi' } as any);
+  expect(ctxOf(r2)).not.toContain('ship the mod');
+  expect(evOf(files, 'handoff_restore').length).toBe(1);
+});
+
+test('repro 2: startup before the marker exists -> the first prompt restores, the second prompt is silent', async ($, on) => {
+  const files: Files = { '/t/S1.jsonl': clearTranscript(), [sessionFileName(DIR, 'S1', true)]: '# note by Claude\nship the mod\n' };
+  world(on, files, { host: HOST });
+  on('classic.Stop', () => ({}));
+  on('classic.SessionStart', () => ({}));
+  on('classic.UserPromptSubmit', () => ({}));
+  const r0: any = await $.classic.SessionStart({ source: 'startup', session_id: 'S2', cwd: '/w', transcript_path: '/t/S2.jsonl' } as any);
+  expect(ctxOf(r0)).not.toContain('ship the mod');
+  await $.classic.Stop({ session_id: 'S1', cwd: '/w', transcript_path: '/t/S1.jsonl' } as any);
+  const p1: any = await $.classic.UserPromptSubmit({ session_id: 'S2', cwd: '/w', prompt: 'hi' } as any);
+  expect(ctxOf(p1)).toContain('ship the mod');
+  const p2: any = await $.classic.UserPromptSubmit({ session_id: 'S2', cwd: '/w', prompt: 'again' } as any);
+  expect(ctxOf(p2)).not.toContain('ship the mod');
+});
+
+test('repro 3: the marker consume write fails -> the next prompt does not inject the note again, one handoff_restore event', async ($, on) => {
+  const files: Files = {
+    [pendingClearName(DIR, HOST)]: marker('OLD', 1000),
+    [sessionFileName(DIR, 'OLD')]: autoNote('auto note body'),
+  };
+  world(on, files, { host: HOST, denyPath: /pending-clear-/ });
+  on('classic.UserPromptSubmit', () => ({}));
+  const p1: any = await $.classic.UserPromptSubmit({ session_id: 'NEW', cwd: '/w', prompt: 'hi' } as any);
+  expect(ctxOf(p1)).toContain('auto note body');
+  expect(files[pendingClearName(DIR, HOST)]).not.toBe('{}'); // the write really failed
+  const p2: any = await $.classic.UserPromptSubmit({ session_id: 'NEW', cwd: '/w', prompt: 'again' } as any);
+  expect(ctxOf(p2)).not.toContain('auto note body');
+  expect(evOf(files, 'handoff_restore').length).toBe(1);
+});
+
+test('repro 4: a marker 61 minutes old is dropped at startup and the drop is recorded as expired', async ($, on) => {
+  const files: Files = {
+    [pendingClearName(DIR, HOST)]: marker('OLD', 61 * MIN),
+    [sessionFileName(DIR, 'OLD')]: autoNote('auto note body'),
+  };
+  world(on, files, { host: HOST });
+  on('classic.SessionStart', () => ({}));
+  const r: any = await $.classic.SessionStart({ source: 'startup', session_id: 'S2', cwd: '/w', transcript_path: '/t/S2.jsonl' } as any);
+  expect(ctxOf(r)).not.toContain('auto note body');
+  const drops = evOf(files, 'handoff_drop');
+  expect(drops.length).toBe(1);
+  expect(drops[0].reason).toBe('expired');
+  expect(drops[0].source).toBe('clear_start');
+  expect(drops[0].from_session).toBe('OLD');
+  expect(typeof drops[0].age_sec).toBe('number');
+});
+
+test('handoff_drop: a marker from the session itself is recorded as own', async ($, on) => {
+  const f1: Files = { [pendingClearName(DIR, HOST)]: marker('S2', 1000), [sessionFileName(DIR, 'S2')]: autoNote('x') };
+  world(on, f1, { host: HOST });
+  on('classic.UserPromptSubmit', () => ({}));
+  await $.classic.UserPromptSubmit({ session_id: 'S2', cwd: '/w', prompt: 'hi' } as any);
+  expect(evOf(f1, 'handoff_drop').map((x) => x.reason)).toEqual(['own']);
+});
+
+test('handoff_drop: a marker whose session left no memo is recorded as no_note', async ($, on) => {
+  const f2: Files = { [pendingClearName(DIR, HOST)]: marker('NONOTE', 2000) };
+  world(on, f2, { host: HOST });
+  on('classic.UserPromptSubmit', () => ({}));
+  await $.classic.UserPromptSubmit({ session_id: 'S3', cwd: '/w', prompt: 'hi' } as any);
+  expect(evOf(f2, 'handoff_drop').map((x) => x.reason)).toEqual(['no_note']);
+});
+
+test('repro 5: a Claude memo 2h older than the marker is not used; the auto memo comes back (kind auto)', async ($, on) => {
+  const cf = sessionFileName(DIR, 'OLD', true);
+  const files: Files = {
+    [pendingClearName(DIR, HOST)]: marker('OLD', 1000),
+    [cf]: '# note by Claude\nstale claude memo\n',
+    [sessionFileName(DIR, 'OLD')]: autoNote('fresh auto memo'),
+  };
+  world(on, files, { host: HOST, ages: { [cf]: 2 * H } });
+  on('classic.UserPromptSubmit', () => ({}));
+  const r: any = await $.classic.UserPromptSubmit({ session_id: 'NEW', cwd: '/w', prompt: 'hi' } as any);
+  expect(ctxOf(r)).toContain('fresh auto memo');
+  expect(ctxOf(r)).not.toContain('stale claude memo');
+  expect(evOf(files, 'handoff_restore')[0].kind).toBe('auto');
+});
+
+test('repro 6: successive clears S1 -> S2 -> S3: S3 gets the S2 memo only', async ($, on) => {
+  const files: Files = {
+    [pendingClearName(DIR, HOST)]: marker('S1', 20 * MIN),
+    [sessionFileName(DIR, 'S1')]: autoNote('memo of S1'),
+    [sessionFileName(DIR, 'S2')]: autoNote('memo of S2'),
+  };
+  world(on, files, { host: HOST });
+  on('classic.SessionStart', () => ({}));
+  const a: any = await $.classic.SessionStart({ source: 'startup', session_id: 'S2', cwd: '/w', transcript_path: '/t/S2.jsonl' } as any);
+  expect(ctxOf(a)).toContain('memo of S1');
+  files[pendingClearName(DIR, HOST)] = marker('S2', 10 * MIN); // S2 cleared itself 10 minutes later
+  const b: any = await $.classic.SessionStart({ source: 'startup', session_id: 'S3', cwd: '/w', transcript_path: '/t/S3.jsonl' } as any);
+  expect(ctxOf(b)).toContain('memo of S2');
+  expect(ctxOf(b)).not.toContain('memo of S1');
+});
+
+test('handoff_restore carries tokens_at_clear (from the marker) and hinted (a hint recorded within 3h before the marker)', async ($, on) => {
+  const f1: Files = {
+    [pendingClearName(DIR, HOST)]: marker('OLD', 1000, { tokens: 210000 }),
+    [sessionFileName(DIR, 'OLD')]: autoNote('body'),
+    [TG]: JSON.stringify({ OLD: { cwd: '/w', hintAt: 160000, ts: Date.now() - 20 * MIN } }),
+  };
+  world(on, f1, { host: HOST });
+  on('classic.UserPromptSubmit', () => ({}));
+  await $.classic.UserPromptSubmit({ session_id: 'N1', cwd: '/w', prompt: 'hi' } as any);
+  const e1 = evOf(f1, 'handoff_restore')[0];
+  expect(e1.tokens_at_clear).toBe(210000);
+  expect(e1.hinted).toBe(true);
+});
+
+test('handoff_restore without a hint on record: hinted false and no tokens_at_clear for a marker that has no size', async ($, on) => {
+  const f2: Files = { [pendingClearName(DIR, HOST)]: marker('OLD', 1000), [sessionFileName(DIR, 'OLD')]: autoNote('body') };
+  world(on, f2, { host: HOST });
+  on('classic.UserPromptSubmit', () => ({}));
+  await $.classic.UserPromptSubmit({ session_id: 'N2', cwd: '/w', prompt: 'hi' } as any);
+  const e2 = evOf(f2, 'handoff_restore')[0];
+  expect(e2.hinted).toBe(false);
+  expect('tokens_at_clear' in e2).toBe(false);
+});
+
+test('Stop writes the context size into the clear marker (tokens)', async ($, on) => {
+  const files: Files = { '/t/S1.jsonl': clearTranscript() };
+  world(on, files, { host: HOST, usage: { startedAt: 0, context: { tokens: 123456, window: 1000000 }, rateLimits: [] } });
+  on('classic.Stop', () => ({}));
+  await $.classic.Stop({ session_id: 'S1', cwd: '/w', transcript_path: '/t/S1.jsonl' } as any);
+  expect(JSON.parse(files[pendingClearName(DIR, HOST)]!).tokens).toBe(123456);
+});
+
+const redUsage66 = () => {
+  const resets = new Date(Date.now() + 3 * 86400 * 1000).toISOString();
+  return { startedAt: 0, context: { tokens: 1000, window: 200000 }, rateLimits: [{ kind: 'seven_day', percentUsed: 97, resetsAt: resets }, { kind: 'five_hour', percentUsed: 97, resetsAt: resets }] };
+};
+
+test('nudge machine-wide stamp: a second session starting at the same red stays silent; _global is saved', async ($, on) => {
+  const files: Files = { [HOME + '/config.json']: JSON.stringify({ nudge: true }) };
+  world(on, files, { usage: redUsage66() });
+  on('classic.SessionStart', () => ({}));
+  await $.classic.SessionStart({ source: 'startup', session_id: 'A', cwd: '/w', transcript_path: '/t/A.jsonl' } as any);
+  await $.classic.SessionStart({ source: 'startup', session_id: 'B', cwd: '/w', transcript_path: '/t/B.jsonl' } as any);
+  expect(evOf(files, 'nudge').map((x) => x.session)).toEqual(['A']);
+  const book = JSON.parse(files[HOME + '/nudge.json']!);
+  expect(book._global.grade).toBe('red');
+  expect(typeof book._global.ts).toBe('number');
+});
+
+test('nudge book: the _global stamp survives the 50-session trim and is not counted in it', async ($, on) => {
+  const old: Record<string, unknown> = { _global: { grade: 'yellow', ts: 1 } };
+  for (let i = 0; i < 60; i++) old['s' + i] = { grade: 'green', ts: 1000 + i };
+  const files: Files = { [HOME + '/config.json']: JSON.stringify({ nudge: true }), [HOME + '/nudge.json']: JSON.stringify(old) };
+  world(on, files, { usage: redUsage66() });
+  on('classic.SessionStart', () => ({}));
+  await $.classic.SessionStart({ source: 'startup', session_id: 'NEWEST', cwd: '/w', transcript_path: '/t/N.jsonl' } as any);
+  const book = JSON.parse(files[HOME + '/nudge.json']!);
+  expect(book._global.grade).toBe('red');
+  expect(Object.keys(book).filter((k) => !k.startsWith('_')).length).toBe(50);
+  expect(book.NEWEST).toBeDefined();
+});
+
+test('line_tokens: the nudge event carries the size of the injected line', async ($, on) => {
+  const files: Files = { [HOME + '/config.json']: JSON.stringify({ nudge: true }) };
+  world(on, files, { usage: redUsage66() });
+  on('classic.SessionStart', () => ({}));
+  await $.classic.SessionStart({ source: 'startup', session_id: 'A', cwd: '/w', transcript_path: '/t/A.jsonl' } as any);
+  const n = evOf(files, 'nudge')[0];
+  expect(typeof n.line_tokens).toBe('number');
+  expect(n.line_tokens).toBeGreaterThan(10);
+});
+
+test('line_tokens: topic_gate and inline_hint events (first hint is the full line)', async ($, on) => {
+  const files: Files = {
+    [SIDE]: JSON.stringify({ commits: [], files: [], stopAt: Date.now() - 2 * H }),
+    [TG]: JSON.stringify({ S1: { cwd: '/w', promptAt: Date.now() - 3 * H, ts: Date.now() - 3 * H } }),
+  };
+  world(on, files, { messages: [{ role: 'assistant', content: [] }], usage: bigUsage });
+  on('classic.UserPromptSubmit', () => ({}));
+  const r: any = await $.classic.UserPromptSubmit({ session_id: 'S1', cwd: '/w', prompt: 'next', transcript_path: '/t/big.jsonl' } as any);
+  const g = evOf(files, 'topic_gate')[0];
+  const h = evOf(files, 'inline_hint')[0];
+  expect(typeof g.line_tokens).toBe('number');
+  expect(typeof h.line_tokens).toBe('number');
+  expect(ctxOf(r)).toContain('clear_session'); // first hint: the full instructions
+});
+
+test('inline hint after the first one is the short line without the full instructions', async ($, on) => {
+  const usage = { startedAt: 0, context: { tokens: 270000, window: 1000000 }, rateLimits: [] };
+  const files: Files = { [HOME + '/config.json']: JSON.stringify({ topicGate: false, topicCheck: false }), [TG]: JSON.stringify({ S1: { cwd: '/w', hintAt: 150000, ts: Date.now() } }) };
+  world(on, files, { usage, host: HOST });
+  on('classic.UserPromptSubmit', () => ({}));
+  const r: any = await $.classic.UserPromptSubmit({ session_id: 'S1', cwd: '/w', prompt: 'next', transcript_path: '/t/S1.jsonl' } as any);
+  const ev = evOf(files, 'inline_hint')[0];
+  expect(ev).toBeDefined();
+  expect(ctxOf(r)).not.toContain('Good time to /compact'); // the full instructions went out with the first hint
+  expect(ev.line_tokens).toBeLessThanOrEqual(90);
+});
+
+test('line_tokens: the topic_check event', async ($, on) => {
+  const usage = { startedAt: 0, context: { tokens: 215000, window: 1000000 }, rateLimits: [] };
+  const files: Files = { [TG]: JSON.stringify({ S1: { cwd: '/w', hintAt: 150000, ts: Date.now() } }) };
+  world(on, files, { usage });
+  on('classic.UserPromptSubmit', () => ({}));
+  await $.classic.UserPromptSubmit({ session_id: 'S1', cwd: '/w', prompt: 'next', transcript_path: '/t/S1.jsonl' } as any);
+  const t = evOf(files, 'topic_check')[0];
+  expect(typeof t.line_tokens).toBe('number');
+  expect(t.line_tokens).toBeGreaterThan(0);
 });

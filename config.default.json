@@ -7,6 +7,8 @@
   "updateCheck": true,
   "wrap": null,
   "yellowMargin": 10,
+  "yellowAbove": 5,
+  "nudgeCooldownSec": 10800,
   "redAt": 90,
   "floors": {
     "5h": {

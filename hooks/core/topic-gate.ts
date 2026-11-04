@@ -97,15 +97,15 @@ export function decideTopicCheck(
 export function topicCheckMessage(lang: string | undefined, tokens: number, file: string, app?: boolean): string {
   const t = tokLabel(tokens, lang);
   if (app && lang === 'ko') {
-    return `Token Stamina: 컨텍스트 ${t}. 데스크탑 앱이에요. 이번 요청이 앞의 작업과 다른 주제면, 답 끝에 결정·남은 일을 ${file} 에 쓰고 "비우기"/"비우지 않기" 카드(버튼)로만 물으세요. 채팅 글로 /compact·/clear 안내를 쓰지 마세요. 누르면 clear_session self 를 호출해요. 앱의 새 세션 카드가 이미 떴으면 그 카드에서 멈추고 비우기는 그 뒤에 제안하세요. 같은 주제면 이 줄은 무시하세요.`;
+    return `Token Stamina: 컨텍스트 ${t}. 이번 요청이 앞 작업과 다른 주제면 답 끝에 메모(${file})를 쓰고 "비우기"/"비우지 않기" 카드로만 물으세요(앱의 새 세션 카드가 떠 있으면 그 뒤에). 같은 주제면 무시하세요.`;
   }
   if (app) {
-    return `Token Stamina: context ${t}. This is the Claude desktop app. If this request is a different topic from the work so far, end your reply by writing decisions and open items to ${file} and asking with a "Clear" / "Keep going" card (buttons) only. Do not write /compact or /clear instructions as chat text. On accept call clear_session self. If the app's own new-session card is already up for this request, stop at that card and offer the clear only afterwards. If it is the same topic, ignore this line.`;
+    return `Token Stamina: context ${t}. If this request is a different topic from the work so far, end your reply by writing the note (${file}) and asking with a "Clear" / "Keep going" card only (after the app's own new-session card, if one is up). Same topic: ignore this line.`;
   }
   if (lang === 'ko') {
-    return `Token Stamina: 컨텍스트 ${t}. 이번 요청이 앞의 작업과 다른 주제면, 답 끝에 결정·남은 일을 ${file} 에 쓰고 "비우기"/"비우지 않기" 버튼으로 물으세요(데스크탑 앱: 누르면 clear_session self, CLI: /clear 안내). 같은 주제면 이 줄은 무시하세요.`;
+    return `Token Stamina: 컨텍스트 ${t}. 이번 요청이 앞 작업과 다른 주제면 답 끝에 메모(${file})를 쓰고 "비우기"/"비우지 않기" 버튼으로 물으세요(앱: 누르면 clear_session self, CLI: /clear 안내). 같은 주제면 무시하세요.`;
   }
-  return `Token Stamina: context ${t}. If this request is a different topic from the work so far, end your reply by writing decisions and open items to ${file} and asking with "Clear" / "Keep going" buttons (desktop app: clear_session self on accept; CLI: suggest /clear). If it is the same topic, ignore this line.`;
+  return `Token Stamina: context ${t}. If this request is a different topic from the work so far, end your reply by writing the note (${file}) and asking with "Clear" / "Keep going" buttons (app: clear_session self on accept; CLI: suggest /clear). Same topic: ignore this line.`;
 }
 
 export function message(lang: string | undefined, tokens: number, idleSec: number, cwdChanged: boolean, file: string, app?: boolean): string {
@@ -119,20 +119,22 @@ export function message(lang: string | undefined, tokens: number, idleSec: numbe
         ? 'working folder changed'
         : `${Math.round(idleSec / 3600)}h idle`;
   if (app && lang === 'ko') {
-    return `Token Stamina: 컨텍스트 ${t}, ${why}. 데스크탑 앱이에요. 이번 요청이 이전 작업과 무관하면: 짧은 인계 메모를 ${file} 에 쓰고, 카드(버튼)로만 새 시작을 제안하세요(clear_session self 또는 새 세션). 채팅 글로 /clear 안내를 쓰지 마세요. 관련 있으면 이 줄은 무시하세요.`;
+    return `Token Stamina: 컨텍스트 ${t}, ${why}. 이번 요청이 이전 작업과 무관하면 인계 메모를 ${file} 에 쓰고 카드(버튼)로만 새 시작(비우기 또는 새 세션)을 제안하세요. 관련 있으면 무시하세요.`;
   }
   if (app) {
-    return `Token Stamina: context ${t}, ${why}. This is the Claude desktop app. If this request is unrelated to prior work: write a short handoff to ${file}, then offer a fresh start with a card (buttons) only (clear_session self / new session). Do not write /clear instructions as chat text. Otherwise ignore.`;
+    return `Token Stamina: context ${t}, ${why}. If this request is unrelated to prior work, write a short handoff to ${file} and offer a fresh start (clear or new session) with a card (buttons) only. Otherwise ignore.`;
   }
   if (lang === 'ko') {
-    return `Token Stamina: 컨텍스트 ${t}, ${why}. 이번 요청이 이전 작업과 무관하면: 짧은 인계 메모를 ${file} 에 쓰고, 새 시작을 제안하세요(데스크탑 앱: clear_session self 또는 새 세션, CLI: /clear 안내). 관련 있으면 이 줄은 무시하세요.`;
+    return `Token Stamina: 컨텍스트 ${t}, ${why}. 이번 요청이 이전 작업과 무관하면 인계 메모를 ${file} 에 쓰고 새 시작을 제안하세요(앱: clear_session self 또는 새 세션, CLI: /clear 안내). 관련 있으면 무시하세요.`;
   }
-  return `Token Stamina: context ${t}, ${why}. If this request is unrelated to prior work: write a short handoff to ${file}, then offer a fresh start (desktop app: clear_session self / new session; CLI: suggest /clear). Otherwise ignore.`;
+  return `Token Stamina: context ${t}, ${why}. If this request is unrelated to prior work, write a short handoff to ${file} and offer a fresh start (app: clear_session self / new session; CLI: suggest /clear). Otherwise ignore.`;
 }
 
 // Inline compact hint: Claude cannot see its own context size, so once the context passes compactAt
 // we tell it the size and ask it to put the /compact hint in its reply when the task ends.
 // That works on every surface (desktop, IDE, CLI), unlike a systemMessage the user may never see.
+// first = the first hint in this session (full instructions); later hints are one short line that points back to it.
+// The app variant carries only the clear estimate; the CLI variant carries both.
 export function hintMessage(
   lang: string | undefined,
   tokens: number,
@@ -140,21 +142,30 @@ export function hintMessage(
   cfg: Record<string, unknown> | undefined,
   prof: Parameters<typeof hintLine>[4],
   app?: boolean,
+  first: boolean = true,
 ): string {
   const t = tokLabel(tokens, lang);
   const est = hintLine(tokens, lang, 'compact', cfg as any, prof);
   const estClear = hintLine(tokens, lang, 'clear', cfg as any, prof);
-  const tail = `${est ? ` ${lang === 'ko' ? '권장 문구 옆에 이 추정을 그대로 붙이세요(숫자를 바꾸거나 금액·한도 %로 환산하지 마세요)' : 'Put this estimate next to the recommendation as is (do not change the numbers or convert to money or limit %)'}: "${est}"` : ''}${estClear ? ` ${lang === 'ko' ? '비우기 버튼 카드에는' : 'On the Clear button card'}: "${estClear}"` : ''}`;
-  if (app && lang === 'ko') {
-    return `Token Stamina: 컨텍스트 ${t} 토큰(매 턴 다시 읽음). 데스크탑 앱이에요. 이번 작업이 끝나면(커밋·결정·답 직후) 채팅 글로 /compact 안내를 쓰지 말고 카드(버튼) 한 번으로만 알리세요: 결정·남은 일을 ${file} 에 쓰고, "비우기" 버튼(또는 예/아니오 질문)으로 묻고, 사용자가 누르면 clear_session self 를 호출하세요(비운 뒤 그 메모가 자동 복원돼요). 다음 일이 다른 주제면 새 세션 카드를 권하세요. 카드를 띄울 도구가 이번 세션에 없을 때만 /compact 한 줄로 대신하세요. 작업이 아직 진행 중이면 끝날 때까지 미루세요.${tail}`;
-  }
+  const ko = lang === 'ko';
   if (app) {
-    return `Token Stamina: context is ${t} tokens (re-read every turn). This is the Claude desktop app. When this task finishes (after a commit, decision or answer), do not write a /compact instruction as chat text; offer one card (buttons) only: write decisions and open items to ${file}, offer a "Clear" button (or a yes/no question), and when the user accepts call clear_session self (the note is restored after the clear). If the next work is a different topic, offer a new-session card instead. Fall back to a one-line /compact only if no card tool is available in this session. If the task is still in progress, wait until it ends.${tail}`;
+    if (!first) {
+      return ko
+        ? `Token Stamina: 컨텍스트 ${t} 토큰. 끝나면 앞서 안내대로 메모(${file}) 쓰고 "비우기" 카드로 물으세요.${estClear ? ` "${estClear}"` : ''}`
+        : `Token Stamina: context ${t} tokens. When done, write the note (${file}) and use the "Clear" card as before.${estClear ? ` "${estClear}"` : ''}`;
+    }
+    return ko
+      ? `Token Stamina: 컨텍스트 ${t} 토큰(매 턴 다시 읽음). 이번 작업이 끝나면(커밋·결정·답 직후) 결정·남은 일을 ${file} 에 쓰고 "비우기" 버튼 카드로만 물으세요(채팅 글로 /compact 안내 금지). 누르면 clear_session self — 메모는 비운 뒤 자동 복원돼요. 다음 일이 다른 주제면 새 세션 카드를, 진행 중이면 끝날 때까지 미루세요.${estClear ? ` 카드에 이 추정을 그대로: "${estClear}"` : ''}`
+      : `Token Stamina: context ${t} tokens (re-read every turn). When this task finishes (commit, decision or answer), write decisions and open items to ${file} and ask with a "Clear" button card only (no /compact text in chat). On accept call clear_session self; the note is restored after the clear. Offer a new-session card if the next work is a different topic; if the task is still running, wait.${estClear ? ` Put this estimate on the card as is: "${estClear}"` : ''}`;
   }
-  if (lang === 'ko') {
-    return `Token Stamina: 컨텍스트 ${t} 토큰(매 턴 다시 읽음). 이번 작업이 끝나면(커밋·결정·답 직후) 답 끝에 "지금 /compact 하기 좋은 때예요"와 바로 붙여 넣을 한 줄(/compact 남길 결정·열린 PR·남은 일)을 쓰세요. 다음 일이 다른 주제면 새 세션을 권하세요. 그냥 /compact 만 쳐도 인계 메모가 복원된다고 덧붙여도 돼요. clear_session 같은 세션 비우기 도구가 있으면(Claude 데스크탑 앱) 붙여 넣을 줄 대신 클릭 한 번으로 끝나게 하세요: 결정·남은 일을 ${file} 에 쓰고, "비우기" 버튼(또는 예/아니오 질문)으로 묻고, 사용자가 누르면 clear_session self 를 호출하세요(비운 뒤 그 메모가 자동 복원돼요). 작업이 아직 진행 중이면 끝날 때까지 미루세요.${est ? ` 권장 문구 옆에 이 추정을 그대로 붙이세요(숫자를 바꾸거나 금액·한도 %로 환산하지 마세요): "${est}"` : ''}${estClear ? ` 비우기 버튼 카드에는: "${estClear}"` : ''}`;
+  if (!first) {
+    return ko
+      ? `Token Stamina: 컨텍스트 ${t} 토큰. 작업이 끝나면 앞서 안내한 대로 "/compact" 한 줄(또는 clear_session 카드)로 알리세요.${est ? ` 추정: "${est}"` : ''}${estClear ? ` 비우기 카드에: "${estClear}"` : ''}`
+      : `Token Stamina: context ${t} tokens. When the task finishes, give the /compact line (or the clear_session card) as instructed earlier.${est ? ` Estimate: "${est}"` : ''}${estClear ? ` On the Clear card: "${estClear}"` : ''}`;
   }
-  return `Token Stamina: context is ${t} tokens (re-read every turn). When this task finishes (after a commit, decision or answer), end your reply with "Good time to /compact" and one line the user can paste: /compact <decisions to keep, open PRs, what is left>. If the next work is a different topic, suggest a new session instead. You may add that plain /compact also works (the handoff note is restored). If you have a session-clearing tool such as clear_session (Claude desktop app), make it one click instead of a paste line: write decisions and open items to ${file}, offer a "Clear" button (or a yes/no question), and when the user accepts call clear_session self (the note is restored after the clear). If the task is still in progress, wait until it ends.${est ? ` Put this estimate next to the recommendation as is (do not change the numbers or convert to money or limit %): "${est}"` : ''}${estClear ? ` On the Clear button card: "${estClear}"` : ''}`;
+  return ko
+    ? `Token Stamina: 컨텍스트 ${t} 토큰(매 턴 다시 읽음). 이번 작업이 끝나면(커밋·결정·답 직후) 답 끝에 "지금 /compact 하기 좋은 때예요"와 바로 붙여 넣을 한 줄(/compact 남길 결정·열린 PR·남은 일)을 쓰세요. 다른 주제로 넘어가면 새 세션을 권하세요. 그냥 /compact 만 쳐도 인계 메모가 복원돼요. clear_session 도구가 있으면(데스크탑 앱) 결정·남은 일을 ${file} 에 쓰고 "비우기" 버튼으로 물은 뒤 누르면 clear_session self 를 호출하세요. 진행 중이면 끝날 때까지 미루세요.${est ? ` 추정을 그대로 붙이세요(숫자 변환 금지): "${est}"` : ''}${estClear ? ` 비우기 카드에: "${estClear}"` : ''}`
+    : `Token Stamina: context ${t} tokens (re-read every turn). When this task finishes (after a commit, decision or answer), end your reply with "Good time to /compact" and one line the user can paste: /compact <decisions to keep, open PRs, what is left>. Suggest a new session if the next work is a different topic. Plain /compact also works (the handoff note is restored). With a clear_session tool (desktop app), write decisions and open items to ${file}, ask with a "Clear" button, and on accept call clear_session self. If the task is still running, wait.${est ? ` Put this estimate next to it as is (no conversions): "${est}"` : ''}${estClear ? ` On the Clear card: "${estClear}"` : ''}`;
 }
 
 export interface HintResult { hint: boolean; hintAt: number | null }

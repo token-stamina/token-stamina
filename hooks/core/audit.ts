@@ -233,6 +233,8 @@ export interface AuditReport {
   claude_json_unreadable: boolean;
   // true when a transcript was skipped (over 4 MiB): a candidate's "0 calls" may be wrong
   candidates_uncertain: boolean;
+  // `file.<pid>.tmp` leftovers of the old Node build in the data folder
+  leftoverTmp: { count: number; dir: string };
 }
 
 export async function buildReport(io: CmdIO, opts: AuditOpts): Promise<AuditReport> {
@@ -275,6 +277,9 @@ export async function buildReport(io: CmdIO, opts: AuditOpts): Promise<AuditRepo
     candidates.push({ kind: 'mcp', name: m.name, origin: m.origin, why: 'no calls in window', how: 'claude mcp remove ' + m.name + '  (or app: Settings -> Connectors/Extensions)', tokens: null });
   }
 
+  const dataList = (await io.list(opts.dataDir)) || [];
+  const leftoverTmp = { count: dataList.filter((e) => e.kind === 'file' && /\.\d+\.tmp$/.test(e.name)).length, dir: opts.dataDir };
+
   return {
     generated: new Date().toISOString(), cwd: opts.cwd, days: opts.days,
     always_loaded: { files, total_tokens_est: files.reduce((a, f) => a + f.tokens_est, 0), note: 'estimate: ASCII chars/4 + non-ASCII chars/1.5' },
@@ -282,6 +287,7 @@ export async function buildReport(io: CmdIO, opts: AuditOpts): Promise<AuditRepo
     mcp_usage: servers, skill_usage: skills, candidates, scan: usage.stats,
     claude_json_unreadable: claudeJsonUnreadable,
     candidates_uncertain: usage.stats.files_skipped > 0,
+    leftoverTmp,
   };
 }
 
@@ -355,5 +361,9 @@ export function render(r: AuditReport, lang: string): string {
   if (r.scan.files_skipped) m.push(L(`4 MiB 를 넘어 읽지 못한 기록 ${r.scan.files_skipped}개는 건너뛰었어요.`, `${r.scan.files_skipped} transcript(s) over 4 MiB were skipped.`));
   if (r.claude_json_unreadable) m.push(L('~/.claude.json 이 4 MiB 를 넘어 읽지 못했어요: 거기 등록한 MCP 서버는 후보에서 빠졌어요.', '~/.claude.json is over 4 MiB and was not read: MCP servers configured there are not listed as candidates.'));
   out.push(m.join(' '));
+  if (r.leftoverTmp && r.leftoverTmp.count > 0) {
+    const n = r.leftoverTmp.count, d = r.leftoverTmp.dir;
+    out.push(L(`임시 파일 ${n}개 남음(옛 Node 판 흔적, 지워도 돼요): ${d}`, `${n} leftover temp files (old Node build; safe to delete): ${d}`));
+  }
   return out.join('\n');
 }

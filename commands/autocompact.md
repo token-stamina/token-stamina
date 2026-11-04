@@ -30,7 +30,7 @@ Files (turn `~` into the user's home folder; the tools need absolute paths):
 4. Only after an explicit yes, in this order:
    1. Write the backup file with exactly the text you read from `SETTINGS` (skip it when `SETTINGS` does not change).
    2. Edit `SETTINGS`: set the string value of `env.CLAUDE_CODE_AUTO_COMPACT_WINDOW`, creating `env` when missing. For `default`, remove that key, and remove `env` when it ends up empty. Change nothing else and keep the file's indentation and key order. Do not touch `CLAUDE_AUTOCOMPACT_PCT_OVERRIDE`; mention it if set.
-   3. Read `CONFIG` (missing counts as `{}`; if it exists but is not valid JSON, do not overwrite it, tell the user). Set `compactWindowTokens` to the new number, or remove the key for `default`, keep every other key, and write it back (Write; it creates the folder). Token Stamina's hint thresholds follow this number (hint at about 40% of the window, new-session advice at about 95%, topic gate at about 50%).
+   3. Read `CONFIG` (missing counts as `{}`; if it exists but is not valid JSON, do not overwrite it, tell the user). Set `compactWindowTokens` to the new number, or remove the key for `default`, keep every other key, and write it back (Write; it creates the folder). Token Stamina's hint thresholds follow this number (hint at 150k or 40% of the window, whichever is lower; topic gate at 200k or 50%, whichever is lower; new-session advice at 95%).
 5. Tell the user the new point applies to sessions started after a Claude Code restart, and which backup file was made.
 
 Never edit anything without an explicit choice and a yes to the preview.

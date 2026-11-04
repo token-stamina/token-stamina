@@ -20,7 +20,10 @@ export const RANK: Record<string, number> = { green: 0, yellow: 1, red: 2 };
 
 export interface Floor { yellow?: number; red?: number }
 export interface PaceConfig {
+  // yellowMargin is the RED margin (name kept for config compatibility): red above expected + yellowMargin.
   yellowMargin?: number;
+  // Yellow margin: yellow above expected + yellowAbove (default 5), so near-pace use stays green.
+  yellowAbove?: number;
   redAt?: number;
   floors?: { '5h'?: Floor; '7d'?: Floor };
   stateMaxAgeSec?: number;
@@ -66,13 +69,15 @@ export function windowStats(
   if (remaining <= 0) return null; // window reset since the value was recorded
   const e = Math.min(1, Math.max(0, 1 - remaining / windowSec));
   const margin = cfg && cfg.yellowMargin != null ? cfg.yellowMargin : 10;
+  const yAbove = cfg && cfg.yellowAbove != null ? cfg.yellowAbove : 5;
   const redAt = cfg && cfg.redAt != null ? cfg.redAt : 90;
   const expected = e * 100;
+  const cmp = Math.round(expected * 1e6) / 1e6; // margins compare on a rounded value so float noise cannot flip a boundary
   // Floors keep the first minutes of a window from turning red on a few percent (mainly the 5h window).
   const floor: Floor = (cfg && cfg.floors && cfg.floors[windowSec === FIVE ? '5h' : '7d']) || {};
   let grade: 'green' | 'yellow' | 'red' = 'green';
-  if (u >= redAt || (u > expected + margin && u >= (floor.red || 0))) grade = 'red';
-  else if (u > expected && u >= (floor.yellow || 0)) grade = 'yellow';
+  if (u >= redAt || (u > cmp + margin && u >= (floor.red || 0))) grade = 'red';
+  else if (u > cmp + yAbove && u >= (floor.yellow || 0)) grade = 'yellow';
   return { used: u, elapsedPct: expected, remainingSec: remaining, resetsAt: r, grade };
 }
 
@@ -99,6 +104,7 @@ export interface AssessResult {
   h5?: WindowStatsResult | null;
   quota?: number | null;
   exhaust5h?: number | null;
+  exhaust7d?: number | null;
   staleWindows?: string[];
 }
 
@@ -140,6 +146,7 @@ export function assess(state: PaceState | null | undefined, now: number, cfg?: P
     h5,
     staleWindows,
     quota: d7 ? dailyQuota(d7.used, d7.remainingSec) : null,
+    exhaust7d: d7 ? exhaustAt(state.seven_day, WEEK, now) : null,
     exhaust5h: h5 ? exhaustAt(state.five_hour, FIVE, now) : null,
   };
 }
@@ -164,16 +171,21 @@ export interface Thresholds { compactAt: number; newAt: number; gateAt: number }
 export function thresholds(cfg: PaceConfig | undefined, user: Record<string, unknown> | undefined): Thresholds {
   const u = user || {};
   const w = num(cfg?.compactWindowTokens) || num(u.compactWindowTokens as number);
-  const pick = (key: 'compactAtTokens' | 'newSessionAtTokens' | 'gateAtTokens', ratio: number, dflt: number): number => {
-    if (num(u[key]) !== null) return u[key] as number;
-    if (w) return Math.round(w * ratio);
-    return num(cfg?.[key]) !== null ? (cfg?.[key] as number) : dflt;
-  };
-  return {
-    compactAt: pick('compactAtTokens', 0.4, 150000),
-    newAt: pick('newSessionAtTokens', 0.95, 400000),
-    gateAt: pick('gateAtTokens', 0.5, 200000),
-  };
+  const dflt = (key: 'compactAtTokens' | 'gateAtTokens', d: number): number => (num(cfg?.[key]) !== null ? (cfg?.[key] as number) : d);
+  const D_c = dflt('compactAtTokens', 150000);
+  const D_g = dflt('gateAtTokens', 200000);
+  // A big window no longer pushes the hint/gate late: they stop at 150k / 200k at most (an explicit user key still wins).
+  const compactAt = num(u.compactAtTokens) !== null ? (u.compactAtTokens as number) : w ? Math.min(Math.round(0.4 * w), D_c) : D_c;
+  const gateAt = num(u.gateAtTokens) !== null ? (u.gateAtTokens as number) : w ? Math.min(Math.round(0.5 * w), D_g) : D_g;
+  const newAt =
+    num(u.newSessionAtTokens) !== null
+      ? (u.newSessionAtTokens as number)
+      : w
+        ? Math.round(0.95 * w)
+        : num(cfg?.newSessionAtTokens) !== null
+          ? (cfg?.newSessionAtTokens as number)
+          : 400000;
+  return { compactAt, newAt, gateAt };
 }
 
 const DAYS: Record<string, string[]> = {
@@ -197,8 +209,8 @@ export const fmt1 = (x: number): string => (Math.round(x * 10) / 10).toString();
 
 // additionalContext is invisible to the user, so when Claude relays a suggestion it must say where it came from.
 const ATTRIB: Record<string, string> = {
-  en: ' (When you pass this on to the user, start with "Token Stamina:" so they know it came from the plugin, not from you.)',
-  ko: ' (이 내용을 사용자에게 전하거나 버튼·질문으로 만들 때는 "Token Stamina 알림:"으로 시작해 플러그인 제안임을 밝히세요.)',
+  en: ' (From the plugin: when you relay this, start with "Token Stamina:".)',
+  ko: ' (플러그인 알림. 전할 때 "Token Stamina 알림:"으로 시작하세요.)',
 };
 // Languages without a message table get the English line plus a directive to answer the user in their own language.
 const LANG_NAME: Record<string, string> = { ja: 'Japanese', zh: 'Chinese' };

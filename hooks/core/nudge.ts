@@ -2,49 +2,81 @@
 // Ported from scripts/nudge.js. Already pure in the original (no fs reads inside decide/message),
 // so this is a direct port with no signature changes.
 
-import { assess, fmt1, fmtReset, fmtClock, type AssessResult, type PaceConfig, type PaceState } from './pacer.ts';
+import { assess, RANK, fmt1, fmtReset, fmtClock, type AssessResult, type PaceConfig, type PaceState } from './pacer.ts';
 
 export interface NudgeMsgTable {
-  red7: (a: AssessResult) => string;
-  red5: (a: AssessResult) => string;
-  yellow: (a: AssessResult) => string;
+  red7: (a: AssessResult, cfg?: NudgeCfg) => string;
+  red5: (a: AssessResult, cfg?: NudgeCfg) => string;
+  yellow7: (a: AssessResult, cfg?: NudgeCfg) => string;
+  yellow5: (a: AssessResult, cfg?: NudgeCfg) => string;
 }
+
+// Every % is against the window's own limit: U = used, E = share of the window already elapsed, Q = daily share
+// that lasts to the reset, X = projected exhaustion time. The Sonnet/Haiku clause is left out for people who already default to them.
+const cheapAlready = (cfg?: NudgeCfg): boolean => /^(sonnet|haiku)/i.test(String((cfg && cfg.agentModelDefault) || ''));
+const u7 = (a: AssessResult) => Math.round((a.d7 as any).used);
+const e7 = (a: AssessResult) => Math.round((a.d7 as any).elapsedPct);
+const u5 = (a: AssessResult) => Math.round((a.h5 as any).used);
+const e5 = (a: AssessResult) => Math.round((a.h5 as any).elapsedPct);
+const r7 = (a: AssessResult, lang: string) => fmtReset((a.d7 as any).resetsAt, lang);
+const r5 = (a: AssessResult) => fmtClock((a.h5 as any).resetsAt);
 
 export const MSG: Record<string, NudgeMsgTable> = {
   en: {
-    red7: (a) => `Token Stamina: weekly usage ${Math.round((a.d7 as any).used)}% is over pace; today's share is ${fmt1(a.quota as number)}% (resets ${fmtReset((a.d7 as any).resetsAt, 'en')}). Use Sonnet/Haiku for subagents and keep big outputs in subagents.`,
-    red5: (a) => `Token Stamina: 5-hour window ${Math.round((a.h5 as any).used)}% used (resets ${fmtClock((a.h5 as any).resetsAt)}). Defer big tasks until after the reset or run subagent work on Haiku/Sonnet.`,
-    yellow: (a) => `Token Stamina: slightly over pace (${a.worst}); prefer Sonnet/Haiku for routine subagent work.`,
+    red7: (a, cfg) =>
+      `Token Stamina: weekly limit ${u7(a)}% used with ${e7(a)}% of the week gone. ` +
+      (a.exhaust7d != null ? `At this rate it runs out ${fmtReset(a.exhaust7d, 'en')} (resets ${r7(a, 'en')})` : 'At this rate it runs out before the reset') +
+      `; staying under ${fmt1(a.quota as number)}% a day lasts to the reset.` +
+      (cheapAlready(cfg) ? '' : ' Use Sonnet/Haiku for subagents.'),
+    red5: (a) =>
+      `Token Stamina: 5-hour window ${u5(a)}% used with ${e5(a)}% of it gone. ` +
+      (a.exhaust5h != null ? `At this rate it runs out at ${fmtClock(a.exhaust5h)} (resets ${r5(a)}). ` : `It resets at ${r5(a)}. `) +
+      'Defer big tasks until after the reset.',
+    yellow7: (a) => `Token Stamina: weekly limit ${u7(a)}% used with ${e7(a)}% of the week gone, slightly ahead of pace. Staying under ${fmt1(a.quota as number)}% a day lasts to the reset.`,
+    yellow5: (a) => `Token Stamina: 5-hour window ${u5(a)}% used with ${e5(a)}% of it gone, slightly ahead of pace (resets ${r5(a)}).`,
   },
   ko: {
-    red7: (a) => `Token Stamina: 주간 ${Math.round((a.d7 as any).used)}% 로 오늘 몫(${fmt1(a.quota as number)}%)을 넘었어요 (리셋 ${fmtReset((a.d7 as any).resetsAt, 'ko')}). 하위 작업은 Sonnet/Haiku, 큰 출력은 하위 에이전트에.`,
-    red5: (a) => `Token Stamina: 5시간 창 ${Math.round((a.h5 as any).used)}% 사용 (리셋 ${fmtClock((a.h5 as any).resetsAt)}). 큰 작업은 리셋 뒤로 미루거나 하위 작업을 Haiku/Sonnet 으로.`,
-    yellow: (a) => `Token Stamina: 속도가 약간 빨라요(${a.worst}). 반복 하위 작업은 Sonnet/Haiku 로.`,
+    red7: (a, cfg) =>
+      `Token Stamina: 주간 한도 ${u7(a)}% 사용(기간은 ${e7(a)}% 지남). ` +
+      (a.exhaust7d != null ? `이 속도면 ${fmtReset(a.exhaust7d, 'ko')} 에 소진돼요(리셋 ${r7(a, 'ko')}).` : '이 속도면 리셋 전에 소진돼요.') +
+      ` 리셋까지 하루 ${fmt1(a.quota as number)}% 안에 쓰면 돼요.` +
+      (cheapAlready(cfg) ? '' : ' 하위 에이전트는 Sonnet/Haiku 로.'),
+    red5: (a) =>
+      `Token Stamina: 5시간 창 ${u5(a)}% 사용(시간은 ${e5(a)}% 지남). ` +
+      (a.exhaust5h != null ? `이 속도면 ${fmtClock(a.exhaust5h)} 에 소진돼요(리셋 ${r5(a)}).` : `리셋은 ${r5(a)} 이에요.`) +
+      ' 큰 작업은 리셋 뒤로 미루세요.',
+    yellow7: (a) => `Token Stamina: 주간 한도 ${u7(a)}% 사용(기간은 ${e7(a)}% 지남), 조금 빨라요. 리셋까지 하루 ${fmt1(a.quota as number)}% 안에 쓰면 돼요.`,
+    yellow5: (a) => `Token Stamina: 5시간 창 ${u5(a)}% 사용(시간은 ${e5(a)}% 지남), 조금 빨라요(리셋 ${r5(a)}).`,
   },
 };
 
-export function message(a: AssessResult, lang: string | undefined): string | null {
+export function message(a: AssessResult, lang: string | undefined, cfg?: NudgeCfg): string | null {
   const m = MSG[lang as string] || MSG.en;
-  if (a.grade === 'red') return (a.worst === '5h' ? m.red5 : m.red7)(a);
-  if (a.grade === 'yellow') return m.yellow(a);
+  if (a.grade === 'red') return (a.worst === '5h' ? m.red5 : m.red7)(a, cfg);
+  if (a.grade === 'yellow') return (a.worst === '5h' ? m.yellow5 : m.yellow7)(a, cfg);
   return null;
 }
 
 export interface NudgeCfg extends PaceConfig {
   nudge?: boolean; lang?: string;
+  nudgeCooldownSec?: number; agentModelDefault?: string;
   usageSync?: boolean; usageSyncHintCooldownSec?: number; usageSyncNaBackoffSec?: number;
 }
 export interface NudgeInput { hook_event_name?: string; session_id?: string }
-export interface DecideResult { text: string | null; grade: string | null | undefined; worst?: string | null }
+export interface NudgeGlobal { grade: string; ts: number }
+export interface DecideResult { text: string | null; grade: string | null | undefined; worst?: string | null; global?: NudgeGlobal }
 
-// Pure: returns {text|null, grade} given the previous grade recorded for this session.
-// Nudges only on a grade change (green is recorded silently); SessionStart repeats a red line.
+// Pure: returns {text|null, grade, global?} given the previous grade recorded for this session and the machine-wide
+// last alert. Nudges only on a grade change (green is recorded silently); SessionStart repeats a red line. Within
+// nudgeCooldownSec (3h) of the last alert on this machine only a worse grade speaks, so yellow/red flapping and a second
+// session's identical red stay quiet. `global` is returned only when a line is sent.
 export function decide(
   input: NudgeInput,
   state: PaceState | null | undefined,
   cfg: NudgeCfg,
   now: number,
   last: string | null | undefined,
+  global?: NudgeGlobal | null,
 ): DecideResult {
   if (cfg.nudge === false) return { text: null, grade: last };
   const a = assess(state, now, cfg);
@@ -52,7 +84,11 @@ export function decide(
   const changed = a.grade !== last;
   const sessionRed = input.hook_event_name === 'SessionStart' && a.grade === 'red';
   if (!changed && !sessionRed) return { text: null, grade: a.grade };
-  return { text: message(a, cfg.lang), grade: a.grade, worst: a.worst };
+  const cool = typeof cfg.nudgeCooldownSec === 'number' && isFinite(cfg.nudgeCooldownSec) ? cfg.nudgeCooldownSec : 10800;
+  if (global && typeof global.ts === 'number' && now - global.ts < cool && RANK[a.grade] <= (RANK[global.grade] ?? -1)) return { text: null, grade: a.grade };
+  const text = message(a, cfg.lang, cfg);
+  if (!text) return { text: null, grade: a.grade, worst: a.worst };
+  return { text, grade: a.grade, worst: a.worst, global: { grade: a.grade, ts: now } };
 }
 
 // --- Stage 0: ask Claude (desktop only) to sync the usage record via get_usage -> sync-usage.js ---

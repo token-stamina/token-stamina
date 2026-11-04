@@ -413,7 +413,7 @@ export function additionalContext(p: { text: string }): string {
 // Desktop-app clear_session starts a new CLI session without running SessionStart for a clear, so the clearing turn leaves a
 // marker keyed by the app session id (CLAUDE_CODE_HOST_SESSION_ID, unchanged across the clear); the new CLI session restores
 // from it on its first SessionStart or UserPromptSubmit, whichever runs first. Pure parts below.
-export interface PendingClear { from: string; host: string; cwd?: string; at: number }
+export interface PendingClear { from: string; host: string; cwd?: string; at: number; tokens?: number }
 
 export function pendingClearName(dir: string, host: unknown): string {
   return joinPath(dir, 'pending-clear-' + safeId(host) + '.json');
@@ -438,11 +438,19 @@ export function clearedSelf(entries: any[], host?: string): boolean {
 }
 
 // 'restore' = inject the note; 'drop' = marker is spent (invalid, expired or the current session's own). Both delete it.
-export function decidePrompt(mk: any, sid: string, nowMs: number): 'drop' | 'restore' {
-  if (!mk || typeof mk.from !== 'string' || typeof mk.at !== 'number') return 'drop';
-  if (nowMs - mk.at > CLEAR_LINK_MAX_SEC * 1000 || safeId(mk.from) === safeId(sid)) return 'drop';
-  return 'restore';
+export type PromptDecision = { action: 'restore' } | { action: 'drop'; reason: 'invalid' | 'expired' | 'own' };
+export function decidePromptReason(mk: any, sid: string, nowMs: number): PromptDecision {
+  if (!mk || typeof mk.from !== 'string' || typeof mk.at !== 'number') return { action: 'drop', reason: 'invalid' };
+  if (nowMs - mk.at > CLEAR_LINK_MAX_SEC * 1000) return { action: 'drop', reason: 'expired' };
+  if (safeId(mk.from) === safeId(sid)) return { action: 'drop', reason: 'own' };
+  return { action: 'restore' };
 }
+export function decidePrompt(mk: any, sid: string, nowMs: number): 'drop' | 'restore' {
+  return decidePromptReason(mk, sid, nowMs).action;
+}
+
+// Key of one marker for the in-process "already injected" set (a failed marker delete must not re-inject the note).
+export const markerKey = (mk: { from: string; at: number }): string => safeId(mk.from) + ':' + mk.at;
 
 export function clearContext(p: { kind: string; text: string }): string {
   return HEADER + ' [' + p.kind + ' note]\n' + stripMeta(p.text);

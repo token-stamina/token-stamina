@@ -88,6 +88,8 @@ import {
   TAIL_BYTES as HANDOFF_TAIL_BYTES,
   clearedSelf,
   decidePrompt,
+  decidePromptReason,
+  markerKey,
   clearContext,
   pickClearNote,
   pendingClearName,
@@ -417,8 +419,9 @@ async function buildProfile($: $T, env: Env, cfg: Cfg, entries: any[], raw: stri
 }
 
 // Per-session books (nudge.json, boundary.json, topic-gate.json) keep the newest 50.
+// Keys starting with "_" (nudge.json's machine-wide "_global" stamp) are not sessions: neither counted nor trimmed.
 function trimBook(book: Record<string, { ts: number }>, max = 50): void {
-  const keys = Object.keys(book);
+  const keys = Object.keys(book).filter((k) => !k.startsWith('_'));
   if (keys.length <= max) return;
   keys
     .sort((x, y) => (book[x]?.ts ?? 0) - (book[y]?.ts ?? 0))
@@ -430,19 +433,42 @@ function trimBook(book: Record<string, { ts: number }>, max = 50): void {
 async function nudge($: $T, env: Env, cfg: Cfg, state: PaceState, sid: string, event: string, nowMs: number): Promise<string | null> {
   try {
     const file = joinPath(env.home, 'nudge.json');
-    const book = await readJson($, file, {} as Record<string, { grade: string; ts: number }>);
+    const book = await readJson($, file, {} as Record<string, any>);
     const last = book[sid]?.grade;
-    const d = nudgeDecide({ hook_event_name: event }, state, cfg as NudgeCfg, Math.floor(nowMs / 1000), last);
-    if (d.grade && d.grade !== last) {
-      book[sid] = { grade: d.grade, ts: nowMs };
+    // _global = the last alert sent on this machine (seconds, as nudge.decide compares it with `now`)
+    const g = book._global;
+    const global = g && typeof g.ts === 'number' && typeof g.grade === 'string' ? { grade: g.grade as string, ts: g.ts as number } : null;
+    const nowSec = Math.floor(nowMs / 1000);
+    const d = nudgeDecide({ hook_event_name: event }, state, cfg as NudgeCfg, nowSec, last, global);
+    const gradeChanged = !!d.grade && d.grade !== last;
+    if (gradeChanged || d.global) {
+      if (gradeChanged) book[sid] = { grade: d.grade, ts: nowMs };
+      if (d.global) book._global = d.global;
       trimBook(book);
       await writeJson($, file, book);
     }
     if (!d.text) return null;
-    await appendEvent($, env, { event: 'nudge', session: sid, hook: event, grade: d.grade, worst: d.worst });
-    return attributed(d.text, cfg.lang, cfg._langAuto);
+    const line = attributed(d.text, cfg.lang, cfg._langAuto);
+    await appendEvent($, env, { event: 'nudge', session: sid, hook: event, grade: d.grade, worst: d.worst, line_tokens: estimateTokens(line) });
+    return line;
   } catch {
     return null;
+  }
+}
+
+// Marker keys this process already consumed (a marker whose delete failed must not inject its note a second time).
+const spentMarkers = new Set<string>();
+
+// Did a plugin line (hint, topic check or gate) reach the old session within 3h before it cleared?
+async function hintedBefore($: $T, env: Env, mk: { from: string; at: number }): Promise<boolean> {
+  try {
+    const book = await readJson($, joinPath(env.home, 'topic-gate.json'), {} as Record<string, any>);
+    const rec = book[mk.from];
+    if (!rec) return false;
+    const spoke = ['hintAt', 'checkedAt', 'gatedAt'].some((k) => typeof rec[k] === 'number');
+    return spoke && typeof rec.ts === 'number' && rec.ts >= mk.at - 3 * 3600 * 1000;
+  } catch {
+    return false;
   }
 }
 
@@ -455,15 +481,32 @@ async function restoreMarked($: $T, env: Env, sid: string, nowMs: number, via: s
     const pf = pendingClearName(dir, env.host);
     const mk = await readJson($, pf, null as any);
     if (!mk || !mk.from) return null;
+    const key = markerKey(mk);
+    if (spentMarkers.has(key)) return null; // already handled by this process (a failed delete must not re-inject)
     if (via === 'clear_start') await loadBand($); // the band reads the marker, which the next line spends
-    await $.fs.write(pf, '{}'); // consumed on every attempt, as the Node script's unlink
-    if (decidePrompt(mk, sid, nowMs) !== 'restore') return null;
+    // Consumed on every attempt, as the Node script's unlink. Written directly (writeText swallows the failure): a
+    // write that fails must still mark the marker spent in this process, or every later prompt injects the note again.
+    try {
+      await $.fs.write(pf, '{}');
+    } catch {
+      /* spent below all the same */
+    }
+    spentMarkers.add(key);
+    const drop = async (reason: string) => {
+      await appendEvent($, env, { event: 'handoff_drop', session: sid, source: via, reason, from_session: mk.from, age_sec: typeof mk.at === 'number' ? Math.round((nowMs - mk.at) / 1000) : null });
+      return null;
+    };
+    const dec = decidePromptReason(mk, sid, nowMs);
+    if (dec.action !== 'restore') return drop(dec.reason);
     const cf = sessionFileName(dir, mk.from, true);
     const ctext = await readNote($, cf);
     const ct = ctext === null ? null : await mtimeOf($, cf);
     const p = pickClearNote(ct === null ? null : ctext, ct, await readNote($, sessionFileName(dir, mk.from)), mk.at);
-    if (!p) return null;
-    await appendEvent($, env, { event: 'handoff_restore', session: sid, source: via, kind: p.kind, from_session: mk.from });
+    if (!p) return drop('no_note');
+    const ev: Record<string, unknown> = { event: 'handoff_restore', session: sid, source: via, kind: p.kind, from_session: mk.from };
+    if (typeof mk.tokens === 'number' && mk.tokens > 0) ev.tokens_at_clear = mk.tokens;
+    ev.hinted = await hintedBefore($, env, mk);
+    await appendEvent($, env, ev);
     await showRecent($, env, mk.from, lang);
     return clearContext(p);
   } catch {
@@ -605,6 +648,9 @@ async function onSessionStart($: $T, e: any): Promise<string[]> {
 // classic.UserPromptSubmit
 // ============================================================================
 
+// Size of one injected line as the model reads it (with the source tail).
+const lineTokens = (line: string, cfg: Cfg): number => estimateTokens(attributed(line, cfg.lang || 'en', cfg._langAuto));
+
 async function onUserPromptSubmit($: $T, e: any): Promise<string[]> {
   remember(e);
   const env = await readEnv($);
@@ -659,16 +705,19 @@ async function onUserPromptSubmit($: $T, e: any): Promise<string[]> {
 
       const lines: string[] = [];
       if (d.gate) {
-        await appendEvent($, env, { event: 'topic_gate', session: sid, tokens, idle_sec: Math.round(d.idleSec ?? 0), cwd_changed: d.cwdChanged });
-        lines.push(topicGateMessage(cfg.lang || 'en', tokens, d.idleSec ?? 0, !!d.cwdChanged, noteFile, app));
+        const line = topicGateMessage(cfg.lang || 'en', tokens, d.idleSec ?? 0, !!d.cwdChanged, noteFile, app);
+        await appendEvent($, env, { event: 'topic_gate', session: sid, tokens, idle_sec: Math.round(d.idleSec ?? 0), cwd_changed: d.cwdChanged, line_tokens: lineTokens(line, cfg) });
+        lines.push(line);
       }
       if (h.hint) {
-        await appendEvent($, env, { event: 'inline_hint', session: sid, tokens });
-        lines.push(hintMessage(cfg.lang || 'en', tokens, noteFile, cfg as TopicGateCfg, hintProf as any, app));
+        const first = !(rec && typeof rec.hintAt === 'number');
+        const line = hintMessage(cfg.lang || 'en', tokens, noteFile, cfg as TopicGateCfg, hintProf as any, app, first);
+        await appendEvent($, env, { event: 'inline_hint', session: sid, tokens, line_tokens: lineTokens(line, cfg) });
+        lines.push(line);
       }
       if (tc.check) {
         const line = topicCheckMessage(cfg.lang || 'en', tokens, noteFile, app);
-        await appendEvent($, env, { event: 'topic_check', session: sid, tokens, line_tokens: estimateTokens(attributed(line, cfg.lang || 'en', cfg._langAuto)) });
+        await appendEvent($, env, { event: 'topic_check', session: sid, tokens, line_tokens: lineTokens(line, cfg) });
         lines.push(line);
       }
       if (lines.length) out.push(attributed(lines.join(' '), cfg.lang || 'en', cfg._langAuto));
@@ -766,7 +815,7 @@ async function onStop($: $T, e: any): Promise<void> {
         }
       }
       // Desktop-app clear_session that went through: leave a marker for the new session.
-      if (cleared) await writeJson($, pendingClearName(dir, env.host), { from: sid, host: env.host, cwd: e.cwd, at: nowMs });
+      if (cleared) await writeJson($, pendingClearName(dir, env.host), { from: sid, host: env.host, cwd: e.cwd, at: nowMs, ...(usage.tokens ? { tokens: usage.tokens } : {}) });
     } catch {
       /* handoff save is best-effort */
     }

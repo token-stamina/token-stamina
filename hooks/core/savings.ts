@@ -147,6 +147,36 @@ interface Agg { count: number; tokens: number; cost: number; opus_input_equiv: n
 const agg = (): Agg => ({ count: 0, tokens: 0, cost: 0, opus_input_equiv: 0 });
 function bump(a: Agg, tokens: number, c: number): void { a.count++; a.tokens += tokens; a.cost += c; a.opus_input_equiv += opusEquiv(c); }
 
+// How much of the context shrinking followed a plugin line (see the 3h window above) and what the lines cost.
+export interface Attribution {
+  clears_hinted: number; clears_unhinted: number;
+  avg_tokens_hinted: number; avg_tokens_unhinted: number;
+  drops: { expired: number; own: number; invalid: number };
+  injected_lines: number; injected_line_tokens: number;
+}
+const CLEAR_SOURCES = new Set(['clear_start', 'clear_prompt', 'clear']);
+export const LINE_EVENTS = new Set(['inline_hint', 'topic_gate', 'topic_check', 'nudge']);
+
+export function attribution(events: any[]): Attribution {
+  const at: Attribution = { clears_hinted: 0, clears_unhinted: 0, avg_tokens_hinted: 0, avg_tokens_unhinted: 0, drops: { expired: 0, own: 0, invalid: 0 }, injected_lines: 0, injected_line_tokens: 0 };
+  const sum = { h: 0, hn: 0, u: 0, un: 0 };
+  for (const e of events) {
+    if (e.event === 'handoff_restore' && CLEAR_SOURCES.has(e.source)) {
+      // an old line without `hinted` is judged like the B/C sections: a plugin line within 3h before
+      const hinted = typeof e.hinted === 'boolean' ? e.hinted : !!e.from_session && hasAlert(events, e.from_session, Date.parse(e.ts));
+      const tok = typeof e.tokens_at_clear === 'number' && isFinite(e.tokens_at_clear) ? e.tokens_at_clear : null;
+      if (hinted) { at.clears_hinted++; if (tok !== null) { sum.h += tok; sum.hn++; } }
+      else { at.clears_unhinted++; if (tok !== null) { sum.u += tok; sum.un++; } }
+    } else if (e.event === 'handoff_drop' && (e.reason === 'expired' || e.reason === 'own' || e.reason === 'invalid')) {
+      at.drops[e.reason as 'expired' | 'own' | 'invalid']++;
+    }
+    if (LINE_EVENTS.has(e.event)) { at.injected_lines++; if (typeof e.line_tokens === 'number') at.injected_line_tokens += e.line_tokens; }
+  }
+  at.avg_tokens_hinted = sum.hn ? sum.h / sum.hn : 0;
+  at.avg_tokens_unhinted = sum.un ? sum.u / sum.un : 0;
+  return at;
+}
+
 export interface SavingsResult {
   estimate: true;
   period: { since: string; until: string };
@@ -154,6 +184,7 @@ export interface SavingsResult {
   note: string;
   assumptions: Record<string, string>;
   downgrade: any; compact: any; clear: any; topic_check_cost: any;
+  attribution: Attribution;
   total_opus_input_equiv: number;
 }
 
@@ -232,9 +263,10 @@ export async function compute(io: CmdIO, opts: { since: string; projectsDir: str
     });
   }
 
-  // C: /clear with a restored handoff note
+  // C: a clear with a restored handoff note: /clear (source 'clear') and the desktop app's clear_session (marker restore at
+  // SessionStart or at the first prompt: 'clear_start' / 'clear_prompt', what register.ts records for it)
   for (const e of events) {
-    if (e.event !== 'handoff_restore' || e.source !== 'clear') continue;
+    if (e.event !== 'handoff_restore' || !CLEAR_SOURCES.has(e.source)) continue;
     if (!e.from_session) { C.unlinked++; continue; }
     const ts = Date.parse(e.ts);
     if (!hasAlert(events, e.from_session, ts)) { C.excluded_no_alert++; continue; }
@@ -274,6 +306,7 @@ export async function compute(io: CmdIO, opts: { since: string; projectsDir: str
       attribution: 'Only manual compacts/clears within 3h after a plugin hint count; auto compacts and unhinted ones are excluded.',
     },
     downgrade: A, compact: B, clear: C, topic_check_cost: D,
+    attribution: attribution(events),
     total_opus_input_equiv: total,
   };
 }
@@ -295,6 +328,7 @@ const L: Record<string, any> = {
     c: (x: any) => '알림 뒤 비우기: ' + x.count + '건, 다시 안 읽은 토큰 ' + k(x.tokens) + ', Opus 입력 환산 ' + k(x.opus_input_equiv) + ' (추정)',
     cEx: (x: any) => '  제외: 연결 불가 ' + x.unlinked + '건, 알림 없음 ' + x.excluded_no_alert + '건, 측정 불가 ' + x.unmeasurable + '건 (추정)',
     d: (x: any, b: any, c: any) => '주제 확인 줄 비용: ' + x.count + '줄, 다시 읽은 토큰 ' + k(x.tokens) + ', Opus 입력 환산 ' + k(x.opus_input_equiv) + '(합계에서 뺌) · 이 줄 뒤 압축 ' + b.after_topic_check + '건, 비우기 ' + c.after_topic_check + '건, 그 절약 ' + k(b.after_topic_check_opus_input_equiv + c.after_topic_check_opus_input_equiv) + ' (추정)',
+    at: (x: Attribution) => { const n = x.clears_hinted + x.clears_unhinted; const d = x.drops.expired + x.drops.own + x.drops.invalid; return '기여 분리: 비우기 ' + n + '건 중 플러그인 안내 뒤 ' + x.clears_hinted + '건(' + (n ? Math.round(100 * x.clears_hinted / n) : 0) + '%, 평균 컨텍스트 ' + k(x.avg_tokens_hinted) + '), 안내 없이 ' + x.clears_unhinted + '건(평균 ' + k(x.avg_tokens_unhinted) + ') · 복원 못 한 마커 ' + d + '건 · 주입 줄 ' + x.injected_lines + '줄 ' + k(x.injected_line_tokens) + ' 토큰'; },
     t: (r: SavingsResult) => '합계: Opus 입력 토큰 환산 약 ' + k(r.total_opus_input_equiv) + ' (추정)',
     foot: '추정치예요: 플러그인이 없었다면 썼을 양과의 차이를 가정으로 계산했어요. 실제 청구량이 아니에요.',
   },
@@ -307,6 +341,7 @@ const L: Record<string, any> = {
     c: (x: any) => 'Clear after hint: ' + x.count + ', tokens not re-read ' + k(x.tokens) + ', Opus-input equiv ' + k(x.opus_input_equiv) + ' (est.)',
     cEx: (x: any) => '  Excluded: unlinked ' + x.unlinked + ', no hint ' + x.excluded_no_alert + ', unmeasurable ' + x.unmeasurable + ' (est.)',
     d: (x: any, b: any, c: any) => 'Topic-check line cost: ' + x.count + ' lines, re-read tokens ' + k(x.tokens) + ', Opus-input equiv ' + k(x.opus_input_equiv) + ' (subtracted from the total) · after such a line: compacts ' + b.after_topic_check + ', clears ' + c.after_topic_check + ', their saving ' + k(b.after_topic_check_opus_input_equiv + c.after_topic_check_opus_input_equiv) + ' (est.)',
+    at: (x: Attribution) => { const n = x.clears_hinted + x.clears_unhinted; const d = x.drops.expired + x.drops.own + x.drops.invalid; return 'Attribution: ' + n + ' clears, ' + x.clears_hinted + ' after a plugin line (' + (n ? Math.round(100 * x.clears_hinted / n) : 0) + '%, avg context ' + k(x.avg_tokens_hinted) + '), ' + x.clears_unhinted + ' without (avg ' + k(x.avg_tokens_unhinted) + ') · markers not restored ' + d + ' · injected lines ' + x.injected_lines + ', ' + k(x.injected_line_tokens) + ' tokens'; },
     t: (r: SavingsResult) => 'Total: about ' + k(r.total_opus_input_equiv) + ' Opus input-token equivalents (est.)',
     foot: 'This is an estimate: the difference from what would likely have been used without the plugin, computed under assumptions. Not actual billing.',
   },
@@ -314,5 +349,5 @@ const L: Record<string, any> = {
 
 export function renderText(r: SavingsResult, lang: string): string {
   const t: any = L[lang] || L.en;
-  return [t.head(r), t.a(r.downgrade), t.aEx(r.downgrade), t.b(r.compact), t.bEx(r.compact), t.c(r.clear), t.cEx(r.clear), t.d(r.topic_check_cost, r.compact, r.clear), t.t(r), t.foot].join('\n');
+  return [t.head(r), t.a(r.downgrade), t.aEx(r.downgrade), t.b(r.compact), t.bEx(r.compact), t.c(r.clear), t.cEx(r.clear), t.d(r.topic_check_cost, r.compact, r.clear), t.at(r.attribution), t.t(r), t.foot].join('\n');
 }
