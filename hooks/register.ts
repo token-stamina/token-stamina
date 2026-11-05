@@ -1964,26 +1964,32 @@ async function readChat($: $T, path: string, wide: boolean): Promise<any[] | nul
   }
 }
 
-// /ts-recall and the button: screen only ($.ui.log), nothing reaches the model.
-async function recallRun($: $T, query: string): Promise<void> {
+// /ts-recall and the button: screen only, nothing reaches the model. The terminal gets $.ui.log rows; another surface (the
+// desktop draws no $.ui.log row) gets the same lines in one dialog.
+async function recallRun($: $T, query: string, surface?: string): Promise<void> {
   let lang = 'en';
+  const show = async (lines: string[]): Promise<void> => {
+    if (!surface || surface === 'terminal') {
+      for (const l of lines) $.ui.log(l);
+      return;
+    }
+    try {
+      await $.ui.ask(lines.join('\n').slice(0, 9000), { options: [lang === 'ko' ? '닫기' : 'Close', lang === 'ko' ? '확인' : 'OK'], header: lang === 'ko' ? '이전 대화' : 'Previous chat' });
+    } catch {
+      /* dismissed */
+    }
+  };
   try {
     const env = await readEnv($);
     const { cfg: cfg0 } = await loadConfig($, env);
     lang = (await langOf($, env, cfg0, Date.now())).ko ? 'ko' : 'en';
     const rc = (await read($, recallAtom)) || (await findRecall($));
-    if (!rc) {
-      $.ui.log(noPreviousLine(lang));
-      return;
-    }
+    if (!rc) return await show([noPreviousLine(lang)]);
     const rows = await readChat($, rc.transcript, !!query.trim());
-    if (!rows) {
-      $.ui.log(noPreviousLine(lang));
-      return;
-    }
-    for (const l of recallLines(chatTurns(rows), lang, query)) $.ui.log(l);
+    if (!rows) return await show([noPreviousLine(lang)]);
+    await show(recallLines(chatTurns(rows), lang, query));
   } catch {
-    $.ui.log(noPreviousLine(lang));
+    await show([noPreviousLine(lang)]);
   }
 }
 
@@ -2051,7 +2057,7 @@ async function clearPress($: $T): Promise<void> {
 
 // The Compact button: save the handoff note, ask, then $.session.compact() (the call /compact makes). The event only on a
 // compaction that ran.
-async function compactPress($: $T): Promise<void> {
+async function compactPress($: $T, asked = false): Promise<void> {
   let ko = false;
   try {
     const env = await readEnv($);
@@ -2077,11 +2083,13 @@ async function compactPress($: $T): Promise<void> {
       ? ko ? '인계 메모는 저장됐어요. 지금 압축할까요? 대화가 요약으로 바뀌어요' : 'The handoff note is saved. Compact now? The chat becomes a summary.'
       : ko ? '지금 압축할까요? 대화가 요약으로 바뀌어요' : 'Compact now? The chat becomes a summary.';
     const yes = ko ? '압축' : 'Compact';
-    let answer = '';
-    try {
-      answer = await $.ui.ask(q, [ko ? '취소' : 'Cancel', yes]);
-    } catch {
-      return; // dismissed
+    let answer = asked ? yes : '';
+    if (!asked) {
+      try {
+        answer = await $.ui.ask(q, [ko ? '취소' : 'Cancel', yes]);
+      } catch {
+        return; // dismissed
+      }
     }
     if (answer !== yes) return;
     let r: any;
@@ -2118,7 +2126,8 @@ async function peekPace($: $T, home: string, u: any): Promise<PaceState> {
   return Object.assign({}, prev && typeof prev === 'object' ? prev : {}, fresh, Object.keys(fresh).length ? { recorded_at: nowSec } : {}) as PaceState;
 }
 
-// The usage chip's press: one block on screen ($.ui.log), nothing for the model.
+// The usage chip's press: a dialog that says what the chip is and the numbers behind it (the desktop draws no $.ui.log
+// row), with Compact as the second choice. Nothing reaches the model.
 async function chipPress($: $T): Promise<void> {
   try {
     const env = await readEnv($);
@@ -2132,7 +2141,16 @@ async function chipPress($: $T): Promise<void> {
       u = null;
     }
     const c = usageChip(await peekPace($, env.home, u), Math.floor(Date.now() / 1000), cfg as PaceConfig, ko ? 'ko' : 'en');
-    if (c) for (const l of c.lines) $.ui.log(l); // one call per line: the terminal folds a line break into one row
+    if (!c) return;
+    const close = ko ? '닫기' : 'Close';
+    const now = ko ? '지금 압축' : 'Compact now';
+    let answer = '';
+    try {
+      answer = await $.ui.ask(c.dialog, { options: [close, now], header: ko ? '사용량' : 'Usage' });
+    } catch {
+      return; // dismissed
+    }
+    if (answer === now) await compactPress($, true);
   } catch {
     /* the chip is best-effort */
   }
@@ -2205,7 +2223,7 @@ function registerBand(on: any): void {
       add(h(Button, { key: 'close', label: b!.ko ? '닫기' : 'Close', onPress: () => update($, bandGone, () => true) }));
     }
     if (chip) {
-      add(h(Button, { key: 'usage', label: chip.label, onPress: () => chipPress($) }, h(Text, { color: chipColor(chip.grade) }, chip.label)));
+      add(h(Button, { key: 'usage', label: chip.label, onPress: () => { void chipPress($); } }, h(Text, { color: chipColor(chip.grade) }, chip.label)));
     }
     if (showCompact) {
       add(h(Button, { key: 'compact', label: ex.ko ? '압축' : 'Compact', onPress: () => { void compactPress($); } }));
@@ -2217,9 +2235,11 @@ function registerBand(on: any): void {
     }
     if (rc) {
       const keyOf = rc.key;
-      add(h(Button, { key: 'recall', label: ko ? '이전 대화' : 'Previous chat', onPress: async () => {
-        await update($, recallGone, () => keyOf);
-        await recallRun($, '');
+      add(h(Button, { key: 'recall', label: ko ? '이전 대화' : 'Previous chat', onPress: (p: any) => {
+        void (async () => {
+          await update($, recallGone, () => keyOf);
+          await recallRun($, '', p && p.surface);
+        })();
       } }));
     }
     const children: any[] = [];
@@ -2355,7 +2375,14 @@ export const register: Register = (on) => {
   on('command.run', { command: 'ts-report' }, ($, e) => answer('ts-report', () => reportCommand($, e.args)));
   on('command.run', { command: 'ts-audit' }, ($, e) => answer('ts-audit', () => auditCommand($, e.args)));
   on('command.run', { command: 'ts-recall' }, async ($, e) => {
-    await recallRun($, String(e.args || ''));
+    let surface: string | undefined;
+    try {
+      const all = await $.session.surfaces();
+      surface = all.includes('terminal') ? 'terminal' : all[0];
+    } catch {
+      surface = undefined;
+    }
+    await recallRun($, String(e.args || ''), surface);
     return {};
   });
   on('command.run', { command: 'ts-advisor' }, ($, e) => answer('ts-advisor', () => advisorCommand($, e.args)));

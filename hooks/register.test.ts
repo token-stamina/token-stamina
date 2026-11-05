@@ -1848,11 +1848,20 @@ test('/ts-recall reads a transcript over 4 MiB through the streaming helper (nod
 const recallButtonOnce = async ($: any, on: any, surface: 'terminal' | 'desktop') => {
   const files: Files = { [PREV]: chatLog(3), [HOME + '/recall.json']: recFile() };
   const { logged, appended } = recallWorld(on, files);
+  const asked = person(on, 'Close');
   await $.session.start({ cwd: '/w', surface, isInteractive: true } as any);
   const ui = await $.ui.mount({ ...BAND, surface });
   expect(await ui.find({ type: 'Button', key: 'recall' })).toBeTruthy();
   await ui.press({ key: 'recall' });
-  expect(logged.join('\n')).toContain('question 2 about lexer');
+  if (surface === 'terminal') {
+    await until(() => logged.join('\n').includes('question 2 about lexer'));
+    expect(asked.length).toBe(0);
+  } else {
+    // The desktop draws no $.ui.log row: the turns come in one dialog instead.
+    await until(() => asked.length > 0);
+    expect(asked[0]).toContain('question 2 about lexer');
+    expect(logged.join('\n')).not.toContain('question 2 about lexer');
+  }
   await ui.unmount();
   const again = await $.ui.mount({ ...BAND, surface });
   expect(await again.find({ type: 'Button', key: 'recall' })).toBeFalsy();
@@ -1944,6 +1953,15 @@ const mountBand = async ($: any, on: any, surface: any, cfg: Record<string, unkn
   await $.session.start({ cwd: '/w', surface, isInteractive: true } as any);
   const ui = await $.ui.mount({ ...BAND, surface });
   return { ui, ...w };
+};
+const mountChip = async ($: any, on: any, surface: any, cfg: Record<string, unknown>, rl: any[] = []) => {
+  const files: Files = {};
+  const w = clearWorld(on, files, cfg, 209000, undefined, rl);
+  const compacted: any[] = [];
+  on('session.compact', (_: any, e: any) => { compacted.push(e); return { messages: [{ role: 'user', text: 'summary', toolUses: [] }], tokensBefore: 209000, tokensAfter: 20000 }; });
+  await $.session.start({ cwd: '/w', surface, isInteractive: true } as any);
+  const ui = await $.ui.mount({ ...BAND, surface });
+  return { ui, compacted, files, ...w };
 };
 const labelOf = (b: any) => (b ? (b.props ? b.props.label : b.label) : null);
 const keyLabel = async (ui: any, key: string) => labelOf(await ui.find({ type: 'Button', key }));
@@ -2043,17 +2061,32 @@ test('Compact button: a refused compact (a turn is running) prints one line and 
   expect(evOf(files, 'compact_button').length).toBe(0);
 });
 
-test('usage chip: label (en), press prints a block on screen only', async ($, on) => {
-  const { ui, logged, appended } = await mountBand($, on, 'terminal', {}, weekRl(46));
+test('usage chip: label (en), press opens a dialog that says what the chip is; Close does nothing else', async ($, on) => {
+  const asked = person(on, 'Close');
+  const { ui, appended, compacted } = await mountChip($, on, 'terminal', {}, weekRl(46));
   expect(await keyLabel(ui, 'usage')).toMatch(/^week 46% · today \d+(\.\d)?%$/);
   await ui.press({ key: 'usage' });
+  await until(() => asked.length > 0);
   await ui.unmount();
-  const out = logged.join('\n');
-  expect(out).toMatch(/week: 46% \/ elapsed /);
-  expect(out).toContain('runs out:');
-  expect(out).toContain('resets:');
-  expect(out).toMatch(/today: \d+(\.\d)?%/);
+  expect(asked.length).toBe(1);
+  expect(asked[0]).toMatch(/^Token Stamina usage - how much of the weekly limit is used/);
+  expect(asked[0]).toMatch(/Weekly limit 46% used/);
+  expect(asked[0]).toContain('resets');
+  expect(asked[0]).toMatch(/Use at most \d+(\.\d)?% a day/);
+  expect(seenQuestions[0].options.map((o: any) => o.label)).toEqual(['Close', 'Compact now']);
+  expect(compacted.length).toBe(0);
   expect(appended.length).toBe(0);
+});
+
+test('usage chip: "Compact now" compacts once with no second question', async ($, on) => {
+  const asked = person(on, 'Compact now');
+  const { ui, compacted, files } = await mountChip($, on, 'terminal', {}, weekRl(46));
+  await ui.press({ key: 'usage' });
+  await until(() => compacted.length > 0);
+  await ui.unmount();
+  expect(asked.length).toBe(1);
+  expect(compacted.length).toBe(1);
+  expect(evOf(files, 'compact_button').length).toBe(1);
 });
 
 test('usage chip: the text is coloured by the pace grade (green on pace, red when far over)', async ($, on) => {
@@ -2068,21 +2101,27 @@ test('usage chip: red when the week is far ahead of the pace', async ($, on) => 
   expect((r.props || r).color).toBe('red');
   await m.ui.unmount();
 });
-test('usage chip: Korean label and block on the desktop', async ($, on) => {
-  const { ui, logged } = await mountBand($, on, 'desktop', { lang: 'ko' }, weekRl(46));
-  expect(await keyLabel(ui, 'usage')).toMatch(/^주간 46% · 오늘 몫 \d+(\.\d)?%$/);
+test('usage chip: Korean label and dialog on the desktop', async ($, on) => {
+  const asked = person(on, '닫기');
+  const { ui } = await mountChip($, on, 'desktop', { lang: 'ko' }, weekRl(46));
+  expect(await keyLabel(ui, 'usage')).toMatch(/^주간 한도 46% · 오늘 몫 \d+(\.\d)?%$/);
   await ui.press({ key: 'usage' });
+  await until(() => asked.length > 0);
   await ui.unmount();
-  expect(logged.join('\n')).toContain('소진 예상');
-  expect(logged.join('\n')).toContain('리셋');
+  expect(asked[0]).toContain('주간 한도를 얼마나 썼는지');
+  expect(asked[0]).toContain('주간 한도 46% 사용');
+  expect(asked[0]).toContain('리셋');
+  expect(seenQuestions[0].options.map((o: any) => o.label)).toEqual(['닫기', '지금 압축']);
 });
 
 test('usage chip: the 5-hour window joins the block when it is read', async ($, on) => {
   const rl = [...weekRl(46), { kind: 'five_hour', percentUsed: 30, resetsAt: new Date(Date.now() + 2 * 3600000).toISOString() }];
-  const { ui, logged } = await mountBand($, on, 'terminal', {}, rl);
+  const asked = person(on, 'Close');
+  const { ui } = await mountChip($, on, 'terminal', {}, rl);
   await ui.press({ key: 'usage' });
+  await until(() => asked.length > 0);
   await ui.unmount();
-  expect(logged.join('\n')).toContain('5-hour window: 30%');
+  expect(asked[0]).toContain('5-hour window 30%');
 });
 
 test('usage chip: none without a usage reading', async ($, on) => {
