@@ -1900,8 +1900,8 @@ test('a recall record of this very session gives no button', async ($, on) => no
 
 // -- the Clear button --
 
-const clearWorld = (on: any, files: Files, cfg: Record<string, unknown> = {}, tokens = 209000, host?: string) => {
-  world(on, files, { host, usage: { startedAt: 0, context: { tokens, window: 1000000 }, rateLimits: [] } });
+const clearWorld = (on: any, files: Files, cfg: Record<string, unknown> = {}, tokens = 209000, host?: string, rateLimits: any[] = []) => {
+  world(on, files, { host, usage: { startedAt: 0, context: { tokens, window: 1000000 }, rateLimits } });
   files[HOME + '/config.json'] = JSON.stringify(cfg);
   const logged: string[] = [];
   on('ui.log', (_: any, e: any) => { logged.push(String(e.text)); return { value: undefined }; });
@@ -1934,6 +1934,182 @@ test('the Clear button: none on mobile', async ($, on) => {
 });
 test('the Clear button: none when clearButton is false', async ($, on) => {
   expect(await clearLabel($, on, 'terminal', { clearButton: false })).toBe(null);
+});
+
+// -- the Compact button and the usage chip (0.6.9) --
+
+const weekRl = (pct: number, days = 4) => [{ kind: 'seven_day', percentUsed: pct, resetsAt: new Date(Date.now() + days * 86400000).toISOString() }];
+const mountBand = async ($: any, on: any, surface: any, cfg: Record<string, unknown>, rl: any[] = []) => {
+  const w = clearWorld(on, {}, cfg, 209000, undefined, rl);
+  await $.session.start({ cwd: '/w', surface, isInteractive: true } as any);
+  const ui = await $.ui.mount({ ...BAND, surface });
+  return { ui, ...w };
+};
+const labelOf = (b: any) => (b ? (b.props ? b.props.label : b.label) : null);
+const keyLabel = async (ui: any, key: string) => labelOf(await ui.find({ type: 'Button', key }));
+
+test('Compact button: shown next to Clear on the terminal (en)', async ($, on) => {
+  const m = await mountBand($, on, 'terminal', {});
+  expect(await keyLabel(m.ui, 'compact')).toBe('Compact');
+  expect(await keyLabel(m.ui, 'clear')).toBe('Clear (209k)');
+  await m.ui.unmount();
+});
+test('Compact button: desktop in Korean', async ($, on) => {
+  const m = await mountBand($, on, 'desktop', { lang: 'ko' });
+  expect(await keyLabel(m.ui, 'compact')).toBe('압축');
+  expect(await keyLabel(m.ui, 'clear')).toBe('비우기 (20.9만)');
+  await m.ui.unmount();
+});
+test('Compact button and usage chip: none on mobile', async ($, on) => {
+  const m = await mountBand($, on, 'mobile', {}, weekRl(46));
+  expect(await keyLabel(m.ui, 'compact')).toBe(null);
+  expect(await keyLabel(m.ui, 'usage')).toBe(null);
+  await m.ui.unmount();
+});
+
+test('Compact button: none when compactButton is false (Clear stays)', async ($, on) => {
+  const m = await mountBand($, on, 'terminal', { compactButton: false });
+  expect(await keyLabel(m.ui, 'compact')).toBe(null);
+  expect(await keyLabel(m.ui, 'clear')).toBe('Clear (209k)');
+  await m.ui.unmount();
+});
+
+const pressCompact = async ($: any, on: any, files: Files, label: string | null, compactAnswer: () => any, surface: any = 'terminal', cfg: Record<string, unknown> = {}) => {
+  const w = clearWorld(on, files, cfg, 209000);
+  const compacted: any[] = [];
+  on('session.compact', (_: any, e: any) => { compacted.push(e); return compactAnswer(); });
+  const asked = person(on, label);
+  await $.classic.Stop({ session_id: 'S1', cwd: '/w', transcript_path: S1T } as any);
+  delete files[sessionFileName(DIR, 'S1')]; // the button writes the note again
+  delete files[latestFileName(DIR, '/w')];
+  await $.session.start({ cwd: '/w', surface, isInteractive: true } as any);
+  const ui = await $.ui.mount({ ...BAND, surface });
+  await ui.press({ key: 'compact' });
+  await ui.unmount();
+  return { ...w, compacted, asked };
+};
+
+test('Compact button: Cancel saves the note, compacts nothing, records no event', async ($, on) => {
+  const files = S1_FILES();
+  const r = await pressCompact($, on, files, 'Cancel', () => ({ messages: [{ role: 'user', text: 'summary', toolUses: [] }], tokensBefore: 209000, tokensAfter: 20000 }));
+  expect(r.asked.length).toBe(1);
+  expect(r.asked[0]).toContain('Compact now?');
+  expect(seenQuestions[0].options.map((o: any) => o.label)).toEqual(['Cancel', 'Compact']);
+  expect(r.compacted.length).toBe(0);
+  expect(evOf(files, 'compact_button').length).toBe(0);
+  expect(files[sessionFileName(DIR, 'S1')]).toContain('work on x');
+});
+
+test('Compact button: Korean question names the summary and puts Cancel first', async ($, on) => {
+  const files = S1_FILES();
+  const r = await pressCompact($, on, files, '취소', () => ({ messages: [{ role: 'user', text: 'summary', toolUses: [] }], tokensBefore: 209000, tokensAfter: 20000 }), 'desktop', { lang: 'ko' });
+  expect(r.asked[0]).toContain('지금 압축할까요? 대화가 요약으로 바뀌어요');
+  expect(seenQuestions[0].options.map((o: any) => o.label)).toEqual(['취소', '압축']);
+  expect(r.compacted.length).toBe(0);
+});
+
+test('Compact button: a dismissed question compacts nothing', async ($, on) => {
+  const files = S1_FILES();
+  const r = await pressCompact($, on, files, null, () => ({ messages: [{ role: 'user', text: 'summary', toolUses: [] }], tokensBefore: 209000, tokensAfter: 20000 }));
+  expect(r.compacted.length).toBe(0);
+  expect(evOf(files, 'compact_button').length).toBe(0);
+});
+
+test('Compact button: Compact saves the note first, calls session.compact once, records compact_button, no model context', async ($, on) => {
+  const files = S1_FILES();
+  const r = await pressCompact($, on, files, 'Compact', () => ({ messages: [{ role: 'user', text: 'summary', toolUses: [] }], tokensBefore: 209000, tokensAfter: 20000 }));
+  expect(files[sessionFileName(DIR, 'S1')]).toContain('- transcript: ~/.claude/projects/p/S1.jsonl');
+  expect(files[latestFileName(DIR, '/w')]).toContain('work on x');
+  expect(r.compacted.length).toBe(1);
+  const ev = evOf(files, 'compact_button');
+  expect(ev.length).toBe(1);
+  expect(ev[0].tokens_at_compact).toBe(209000);
+  expect(JSON.stringify(ev[0])).not.toContain('work on x');
+  expect(r.appended.length).toBe(0);
+});
+
+test('Compact button: a skipped compact prints the reason and records nothing', async ($, on) => {
+  const files = S1_FILES();
+  const r = await pressCompact($, on, files, 'Compact', () => ({ skip: 'off' }));
+  expect(r.compacted.length).toBe(1);
+  expect(r.logged.join('\n')).toContain('compact was skipped (off)');
+  expect(evOf(files, 'compact_button').length).toBe(0);
+});
+
+test('Compact button: a refused compact (a turn is running) prints one line and records nothing', async ($, on) => {
+  const files = S1_FILES();
+  const r = await pressCompact($, on, files, 'Compact', () => { throw new Error('a turn is running'); });
+  expect(r.logged.join('\n')).toContain('cannot compact right now');
+  expect(evOf(files, 'compact_button').length).toBe(0);
+});
+
+test('usage chip: label (en), press prints a block on screen only', async ($, on) => {
+  const { ui, logged, appended } = await mountBand($, on, 'terminal', {}, weekRl(46));
+  expect(await keyLabel(ui, 'usage')).toMatch(/^week 46% · today \d+(\.\d)?%$/);
+  await ui.press({ key: 'usage' });
+  await ui.unmount();
+  const out = logged.join('\n');
+  expect(out).toMatch(/week: 46% \/ elapsed /);
+  expect(out).toContain('runs out:');
+  expect(out).toContain('resets:');
+  expect(out).toMatch(/today: \d+(\.\d)?%/);
+  expect(appended.length).toBe(0);
+});
+
+test('usage chip: the text is coloured by the pace grade (green on pace, red when far over)', async ($, on) => {
+  let m = await mountBand($, on, 'terminal', {}, weekRl(5, 3.5));
+  const g: any = await m.ui.find({ type: 'Text', text: /week 5%/ });
+  expect((g.props || g).color).toBe('green');
+  await m.ui.unmount();
+});
+test('usage chip: red when the week is far ahead of the pace', async ($, on) => {
+  const m = await mountBand($, on, 'terminal', {}, weekRl(95, 3.5));
+  const r: any = await m.ui.find({ type: 'Text', text: /week 95%/ });
+  expect((r.props || r).color).toBe('red');
+  await m.ui.unmount();
+});
+test('usage chip: Korean label and block on the desktop', async ($, on) => {
+  const { ui, logged } = await mountBand($, on, 'desktop', { lang: 'ko' }, weekRl(46));
+  expect(await keyLabel(ui, 'usage')).toMatch(/^주간 46% · 오늘 몫 \d+(\.\d)?%$/);
+  await ui.press({ key: 'usage' });
+  await ui.unmount();
+  expect(logged.join('\n')).toContain('소진 예상');
+  expect(logged.join('\n')).toContain('리셋');
+});
+
+test('usage chip: the 5-hour window joins the block when it is read', async ($, on) => {
+  const rl = [...weekRl(46), { kind: 'five_hour', percentUsed: 30, resetsAt: new Date(Date.now() + 2 * 3600000).toISOString() }];
+  const { ui, logged } = await mountBand($, on, 'terminal', {}, rl);
+  await ui.press({ key: 'usage' });
+  await ui.unmount();
+  expect(logged.join('\n')).toContain('5-hour window: 30%');
+});
+
+test('usage chip: none without a usage reading', async ($, on) => {
+  const m = await mountBand($, on, 'terminal', {}, []);
+  expect(await keyLabel(m.ui, 'usage')).toBe(null);
+  expect(await keyLabel(m.ui, 'compact')).toBe('Compact');
+  await m.ui.unmount();
+});
+test('usage chip: none when usageChip is false (Compact and Clear stay)', async ($, on) => {
+  const m = await mountBand($, on, 'terminal', { usageChip: false }, weekRl(46));
+  expect(await keyLabel(m.ui, 'usage')).toBe(null);
+  expect(await keyLabel(m.ui, 'compact')).toBe('Compact');
+  expect(await keyLabel(m.ui, 'clear')).toBe('Clear (209k)');
+  await m.ui.unmount();
+});
+
+test('band: redrawing the buttons writes no event; only a confirmed press does', async ($, on) => {
+  const files: Files = {};
+  const w = clearWorld(on, files, {}, 209000, undefined, weekRl(46));
+  await $.session.start({ cwd: '/w', surface: 'terminal', isInteractive: true } as any);
+  for (let i = 0; i < 3; i++) {
+    const ui = await $.ui.mount({ ...BAND, surface: 'terminal' });
+    expect(await keyLabel(ui, 'usage')).toBeTruthy();
+    await ui.unmount();
+  }
+  expect(evList(files).filter((x) => x.event === 'compact_button' || x.event === 'clear_button').length).toBe(0);
+  expect(w.appended.length).toBe(0);
 });
 
 const S1T = '/h/.claude/projects/p/S1.jsonl';

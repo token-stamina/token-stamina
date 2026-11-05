@@ -73,6 +73,7 @@ import {
 } from './core/topic-gate.ts';
 import { parseTailLines, analyze as boundaryAnalyze, decide as boundaryDecide, message as boundaryMessage, tokLabel } from './core/boundary.ts';
 import { chatTurns, parseRows, recallLines, noPreviousLine } from './core/recall.ts';
+import { usageChip, chipColor } from './core/usage-chip.ts';
 import {
   scan as handoffScan,
   renderCapped,
@@ -1868,6 +1869,8 @@ const recallAtom = atom({ plugin: 'token-stamina', key: 'recall' } as const, nul
 const recallGone = atom({ plugin: 'token-stamina', key: 'recallGone' } as const, '');
 // The always-on Clear button: switched by config.clearButton, labelled in the session's language.
 const clearBtnAtom = atom({ plugin: 'token-stamina', key: 'clearBtn' } as const, null);
+// The Compact button and the usage chip (0.6.9): their switches, the data folder and the pace thresholds the chip reads.
+const bandExtraAtom = atom({ plugin: 'token-stamina', key: 'bandExtra' } as const, null);
 
 const RECALL_BUTTON_TURNS = 5;
 const RECALL_BIG_BYTES = 4 * 1024 * 1024 - 1024; // $.fs.read rejects above 4 MiB
@@ -1922,6 +1925,7 @@ async function loadButtons($: $T): Promise<void> {
     const { cfg: cfg0 } = await loadConfig($, env);
     const { ko } = await langOf($, env, cfg0, Date.now());
     await update($, clearBtnAtom, () => ({ on: cfg0.clearButton !== false, ko }));
+    await update($, bandExtraAtom, () => ({ compact: cfg0.compactButton !== false, chip: cfg0.usageChip !== false, ko, home: env.home, pace: cfg0 }));
   } catch {
     /* best-effort */
   }
@@ -2045,6 +2049,95 @@ async function clearPress($: $T): Promise<void> {
   }
 }
 
+// The Compact button: save the handoff note, ask, then $.session.compact() (the call /compact makes). The event only on a
+// compaction that ran.
+async function compactPress($: $T): Promise<void> {
+  let ko = false;
+  try {
+    const env = await readEnv($);
+    const { cfg: cfg0, user } = await loadConfig($, env);
+    const nowMs = Date.now();
+    const sidRaw = (await $.session.id()) || undefined;
+    const { cfg, ko: k } = await langOf($, env, cfg0, nowMs);
+    ko = k;
+    if (cfg.compactButton === false) return;
+    const sid = safeId(sidRaw);
+    const usage = await readUsage($, env, nowMs);
+    updateStatus($, usage, cfg, user);
+    const tp = sidRaw ? transcripts.get(sidRaw) : undefined;
+    let cwd: string | undefined;
+    try {
+      cwd = await $.session.cwd();
+    } catch {
+      cwd = undefined;
+    }
+    const noteOn = cfg.handoff !== false;
+    if (noteOn) await saveHandoff($, env, cfg, { session_id: sidRaw, cwd, transcript_path: tp }, await readTranscript($, tp), usage, nowMs);
+    const q = noteOn
+      ? ko ? '인계 메모는 저장됐어요. 지금 압축할까요? 대화가 요약으로 바뀌어요' : 'The handoff note is saved. Compact now? The chat becomes a summary.'
+      : ko ? '지금 압축할까요? 대화가 요약으로 바뀌어요' : 'Compact now? The chat becomes a summary.';
+    const yes = ko ? '압축' : 'Compact';
+    let answer = '';
+    try {
+      answer = await $.ui.ask(q, [ko ? '취소' : 'Cancel', yes]);
+    } catch {
+      return; // dismissed
+    }
+    if (answer !== yes) return;
+    let r: any;
+    try {
+      r = await $.session.compact();
+    } catch {
+      $.ui.log(ko ? 'Token Stamina: 지금은 압축할 수 없어요 (답변이 끝난 뒤 다시 눌러 주세요)' : 'Token Stamina: cannot compact right now (press again when the reply has finished)');
+      return;
+    }
+    if (r && typeof r.skip === 'string') {
+      $.ui.log(ko ? `Token Stamina: 압축이 건너뛰어졌어요 (${r.skip})` : `Token Stamina: compact was skipped (${r.skip})`);
+      return;
+    }
+    const ev: Record<string, unknown> = { event: 'compact_button', session: sid };
+    if (usage.tokens > 0) ev.tokens_at_compact = usage.tokens;
+    await appendEvent($, env, ev);
+  } catch {
+    $.ui.log(ko ? 'Token Stamina: 압축 버튼을 처리하지 못했어요. /compact 를 입력하세요' : 'Token Stamina: the Compact button failed; type /compact');
+  }
+}
+
+// The pace state for the chip, read without writing anything: the engine's fresh rate limits, else state.json (assess() drops a
+// stale one).
+async function peekPace($: $T, home: string, u: any): Promise<PaceState> {
+  const nowSec = Math.floor(Date.now() / 1000);
+  const fresh: Record<string, unknown> = {};
+  for (const rl of (u && Array.isArray(u.rateLimits) ? u.rateLimits : []) as any[]) {
+    const key = rl && rl.kind === 'seven_day' ? 'seven_day' : rl && rl.kind === 'five_hour' ? 'five_hour' : null;
+    const pct = num(rl && rl.percentUsed);
+    const resets = rl && rl.resetsAt ? Math.floor(Date.parse(rl.resetsAt) / 1000) : NaN;
+    if (key && pct != null && Number.isFinite(resets)) fresh[key] = { pct, resets_at: resets, recorded_at: nowSec };
+  }
+  const prev = (await readJson($, joinPath(home, 'state.json'), {} as Record<string, any>)) as PaceState;
+  return Object.assign({}, prev && typeof prev === 'object' ? prev : {}, fresh, Object.keys(fresh).length ? { recorded_at: nowSec } : {}) as PaceState;
+}
+
+// The usage chip's press: one block on screen ($.ui.log), nothing for the model.
+async function chipPress($: $T): Promise<void> {
+  try {
+    const env = await readEnv($);
+    const { cfg: cfg0 } = await loadConfig($, env);
+    const { cfg, ko } = await langOf($, env, cfg0, Date.now());
+    if (cfg.usageChip === false) return;
+    let u: any = null;
+    try {
+      u = await $.session.usage();
+    } catch {
+      u = null;
+    }
+    const c = usageChip(await peekPace($, env.home, u), Math.floor(Date.now() / 1000), cfg as PaceConfig, ko ? 'ko' : 'en');
+    if (c) for (const l of c.lines) $.ui.log(l); // one call per line: the terminal folds a line break into one row
+  } catch {
+    /* the chip is best-effort */
+  }
+}
+
 // session.start loads it too: that hook is in register, below, with the commands.
 function registerBand(on: any): void {
   // The desktop attaches after the process starts: look again if session.start found nothing.
@@ -2085,11 +2178,23 @@ function registerBand(on: any): void {
     }
     if (rc && (await read($, recallGone)) === rc.key) rc = null;
     const showClear = !!(btn && btn.on);
-    if (!showBand && !showClear && !rc) return next(e);
+    const ex: any = pressable ? await read($, bandExtraAtom) : null;
+    const showCompact = !!(ex && ex.compact);
+    let u: any = null;
+    if (showClear || showCompact || (ex && ex.chip)) {
+      try {
+        u = await $.session.usage();
+      } catch {
+        u = null;
+      }
+    }
+    // The chip: only with a fresh weekly reading.
+    const chip = ex && ex.chip ? usageChip(await peekPace($, ex.home, u), Math.floor(Date.now() / 1000), ex.pace as PaceConfig, ex.ko ? 'ko' : 'en') : null;
+    if (!showBand && !showClear && !showCompact && !chip && !rc) return next(e);
     const inner = await next(e);
     const open = await read($, bandOpen);
     const { Box, Text, Button } = $.ui.resolve(e) as any;
-    const ko = b ? b.ko : rc ? rc.ko : !!(btn && btn.ko);
+    const ko = b ? b.ko : rc ? rc.ko : btn ? !!btn.ko : !!(ex && ex.ko);
     const row: any[] = [];
     const add = (el: any) => {
       if (row.length) row.push(h(Text, { key: 'sp' + row.length }, ' '));
@@ -2099,23 +2204,23 @@ function registerBand(on: any): void {
       add(h(Button, { key: 'toggle', label: open ? (b!.ko ? '접기' : 'Collapse') : b!.ko ? '펼치기' : 'Expand', onPress: () => update($, bandOpen, (v: boolean) => !v) }));
       add(h(Button, { key: 'close', label: b!.ko ? '닫기' : 'Close', onPress: () => update($, bandGone, () => true) }));
     }
+    if (chip) {
+      add(h(Button, { key: 'usage', label: chip.label, onPress: () => chipPress($) }, h(Text, { color: chipColor(chip.grade) }, chip.label)));
+    }
+    if (showCompact) {
+      add(h(Button, { key: 'compact', label: ex.ko ? '압축' : 'Compact', onPress: () => { void compactPress($); } }));
+    }
+    if (showClear) {
+      const tokens = num(u && u.context && u.context.tokens) || 0;
+      const word = btn!.ko ? '비우기' : 'Clear';
+      add(h(Button, { key: 'clear', label: tokens > 0 ? `${word} (${tokLabel(tokens, btn!.ko ? 'ko' : 'en')})` : word, onPress: () => clearPress($) }));
+    }
     if (rc) {
       const keyOf = rc.key;
       add(h(Button, { key: 'recall', label: ko ? '이전 대화' : 'Previous chat', onPress: async () => {
         await update($, recallGone, () => keyOf);
         await recallRun($, '');
       } }));
-    }
-    if (showClear) {
-      let tokens = 0;
-      try {
-        const u: any = await $.session.usage();
-        tokens = num(u && u.context && u.context.tokens) || 0;
-      } catch {
-        tokens = 0;
-      }
-      const word = btn!.ko ? '비우기' : 'Clear';
-      add(h(Button, { key: 'clear', label: tokens > 0 ? `${word} (${tokLabel(tokens, btn!.ko ? 'ko' : 'en')})` : word, onPress: () => clearPress($) }));
     }
     const children: any[] = [];
     if (inner) children.push(inner);

@@ -74,6 +74,8 @@
   "idleGapSec": 3600,
   "handoffMaxTokens": 1500,
   "clearButton": true,
+  "compactButton": true,
+  "usageChip": true,
   "clearRecentTurns": 3,
   "fleet": true,
   "fleetShowAt": 2,
