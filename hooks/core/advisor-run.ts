@@ -13,7 +13,7 @@ import * as snapshot from './advisor-snapshot.ts';
 import * as weekly from './advisor-weekly.ts';
 import * as screen from './advisor-screen.ts';
 import * as followup from './advisor-followup.ts';
-import { coverageLine } from './advisor-screen-text.ts';
+import { coverageLine, skipHeadLine } from './advisor-screen-text.ts';
 import { ADVISOR_DEFAULTS } from './advisor-defaults.ts';
 import { DAY, readJson, writeJson, randomHex, dataDir, cfgFile, defaultSettings, type AdvisorCtx } from './advisor-io.ts';
 
@@ -103,9 +103,11 @@ export async function analyze(ctx: AdvisorCtx, o: RunOpts): Promise<string> {
     if (o.firstRun) out.firstRun = Object.assign({ header, skipLine: text.tbl(g.lang).skipLine, sufficient: g.all.sufficiency.ok }, scr ? scr.json : {});
     return JSON.stringify(out, null, 2) + '\n';
   }
-  if (scr) return scr.lines.join('\n') + '\n\n' + text.tbl(g.lang).skipLine + '\n';
+  const skipHead = skipHeadLine(g.lang, g.all.coverage); // 0.6.8: first line when files were left out
+  const head = skipHead ? skipHead + '\n' : '';
+  if (scr) return head + scr.lines.join('\n') + '\n\n' + text.tbl(g.lang).skipLine + '\n';
   const body = withCoverage(g, text.analyzeReport(g.lang, g.all, g.per.cleanup).split('\n')).join('\n');
-  let s = body + '\n';
+  let s = head + body + '\n';
   if (!g.all.sufficiency.ok) s += '\n' + text.tbl(g.lang).insufficient(g.all.sufficiency.calls, g.all.sufficiency.days) + '\n';
   if (o.firstRun) s += '\n' + text.tbl(g.lang).skipLine + '\n';
   return s;

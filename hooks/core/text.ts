@@ -56,3 +56,15 @@ export function joinPath(base: string, ...parts: string[]): string {
   const sep = b.includes('\\') && !b.includes('/') ? '\\' : '/';
   return [b.replace(/[\\/]+$/, ''), ...parts.map((p) => String(p).replace(/^[\\/]+|[\\/]+$/g, ''))].join(sep);
 }
+
+// Display form of a path under the user's home: `~/...` with forward slashes (the tools expand `~`).
+// Used for the paths put into injected lines only; the file itself keeps its real name. A path outside
+// the home, or no home, stays as given.
+export function tildePath(p: string, home: string | undefined): string {
+  const norm = (x: string) => String(x).replace(/[\\]/g, '/').replace(/\/+$/, '');
+  const h = norm(home || '');
+  const q = norm(p);
+  if (!h || h.length < 2) return p;
+  if (q.toLowerCase().startsWith(h.toLowerCase() + '/')) return '~' + q.slice(h.length);
+  return p;
+}

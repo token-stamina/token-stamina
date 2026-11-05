@@ -90,6 +90,8 @@ export function promptBody(t: string): string {
 
 export interface ScanCommit { id: string | null; s: string }
 export interface ScanResult {
+  // Display form (`~/...`) of the session's transcript file; the line is left out when the hook input had no path.
+  transcript?: string;
   prompts: string[];
   commits: ScanCommit[];
   files: string[];
@@ -168,6 +170,14 @@ export interface RenderMeta {
 }
 export interface RenderParams { promptLen: number; nCommits: number; nFiles: number; nTodos: number }
 
+// One line pointing at the session's own conversation file, so a model asked "what was that earlier?" can search it.
+export const transcriptLine = (shown: string): string => `- transcript: ${shown}`;
+// A restored note gets the line when it has none (a Claude-written note never has it). No path: the note stays as is.
+export function withTranscriptLine(text: string, shown: string | null | undefined): string {
+  if (!shown || /^- transcript:/m.test(text)) return text;
+  return text.replace(/\n*$/, '\n') + transcriptLine(shown) + '\n';
+}
+
 export function render(m: RenderMeta, p: RenderParams): string {
   const out: string[] = [];
   out.push(`<!-- token-stamina-handoff session=${m.session} lastPromptTs=${m.lastPromptTs || ''} saved=${m.saved} -->`);
@@ -175,6 +185,7 @@ export function render(m: RenderMeta, p: RenderParams): string {
   if (m.prevPromptTs) out.push(`<!-- token-stamina-handoff-prev prevPromptTs=${m.prevPromptTs} -->`);
   out.push(`# Handoff note (auto, no LLM)`);
   out.push(`- cwd: ${m.cwd || '?'}`);
+  if (m.transcript) out.push(transcriptLine(m.transcript));
   out.push(`- saved: ${m.saved}`);
   if (m.prompts.length) {
     out.push('', '## Last user requests (oldest first)');
@@ -413,7 +424,7 @@ export function additionalContext(p: { text: string }): string {
 // Desktop-app clear_session starts a new CLI session without running SessionStart for a clear, so the clearing turn leaves a
 // marker keyed by the app session id (CLAUDE_CODE_HOST_SESSION_ID, unchanged across the clear); the new CLI session restores
 // from it on its first SessionStart or UserPromptSubmit, whichever runs first. Pure parts below.
-export interface PendingClear { from: string; host: string; cwd?: string; at: number; tokens?: number }
+export interface PendingClear { from: string; host: string; cwd?: string; at: number; tokens?: number; transcript?: string }
 
 export function pendingClearName(dir: string, host: unknown): string {
   return joinPath(dir, 'pending-clear-' + safeId(host) + '.json');

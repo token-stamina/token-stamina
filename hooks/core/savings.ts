@@ -1,8 +1,9 @@
 // Savings estimate (no LLM), ported from scripts/savings.js: how many tokens the plugin plausibly
 // saved, as an ESTIMATE. Every figure compares what happened with a counterfactual "no plugin"
 // assumption (stated in the output). The files are read through CmdIO (register.ts fills it from
-// $.fs); a transcript over 4 MiB cannot be read there, is counted by io.skipped(), and its
-// session then counts as unresolved/unmeasurable.
+// $.fs); a transcript over 4 MiB cannot be read there whole: io.read(.., { slim: true }) streams it through
+// scripts/transcript-slim.js. Only when that is not possible (no Node) is it counted by io.skipped() and its
+// session counted as unresolved/unmeasurable.
 import { WEIGHT, family } from './report.ts';
 import { estimateTokens, joinPath } from './text.ts';
 import { baseName, parentDir, walkJsonl, type CmdIO, type FileInfo } from './cmd-io.ts';
@@ -154,7 +155,7 @@ export interface Attribution {
   drops: { expired: number; own: number; invalid: number };
   injected_lines: number; injected_line_tokens: number;
 }
-const CLEAR_SOURCES = new Set(['clear_start', 'clear_prompt', 'clear']);
+const CLEAR_SOURCES = new Set(['clear_start', 'clear_prompt', 'clear', 'clear_button']);
 export const LINE_EVENTS = new Set(['inline_hint', 'topic_gate', 'topic_check', 'nudge']);
 
 export function attribution(events: any[]): Attribution {
@@ -200,7 +201,7 @@ export async function compute(io: CmdIO, opts: { since: string; projectsDir: str
     const f = sessions.get(sid);
     let r: { file: FileInfo; entries: any[]; calls: Call[] } | null = null;
     if (f) {
-      const entries = parseEntries(await io.read(f.path));
+      const entries = parseEntries(await io.read(f.path, { slim: true }));
       r = { file: f, entries, calls: mainCalls(entries) };
     }
     cache.set(sid, r);
@@ -225,7 +226,7 @@ export async function compute(io: CmdIO, opts: { since: string; projectsDir: str
     let subCalls: Call[] | null = null;
     if (tur.agentId) {
       const f = joinPath(parentDir(s.file.path), baseName(s.file.path, '.jsonl'), 'subagents', 'agent-' + tur.agentId + '.jsonl');
-      if (await io.exists(f)) subCalls = assistantCalls(parseEntries(await io.read(f)));
+      if (await io.exists(f)) subCalls = assistantCalls(parseEntries(await io.read(f, { slim: true })));
     }
     const au = agentUsage(tur, subCalls, family(e.model));
     const cfFam = e.requested_model && family(e.requested_model) !== 'other' ? family(e.requested_model) : caller.fam; // explicit upper-tier request is the counterfactual

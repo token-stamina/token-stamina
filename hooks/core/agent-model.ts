@@ -15,7 +15,7 @@
 
 import { sha1Hex, joinPath } from './text.ts';
 import { assess, attributed, type PaceConfig, type PaceState } from './pacer.ts';
-import { textProtected } from './decisions.ts';
+import { textProtected, RANK as MODEL_RANK } from './decisions.ts';
 import { classifyTask } from './task-class.ts';
 import { ADVISOR_DEFAULTS } from './advisor-defaults.ts';
 
@@ -50,7 +50,75 @@ export function definitionHasModel(name: string | undefined, cwd: string | undef
   return false;
 }
 
+// The model an agent definition (.md frontmatter) pins, or null ('inherit' and a missing definition are null).
+export function definitionModel(name: string | undefined, cwd: string | undefined, homeDir?: string, readText?: (path: string) => string | null): string | null {
+  if (!name || /[\\/]/.test(name)) return null;
+  for (const p of definitionPaths(name, cwd, homeDir)) {
+    const txt = readText ? readText(p) : null;
+    if (txt == null) continue;
+    const m = /^---\r?\n([\s\S]*?)\r?\n---/.exec(txt);
+    if (!m) continue;
+    const mm = /^model:\s*(\S+)/m.exec(m[1]);
+    if (mm && mm[1].toLowerCase() !== 'inherit') return mm[1];
+  }
+  return null;
+}
+
+// Model family of an alias or full id ('opus', 'claude-opus-4-7', 'opus[1m]'); unknown -> null. Rank: decisions.ts RANK.
+export type ModelFamily = 'haiku' | 'sonnet' | 'opus' | 'fable';
+export function modelFamily(m: unknown): ModelFamily | null {
+  if (typeof m !== 'string' || !m) return null;
+  const parts = m.toLowerCase().split(/[^a-z0-9]+/);
+  for (const f of ['fable', 'opus', 'sonnet', 'haiku'] as const) if (parts.includes(f)) return f;
+  return null;
+}
+
+// Does the (already merged) settings `hooks` object hold a PreToolUse hook whose matcher covers Agent or Task?
+// Matcher rules as in settings.json: empty, missing or '*' = every tool; else a regex on the whole tool name
+// (an invalid regex falls back to the names split on '|'). Entries without a hook inside, and Token Stamina's own
+// command records (the Node build), do not count.
+export function userAgentHook(hooks: unknown): boolean {
+  if (!hooks || typeof hooks !== 'object' || Array.isArray(hooks)) return false;
+  const list = (hooks as Record<string, unknown>).PreToolUse;
+  if (!Array.isArray(list)) return false;
+  const covers = (matcher: unknown): boolean => {
+    if (matcher === undefined || matcher === null || matcher === '' || matcher === '*') return true;
+    if (typeof matcher !== 'string') return false;
+    try {
+      const re = new RegExp('^(?:' + matcher + ')$');
+      return re.test('Agent') || re.test('Task');
+    } catch {
+      return matcher.split('|').some((x) => x.trim() === 'Agent' || x.trim() === 'Task');
+    }
+  };
+  for (const ent of list) {
+    if (!ent || typeof ent !== 'object') continue;
+    const inner = (ent as { hooks?: unknown }).hooks;
+    if (!Array.isArray(inner)) continue;
+    const real = inner.filter((h) => h && typeof h === 'object' && !/token-(stamina|pacer)/i.test(String((h as { command?: unknown }).command || '')));
+    if (!real.length) continue;
+    if (covers((ent as { matcher?: unknown }).matcher)) return true;
+  }
+  return false;
+}
+
+export type SubMode = 'off' | 'suggest' | 'inject' | 'require';
+// subagentMode (Agent/Task) and sessionMode (start_session) beat `mode`; a missing or unknown value follows `mode`.
+// A session never gets 'require' (start_session cannot be asked again): it reads as 'suggest'.
+export function effectiveMode(cfg: { mode?: unknown; subagentMode?: unknown; sessionMode?: unknown } | null | undefined, kind: 'Agent' | 'start_session'): SubMode {
+  const norm = (v: unknown): SubMode | null => (v === 'off' || v === 'suggest' || v === 'inject' || v === 'require' ? v : null);
+  const c = cfg || {};
+  const own = norm(kind === 'Agent' ? c.subagentMode : c.sessionMode);
+  const m: SubMode = own || norm(c.mode) || 'inject';
+  return kind === 'start_session' && m === 'require' ? 'suggest' : m;
+}
+
 export interface AgentModelMsgTable {
+  // 0.6.8: require mode deny reason (<= 120 tokens), judgment keep-parent inject and warning lines.
+  requireDeny: (pace: string) => string;
+  requirePace: (g: string | null | undefined, w: string | null | undefined, jw: string | null, simple: boolean) => string;
+  keepParentInject: (def: string, parent: string, m: string) => string;
+  keepParentWarn: (def: string, parent: string, m: string) => string;
   // g is only passed for the yellow fleet row (F); without it the text is the original red one.
   judgment: (w: string | null | undefined, g?: string) => string;
   suggest: (w: string | null | undefined, m: string) => string;
@@ -95,6 +163,14 @@ const koWhy = (g: string) =>
 
 export const T: Record<string, AgentModelMsgTable> = {
   en: {
+    requireDeny: (pace) => 'Token Stamina: set a model for this subagent: haiku, sonnet or opus. ' + pace
+      + 'Check: (1) does a fixed procedure give the answer? (2) if surprised, is stopping enough or must it interpret? (3) does the result go out as is? (4) is a mistake hard to undo? Any judgment answer -> stronger model; mixed -> split in two.',
+    requirePace: (g, w, jw, simple) => jw ? 'Judgment word "' + jw + '" -> keep the stronger model. '
+      : g === 'red' ? 'Pace: ' + w + ' red -> ' + (simple ? 'haiku' : 'sonnet') + ' advised. '
+      : g === 'yellow' ? 'Pace: ' + w + ' yellow -> sonnet for routine work. '
+      : g === 'green' ? 'Pace: green. ' : '',
+    keepParentInject: (def, parent, m) => 'Token Stamina: judgment task, and the default subagent model (' + def + ') is below the main model (' + parent + '), so model="' + m + '" was set. Pass an explicit model to override.',
+    keepParentWarn: (def, parent, m) => 'Token Stamina: judgment task, but the default subagent model (' + def + ') is below the main model (' + parent + '). Pass model="' + m + '" if it needs the stronger one.',
     judgment: (w, g) => g === 'yellow'
       ? 'Token Stamina: ' + enPace(g, w) + '. This looks like a judgment task so no model was forced; consider model="sonnet" if it does not need the strongest model.'
       : 'Token Stamina: usage is over pace (' + w + ' red). This looks like a judgment task so no model was forced; consider model="sonnet" if it does not need the strongest model.',
@@ -122,6 +198,14 @@ export const T: Record<string, AgentModelMsgTable> = {
       : w + ' red',
   },
   ko: {
+    requireDeny: (pace) => 'Token Stamina: 이 하위 에이전트의 model 을 정하세요: haiku, sonnet, opus. ' + pace
+      + '판정: ①정해진 절차로 답이 나오나 ②예상 밖이면 멈춤이면 되나 해석해야 하나 ③결과가 그대로 밖으로 나가나 ④틀리면 되돌리기 어렵나. 하나라도 판단이면 상위 모델, 섞여 있으면 둘로 쪼개기.',
+    requirePace: (g, w, jw, simple) => jw ? '판단 단어 "' + jw + '" → 상위 모델 유지. '
+      : g === 'red' ? '속도: ' + w + ' 빨강 → ' + (simple ? 'haiku' : 'sonnet') + ' 추천. '
+      : g === 'yellow' ? '속도: ' + w + ' 노랑 → 반복 작업은 sonnet. '
+      : g === 'green' ? '속도: 초록. ' : '',
+    keepParentInject: (def, parent, m) => 'Token Stamina: 판단 작업인데 하위 에이전트 기본 모델(' + def + ')이 메인 모델(' + parent + ')보다 낮아 model="' + m + '" 을 지정했어요. 바꾸려면 model 을 명시해서 호출하세요.',
+    keepParentWarn: (def, parent, m) => 'Token Stamina: 판단 작업인데 하위 에이전트 기본 모델(' + def + ')이 메인 모델(' + parent + ')보다 낮아요. 강한 모델이 필요하면 model="' + m + '" 을 명시하세요.',
     judgment: (w, g) => g === 'yellow'
       ? 'Token Stamina: ' + koPace(g, w) + '. 판단이 필요한 작업으로 보여 모델을 강제하지 않았어요. 가장 강한 모델이 필요 없다면 model="sonnet" 을 고려하세요.'
       : 'Token Stamina: 사용 속도가 빨라요(' + w + ' 빨강). 판단이 필요한 작업으로 보여 모델을 강제하지 않았어요. 가장 강한 모델이 필요 없다면 model="sonnet" 을 고려하세요.',
@@ -213,7 +297,11 @@ export function adaptSession(input: any, cfg: any): { input?: AgentModelInput; p
 }
 
 export interface AgentModelCfg extends PaceConfig {
-  mode?: 'off' | 'suggest' | 'inject';
+  mode?: 'off' | 'suggest' | 'inject' | 'require';
+  // 0.6.8: per-tool modes beat `mode` (effectiveMode); judgmentKeepParent (default on, register.ts passes opts.parentModel).
+  subagentMode?: 'off' | 'suggest' | 'inject' | 'require';
+  sessionMode?: 'off' | 'suggest' | 'inject';
+  judgmentKeepParent?: boolean;
   lang?: string;
   judgmentKeywords?: string[];
   simpleKeywords?: string[];
@@ -364,9 +452,12 @@ export interface DecideOpts {
   readText?: (path: string) => string | null; // agent definition texts, read beforehand by the caller
   fleet?: FleetPressureInput | null;
   ledger?: ExplicitLedger | null; // explicit-downgrade.json contents (read by run())
+  // 0.6.8 keep-parent: the main model ($.session.model()) and CLAUDE_CODE_SUBAGENT_MODEL (process env or settings env).
+  parentModel?: string | null;
+  envSubagentModel?: string | null;
 }
 export interface DecideResult {
-  action: 'pass' | 'inject' | 'suggest';
+  action: 'pass' | 'inject' | 'suggest' | 'deny';
   reason: string;
   model?: string;
   grade?: string | null;
@@ -542,8 +633,67 @@ function decideBase(
 // Skips: mode other than inject, start_session calls, fork / definition_model / mode_off, any model already chosen, judgment
 // keywords (the exception stays). Against a pressure downgrade the LOWER model wins.
 const AD_RANK: Record<string, number> = { haiku: 0, sonnet: 1 };
-export function decide(input: AgentModelInput, state: PaceState | null | undefined, cfg: AgentModelCfg, now: number, opts?: DecideOpts): DecideResult {
-  const d = decideBase(input, state, cfg, now, opts);
+// require mode (0.6.8, Agent/Task only): a call with no model, no fork and no model in its agent definition is refused with a
+// short reason (choices, pace advice, the four judgment questions). Anything else returns null and the normal rows run.
+function requireDecision(input: AgentModelInput, state: PaceState | null | undefined, cfg: AgentModelCfg, now: number, opts?: DecideOpts): DecideResult | null {
+  const o = opts || {};
+  const ti = (input && input.tool_input) || {};
+  if (ti.model) return null;
+  const st = ti.subagent_type;
+  if (st && String(st).toLowerCase() === 'fork') return null;
+  const defHas = o.definitionHasModel || definitionHasModel;
+  if (st && defHas(st, input.cwd, o.homeDir, o.readText)) return null;
+  const a = assess(state, now, cfg);
+  const text = ((ti.description || '') + ' ' + String(ti.prompt || '').slice(0, 600)).toLowerCase();
+  const jw = includesAny(text, cfg.judgmentKeywords);
+  const simple = !!includesAny(text, cfg.simpleKeywords);
+  const tx = textsFor(input, cfg.lang as string);
+  const g = a.grade && !a.stale ? a.grade : null;
+  return { action: 'deny', reason: 'require_model', grade: a.grade || null, worst: a.worst || null,
+    message: tx.requireDeny(tx.requirePace(g, a.worst, jw, simple)) };
+}
+
+// Judgment task whose effective default model (CLAUDE_CODE_SUBAGENT_MODEL, else the agent definition's model) is below
+// the main model: with judgmentKeepParent (default on) the main model's family is put in model; with it off, or when
+// the mode does not rewrite input (suggest), only a short warning. Never touches a call that chose a model, a fork or a
+// built-in agent. Returns null when the situation does not apply.
+function keepParentDecision(input: AgentModelInput, cfg: AgentModelCfg, d: DecideResult, opts?: DecideOpts): DecideResult | null {
+  const o = opts || {};
+  if (input && input.kind === 'session') return null;
+  if (cfg.mode === 'off' || d.reason === 'mode_off') return null;
+  const ti: any = (input && input.tool_input) || {};
+  if (ti.model) return null;
+  const st = ti.subagent_type;
+  if (st && String(st).toLowerCase() === 'fork') return null;
+  const parent = modelFamily(o.parentModel);
+  if (!parent) return null;
+  const text = ((ti.description || '') + ' ' + String(ti.prompt || '').slice(0, 600)).toLowerCase();
+  if (!includesAny(text, cfg.judgmentKeywords)) return null;
+  const rawDef = (o.envSubagentModel && String(o.envSubagentModel).trim())
+    || (st ? definitionModel(st, input.cwd, o.homeDir, o.readText) : null);
+  const def = modelFamily(rawDef);
+  if (!def || MODEL_RANK[def] >= MODEL_RANK[parent]) return null;
+  const tx = textsFor(input, cfg.lang as string);
+  const mode = cfg.mode || 'inject';
+  if (cfg.judgmentKeepParent !== false && mode === 'inject') {
+    return { action: 'inject', reason: 'judgment_keep_parent', model: parent, grade: d.grade || null, worst: d.worst || null, message: tx.keepParentInject(def, parent, parent) };
+  }
+  return { action: 'suggest', reason: 'judgment_below_parent', grade: d.grade || null, worst: d.worst || null, message: tx.keepParentWarn(def, parent, parent) };
+}
+
+export function decide(input: AgentModelInput, state: PaceState | null | undefined, cfg0: AgentModelCfg, now: number, opts?: DecideOpts): DecideResult {
+  let cfg = cfg0;
+  if (cfg0 && cfg0.mode === 'require') {
+    // a session cannot be refused and asked again; for Agent/Task a model-less call is refused, every other row only suggests
+    if (!input || input.kind !== 'session') {
+      const r = requireDecision(input, state, cfg0, now, opts);
+      if (r) return r;
+    }
+    cfg = Object.assign({}, cfg0, { mode: 'suggest' as const });
+  }
+  let d = decideBase(input, state, cfg, now, opts);
+  const kp = keepParentDecision(input, cfg, d, opts);
+  if (kp) d = kp;
   const def = cfg && cfg.agentModelDefault;
   if (def !== 'haiku' && def !== 'sonnet') return d;
   if (cfg.mode && cfg.mode !== 'inject') return d;
@@ -574,6 +724,9 @@ export function output(input: AgentModelInput, d: DecideResult): Record<string, 
         additionalContext: d.message,
       },
     };
+  }
+  if (d.action === 'deny') {
+    return { hookSpecificOutput: { hookEventName: 'PreToolUse', permissionDecision: 'deny', permissionDecisionReason: d.message } };
   }
   if (d.action === 'suggest') {
     return { hookSpecificOutput: { hookEventName: 'PreToolUse', additionalContext: d.message } };

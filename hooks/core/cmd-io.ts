@@ -9,7 +9,10 @@ export interface DirEntry { name: string; kind: string; size: number; mtimeMs: n
 
 export interface CmdIO {
   // Text of a file, or null when it is missing or cannot be read (over 4 MiB counts in skipped()).
-  read(path: string): Promise<string | null>;
+  // { slim: true }: a transcript over 4 MiB is streamed by scripts/transcript-slim.js (when Node is there) and comes back as the
+  // slim rows /ts-savings reads, so it is no longer skipped.
+  // { adv: true } (0.6.8): the same, but the rows the Usage Advisor's scan reads (transcript-slim.js --adv), under a time budget of its own.
+  read(path: string, opts?: { slim?: boolean; adv?: boolean }): Promise<string | null>;
   write(path: string, text: string): Promise<void>;
   exists(path: string): Promise<boolean>;
   // Entries of a folder, or null when it is missing.

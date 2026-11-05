@@ -177,6 +177,22 @@ export const COVERAGE: Record<string, any> = {
 };
 export const covTable = (lang: string): any => COVERAGE[lang] || COVERAGE.en;
 
+// 0.6.8: the first line of an analysis when files were left out (over 4 MiB and not streamable, or unreadable): how many, and what
+// share of all transcript bytes. '' when nothing was skipped. Files cut by the time budget are the coverage line's "unread".
+const SKIP_HEAD: Record<string, (n: number, x: number) => string> = {
+  en: (n, x) => `Skipped ${n} file${n === 1 ? '' : 's'} (${x}% of all bytes).`,
+  ko: (n, x) => `건너뜀 ${n}개(전체의 ${x}%)`,
+  ja: (n, x) => `スキップ ${n} 件 (全体の ${x}%)`,
+};
+export function skipHeadLine(lang: string, c: any): string {
+  if (!c) return '';
+  const n = (c.skipped || 0) + (c.failed || 0);
+  if (!(n > 0)) return '';
+  const left = (c.skipped_bytes || 0) + (c.failed_bytes || 0);
+  const x = c.bytes > 0 ? Math.min(100, Math.max(1, Math.round((left / c.bytes) * 100))) : 100;
+  return (SKIP_HEAD[lang] || SKIP_HEAD.en)(n, x);
+}
+
 // Bytes that were actually read: read_bytes when the scan recorded it, else everything but the files over 4 MiB.
 const readBytesOf = (c: any): number => (typeof c.read_bytes === 'number' ? c.read_bytes : Math.max(0, (c.bytes || 0) - (c.skipped_bytes || 0)));
 

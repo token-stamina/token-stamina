@@ -151,6 +151,22 @@ export function assess(state: PaceState | null | undefined, now: number, cfg?: P
   };
 }
 
+// Numbers-only record of the pace readings for the `pace_sample` event (one per hour at most, written by register.ts), so a
+// later back-test can judge the yellow threshold on real data. No text, no paths. Null when no fresh reading exists.
+export interface PaceSample { week_pct: number | null; week_reset_at: number | null; five_h_pct: number | null; five_h_reset_at: number | null; grade: string }
+export function paceSample(state: PaceState | null | undefined, now: number, cfg?: PaceConfig): PaceSample | null {
+  const a = assess(state, now, cfg);
+  if (!a.grade || a.stale) return null;
+  const r1 = (x: unknown): number | null => (num(x) === null ? null : Math.round((x as number) * 10) / 10);
+  const w7 = a.d7 ? state?.seven_day : undefined;
+  const w5 = a.h5 ? state?.five_hour : undefined;
+  return {
+    week_pct: r1(w7?.pct), week_reset_at: num(w7?.resets_at),
+    five_h_pct: r1(w5?.pct), five_h_reset_at: num(w5?.resets_at),
+    grade: a.grade,
+  };
+}
+
 // Hooks stay out of headless runs (SDK / automation) and of cwds the user excluded.
 // Pure version of scripts/pace.js `skipHook`: register.ts reads
 // process.env.CLAUDE_CODE_ENTRYPOINT and the event's cwd and passes both in here.
@@ -209,8 +225,8 @@ export const fmt1 = (x: number): string => (Math.round(x * 10) / 10).toString();
 
 // additionalContext is invisible to the user, so when Claude relays a suggestion it must say where it came from.
 const ATTRIB: Record<string, string> = {
-  en: ' (From the plugin: when you relay this, start with "Token Stamina:".)',
-  ko: ' (플러그인 알림. 전할 때 "Token Stamina 알림:"으로 시작하세요.)',
+  en: ' (Plugin note; relay it starting with "Token Stamina:".)',
+  ko: ' (플러그인 알림. 전할 땐 "Token Stamina 알림:"으로 시작.)',
 };
 // Languages without a message table get the English line plus a directive to answer the user in their own language.
 const LANG_NAME: Record<string, string> = { ja: 'Japanese', zh: 'Chinese' };

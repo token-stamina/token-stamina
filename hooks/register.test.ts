@@ -4,6 +4,7 @@
 import { expect, mock, test } from 'claude-code/testing';
 import { sessionFileName, latestFileName, pendingClearName } from './core/handoff.ts';
 import { SLOTS, hash, slotName, header as evHeader } from './core/events.ts';
+import { estimateTokens } from './core/text.ts';
 
 const USER = '/h';
 const HOME = '/h/.claude/token-stamina';
@@ -27,13 +28,14 @@ type Files = Record<string, string>;
 // The engine hands the hooks absolute paths in the platform's form (C:\h\... on Windows): compare them as /h/...
 const norm = (p: string) => String(p).replace(/\\/g, '/').replace(/^[A-Za-z]:/, '');
 
-function world(on: any, files: Files, opts: { host?: string; usage?: any; messages?: any[]; onWrite?: (p: string, text: string) => boolean; ages?: Record<string, number>; denyWrite?: string; denyPath?: RegExp; noSid?: boolean; onRead?: (p: string) => void } = {}) {
+function world(on: any, files: Files, opts: { host?: string; usage?: any; messages?: any[]; onWrite?: (p: string, text: string) => boolean; ages?: Record<string, number>; denyWrite?: string; denyPath?: RegExp; noSid?: boolean; sizes?: Record<string, number>; tooBig?: RegExp; onRead?: (p: string) => void; env?: Record<string, string>; model?: string } = {}) {
   const mtime: Record<string, number> = {};
   for (const p of Object.keys(files)) mtime[p] = Date.now() - ((opts.ages && opts.ages[p]) || 0);
   const status: (string | undefined)[] = [];
   on('fs.read', (_: any, e: any) => {
     const p = norm(e.path);
     if (opts.onRead) opts.onRead(p);
+    if (opts.tooBig && opts.tooBig.test(p)) return { deny: 'file over 4 MiB' };
     if (/config\.default\.json$/.test(p)) return { value: JSON.stringify(DEFAULTS) };
     return p in files ? { value: files[p] } : { deny: 'ENOENT: ' + p };
   });
@@ -48,7 +50,7 @@ function world(on: any, files: Files, opts: { host?: string; usage?: any; messag
   on('fs.exists', (_: any, e: any) => ({ value: norm(e.path) in files }));
   on('fs.stat', (_: any, e: any) => {
     const p = norm(e.path);
-    return p in files ? { value: { kind: 'file', size: files[p]!.length, mtimeMs: mtime[p], isLink: false } } : { deny: 'ENOENT' };
+    return p in files ? { value: { kind: 'file', size: (opts.sizes && opts.sizes[p]) || files[p]!.length, mtimeMs: mtime[p], isLink: false } } : { deny: 'ENOENT' };
   });
   // Entries of a folder, built from the files kept in memory (a child folder is a name with more path after it).
   on('fs.list', (_: any, e: any) => {
@@ -58,19 +60,20 @@ function world(on: any, files: Files, opts: { host?: string; usage?: any; messag
       if (!p.startsWith(dir + '/')) continue;
       const [first, ...more] = p.slice(dir.length + 1).split('/');
       if (more.length) seen.set(first!, { name: first, kind: 'dir', size: 0, mtimeMs: 0, isLink: false });
-      else seen.set(first!, { name: first, kind: 'file', size: files[p]!.length, mtimeMs: mtime[p] ?? Date.now(), isLink: false });
+      else seen.set(first!, { name: first, kind: 'file', size: (opts.sizes && opts.sizes[p]) || files[p]!.length, mtimeMs: mtime[p] ?? Date.now(), isLink: false });
     }
     return seen.size ? { value: [...seen.values()] } : { deny: 'ENOENT' };
   });
   on('session.messages', () => (opts.messages ? { value: opts.messages } : { deny: 'no messages in the test' }));
   on('session.id', () => (opts.noSid ? { deny: 'no session id in the test' } : { value: 'S1' }));
   on('session.cwd', () => ({ value: '/w' }));
+  on('session.model', () => ({ value: opts.model || 'claude-opus-4-7' }));
   on('session.usage', () => ({ value: opts.usage || { startedAt: 0, context: { tokens: 1000, window: 200000 }, rateLimits: [] } }));
   on('ui.status', (_: any, e: any) => {
     status.push(e.text);
     return { value: undefined };
   });
-  mock.env(on, { USERPROFILE: USER, TOKEN_STAMINA_HOME: HOME, ...(opts.host ? { CLAUDE_CODE_HOST_SESSION_ID: opts.host } : {}) });
+  mock.env(on, { USERPROFILE: USER, TOKEN_STAMINA_HOME: HOME, ...(opts.host ? { CLAUDE_CODE_HOST_SESSION_ID: opts.host } : {}), ...(opts.env || {}) });
   return { files, status };
 }
 
@@ -220,7 +223,7 @@ const PROJ = CLAUDE + '/projects/-w';
 const asstAt = (id: string, model: string, usage: unknown, content: unknown[] = []) =>
   line({ type: 'assistant', isSidechain: false, timestamp: iso(), message: { id, model, role: 'assistant', content, usage } });
 
-test('session.start registers fleet, savings, report and audit', async ($, on) => {
+test('session.start registers fleet, savings, report, audit and recall', async ($, on) => {
   const names: string[] = [];
   on('command.register', (_: any, e: any) => {
     names.push(e.name);
@@ -229,7 +232,290 @@ test('session.start registers fleet, savings, report and audit', async ($, on) =
   on('session.start', (_: any, e: any) => ({ cwd: e.cwd }));
   world(on, {});
   await $.session.start({ cwd: '/w', surface: 'terminal', isInteractive: true } as any);
-  expect(names.sort().join(',')).toBe('ts-advisor,ts-audit,ts-fleet,ts-report,ts-savings');
+  expect(names.sort().join(',')).toBe('ts-advisor,ts-audit,ts-fleet,ts-recall,ts-report,ts-savings');
+});
+
+// ---- 0.6.8: user Agent hooks, judgment keep-parent, require mode, mode precedence, advisor analyze ----
+
+const AG = { tool: 'Agent', description: 'do the thing', prompt: 'do the thing', subagent_type: 'general-purpose' };
+const cfgFile = (o: object) => ({ [HOME + '/config.json']: JSON.stringify(o) });
+// A world with the red-usage Agent call target; `seen` is the call as the engine would run it (null: refused before the tool).
+function agentWorld(on: any, files: Files, o: { settings?: object; usage?: any; env?: Record<string, string>; model?: string } = {}) {
+  world(on, files, { usage: o.usage === undefined ? redUsage() : o.usage, env: o.env, model: o.model });
+  if (o.settings) on('settings.read', () => ({ value: o.settings }));
+  const box: { seen: any } = { seen: null };
+  on('tool.call', (_: any, e: any) => {
+    box.seen = e;
+    return { result: {} };
+  });
+  return box;
+}
+const userHook = (matcher: string | undefined) => ({ hooks: { PreToolUse: [{ ...(matcher === undefined ? {} : { matcher }), hooks: [{ type: 'command', command: 'node my-guard.js' }] }] } });
+const deferCount = (files: Files) => (evText(files).match(/"event":"agent_model_defer"/g) || []).length;
+
+test('user PreToolUse hook on Agent: red usage only suggests (input unchanged) and agent_model_defer is written once per session', async ($, on) => {
+  const files: Files = {};
+  const box = agentWorld(on, files, { settings: userHook('Agent') });
+  const r1: any = await $.tool.call(AG as any);
+  expect(box.seen.model).toBeUndefined();
+  expect((r1.context || []).join(' ')).toContain('Consider model="sonnet"');
+  await $.tool.call(AG as any);
+  expect(box.seen.model).toBeUndefined();
+  expect(deferCount(files)).toBe(1);
+  expect(evText(files)).toContain('"reason":"user_hook"');
+  expect(evText(files)).toContain('"action":"suggest"');
+});
+
+for (const [matcher, defers] of [['Task', true], ['Agent|Task', true], ['', true], ['*', true], ['Bash', false], ['Write|Edit', false]] as const) {
+  test(`user hook matcher "${matcher}": ${defers ? 'defers (input unchanged, one defer event)' : 'does not hold the input, so red usage injects'}`, async ($, on) => {
+    const files: Files = {};
+    const box = agentWorld(on, files, { settings: userHook(matcher) });
+    await $.tool.call(AG as any);
+    expect(box.seen.model).toBe(defers ? undefined : 'sonnet');
+    expect(deferCount(files)).toBe(defers ? 1 : 0);
+  });
+}
+
+test('a PostToolUse hook on Agent does not hold the input: red usage injects', async ($, on) => {
+  const files: Files = {};
+  const box = agentWorld(on, files, { settings: { hooks: { PostToolUse: [{ matcher: 'Agent', hooks: [{ type: 'command', command: 'x' }] }] } } });
+  await $.tool.call(AG as any);
+  expect(box.seen.model).toBe('sonnet');
+});
+
+test('respectUserAgentHooks:false: a user hook on Agent is ignored and the call is injected', async ($, on) => {
+  const files: Files = cfgFile({ respectUserAgentHooks: false });
+  const box = agentWorld(on, files, { settings: userHook('Agent') });
+  await $.tool.call(AG as any);
+  expect(box.seen.model).toBe('sonnet');
+  expect(deferCount(files)).toBe(0);
+});
+
+test('no settings at all (read refused): the Agent call is handled as before', async ($, on) => {
+  const files: Files = {};
+  const box = agentWorld(on, files);
+  await $.tool.call(AG as any);
+  expect(box.seen.model).toBe('sonnet');
+});
+
+test('judgment signal with CLAUDE_CODE_SUBAGENT_MODEL=sonnet under an opus main model: the main model is put in model', async ($, on) => {
+  const files: Files = {};
+  const box = agentWorld(on, files, { usage: null, env: { CLAUDE_CODE_SUBAGENT_MODEL: 'sonnet' } });
+  const r: any = await $.tool.call({ ...AG, description: 'design the schema', prompt: 'design review of the schema' } as any);
+  expect(box.seen.model).toBe('opus');
+  expect(evText(files)).toContain('"reason":"judgment_keep_parent"');
+  expect((r.context || []).join(' ')).toContain('below the main model');
+  // no judgment word: untouched; an explicit model: untouched
+  await $.tool.call({ ...AG, description: 'collect logs', prompt: 'collect the logs' } as any);
+  expect(box.seen.model).toBeUndefined();
+  await $.tool.call({ ...AG, description: 'design the schema', model: 'haiku' } as any);
+  expect(box.seen.model).toBe('haiku');
+});
+
+test('judgment keep-parent reads CLAUDE_CODE_SUBAGENT_MODEL from settings env', async ($, on) => {
+  const f1: Files = {};
+  const b1 = agentWorld(on, f1, { usage: null, settings: { env: { CLAUDE_CODE_SUBAGENT_MODEL: 'claude-haiku-4-5' } } });
+  await $.tool.call({ ...AG, description: 'review the plan' } as any);
+  expect(b1.seen.model).toBe('opus');
+});
+
+test('judgment keep-parent reads the model of the named agent definition', async ($, on) => {
+  const f2: Files = { '/w/.claude/agents/rev.md': '---\nname: rev\nmodel: sonnet\n---\nreviewer' };
+  const b2 = agentWorld(on, f2, { usage: null });
+  await $.tool.call({ ...AG, subagent_type: 'rev', description: 'review the plan' } as any);
+  expect(b2.seen.model).toBe('opus'); // the definition pins sonnet, below the opus main model
+});
+
+test('judgment keep-parent: a main model that is not above the default leaves the call alone', async ($, on) => {
+  const b3 = agentWorld(on, {}, { usage: null, env: { CLAUDE_CODE_SUBAGENT_MODEL: 'sonnet' }, model: 'claude-sonnet-4-6' });
+  await $.tool.call({ ...AG, description: 'review the plan' } as any);
+  expect(b3.seen.model).toBeUndefined();
+});
+
+test('judgmentKeepParent:false: one warning line and the input is unchanged', async ($, on) => {
+  const b1 = agentWorld(on, cfgFile({ judgmentKeepParent: false }), { usage: null, env: { CLAUDE_CODE_SUBAGENT_MODEL: 'sonnet' } });
+  const r: any = await $.tool.call({ ...AG, description: 'design the schema' } as any);
+  expect(b1.seen.model).toBeUndefined();
+  expect((r.context || []).join(' ')).toContain('default subagent model (sonnet) is below the main model (opus)');
+});
+
+test('a user hook on Agent gives the below-parent warning instead of an injection', async ($, on) => {
+  const b2 = agentWorld(on, {}, { usage: null, env: { CLAUDE_CODE_SUBAGENT_MODEL: 'sonnet' }, settings: userHook('Agent') });
+  const r2: any = await $.tool.call({ ...AG, description: 'design the schema' } as any);
+  expect(b2.seen.model).toBeUndefined();
+  expect((r2.context || []).join(' ')).toContain('is below the main model');
+});
+
+for (const lang of ['en', 'ko']) {
+  test(`subagentMode require (${lang}): a model-less Agent call is refused with a short reason; a call with a model or a fork goes through`, async ($, on) => {
+    const files: Files = cfgFile({ subagentMode: 'require', lang });
+    const box = agentWorld(on, files);
+    const r: any = await $.tool.call(AG as any);
+    expect(typeof r.deny).toBe('string');
+    expect(box.seen).toBeNull();
+    expect(estimateTokens(r.deny)).toBeLessThanOrEqual(120);
+    for (const m of ['haiku', 'sonnet', 'opus']) expect(r.deny).toContain(m);
+    if (lang === 'en') {
+      expect(r.deny).toMatch(/Pace: (7d|5h) red -> sonnet advised/);
+      expect(r.deny).toContain('(1) does a fixed procedure give the answer');
+      expect(r.deny).toContain('(4) is a mistake hard to undo');
+      expect(r.deny).toContain('split in two');
+    } else {
+      expect(r.deny).toMatch(/속도: (7d|5h) 빨강 → sonnet 추천/);
+      for (const q of ['①정해진 절차로 답이 나오나', '②예상 밖이면 멈춤이면 되나 해석해야 하나', '③결과가 그대로 밖으로 나가나', '④틀리면 되돌리기 어렵나', '둘로 쪼개기']) expect(r.deny).toContain(q);
+    }
+    expect(evText(files)).toContain('"action":"deny"');
+    await $.tool.call({ ...AG, model: 'haiku' } as any);
+    expect(box.seen.model).toBe('haiku');
+    box.seen = null;
+    await $.tool.call({ ...AG, subagent_type: 'fork' } as any);
+    expect(box.seen).not.toBeNull();
+  });
+}
+
+test('require with green pace says so', async ($, on) => {
+  const green = { startedAt: 0, context: { tokens: 1000, window: 200000 }, rateLimits: [{ kind: 'seven_day', percentUsed: 1, resetsAt: new Date(Date.now() + 3 * 86400000).toISOString() }] };
+  agentWorld(on, cfgFile({ subagentMode: 'require' }), { usage: green });
+  const r1: any = await $.tool.call(AG as any);
+  expect(r1.deny).toContain('Pace: green.');
+});
+
+test('require with unknown pace stays silent about pace and within 120 tokens', async ($, on) => {
+  agentWorld(on, cfgFile({ subagentMode: 'require' }), { usage: null });
+  const r2: any = await $.tool.call(AG as any);
+  expect(r2.deny).not.toContain('Pace:');
+  expect(estimateTokens(r2.deny)).toBeLessThanOrEqual(120);
+});
+
+test('require: an agent definition that pins a model is not refused', async ($, on) => {
+  const f3: Files = { ...cfgFile({ subagentMode: 'require' }), '/w/.claude/agents/pinned.md': '---\nname: pinned\nmodel: haiku\n---\nx' };
+  const b3 = agentWorld(on, f3);
+  await $.tool.call({ ...AG, subagent_type: 'pinned' } as any);
+  expect(b3.seen).not.toBeNull();
+});
+
+test('require with a user hook on Agent still denies a model-less call (require changes no input, so no defer event)', async ($, on) => {
+  const f4: Files = cfgFile({ subagentMode: 'require' });
+  const b4 = agentWorld(on, f4, { settings: userHook('Agent') });
+  const r4: any = await $.tool.call(AG as any);
+  expect(typeof r4.deny).toBe('string');
+  expect(b4.seen).toBeNull();
+  expect(deferCount(f4)).toBe(0);
+});
+
+test('require with a user hook: a call that names a model goes through unchanged to the hook chain', async ($, on) => {
+  const f5: Files = cfgFile({ subagentMode: 'require' });
+  const b5 = agentWorld(on, f5, { settings: userHook('Agent') });
+  const r5: any = await $.tool.call({ ...AG, model: 'opus' } as any);
+  expect(r5.deny).toBeUndefined();
+  expect(b5.seen.model).toBe('opus');
+});
+
+test('mode inject still defers to a user hook while subagentMode require does not (same hook)', async ($, on) => {
+  const f6: Files = cfgFile({ mode: 'inject' });
+  const b6 = agentWorld(on, f6, { settings: userHook('Agent') });
+  await $.tool.call(AG as any);
+  expect(b6.seen.model).toBeUndefined();
+  expect(deferCount(f6)).toBe(1);
+});
+
+const SS = { tool: 'mcp__ccd_session__start_session', title: 'work', prompt: 'do the thing', cwd: '/w2', initiation: 'own_initiative' };
+test('mode off + subagentMode inject: the Agent call is injected', async ($, on) => {
+  const box = agentWorld(on, cfgFile({ mode: 'off', subagentMode: 'inject' }));
+  await $.tool.call(AG as any);
+  expect(box.seen.model).toBe('sonnet');
+});
+test('mode inject + subagentMode off: the Agent call is untouched', async ($, on) => {
+  const box = agentWorld(on, cfgFile({ mode: 'inject', subagentMode: 'off' }));
+  await $.tool.call(AG as any);
+  expect(box.seen.model).toBeUndefined();
+});
+test('mode require alone refuses a model-less Agent call (subagentMode absent follows mode)', async ($, on) => {
+  agentWorld(on, cfgFile({ mode: 'require' }));
+  expect(typeof ((await $.tool.call(AG as any)) as any).deny).toBe('string');
+});
+test('subagentMode suggest beats mode require', async ($, on) => {
+  const box = agentWorld(on, cfgFile({ mode: 'require', subagentMode: 'suggest' }));
+  expect(((await $.tool.call(AG as any)) as any).deny).toBeUndefined();
+  expect(box.seen.model).toBeUndefined();
+});
+test('sessionMode suggest + mode inject: start_session unchanged, the Agent call is still injected', async ($, on) => {
+  const box = agentWorld(on, cfgFile({ mode: 'inject', sessionMode: 'suggest' }));
+  const rs: any = await $.tool.call(SS as any);
+  expect(box.seen.model).toBeUndefined();
+  expect((rs.context || []).join(' ')).toContain('new session');
+  await $.tool.call(AG as any);
+  expect(box.seen.model).toBe('sonnet');
+});
+test('sessionMode inject + mode suggest: start_session injected, the Agent call only suggested', async ($, on) => {
+  const box = agentWorld(on, cfgFile({ mode: 'suggest', sessionMode: 'inject' }));
+  await $.tool.call(SS as any);
+  expect(box.seen.model).toBe('sonnet');
+  await $.tool.call(AG as any);
+  expect(box.seen.model).toBeUndefined();
+});
+for (const c of [{ mode: 'require' }, { sessionMode: 'require' }]) {
+  test(`require is not a session mode (${JSON.stringify(c)}): start_session is never refused`, async ($, on) => {
+    const box = agentWorld(on, cfgFile(c));
+    const r: any = await $.tool.call(SS as any);
+    expect(r.deny).toBeUndefined();
+    expect(box.seen.model).toBeUndefined();
+  });
+}
+
+test('the Task tool name is handled like Agent', async ($, on) => {
+  const box = agentWorld(on, {});
+  await $.tool.call({ ...AG, tool: 'Task' } as any);
+  expect(box.seen.model).toBe('sonnet');
+});
+
+test('advisor tool analyze: the answer is a string (an object fails the engine\'s output shape), with json off and on', async ($, on) => {
+  world(on, {});
+  const text: any = await $.tool.call({ tool: ATOOL, mode: 'analyze' } as any);
+  expect(typeof text.result).toBe('string');
+  expect(text.deny).toBeUndefined();
+  expect(text.result.length).toBeGreaterThan(0);
+  const js: any = await $.tool.call({ tool: ATOOL, mode: 'analyze', json: true } as any);
+  expect(typeof js.result).toBe('string');
+  expect(JSON.parse(js.result).windows).toBeDefined();
+  const bad: any = await $.tool.call({ tool: ATOOL, mode: 'nope' } as any);
+  expect(typeof bad.deny).toBe('string'); // an error answer is a deny, also a string
+  const bt: any = await $.tool.call({ tool: BTOOL, mode: 'json' } as any);
+  expect(typeof bt.result).toBe('string');
+});
+
+// A main transcript over 4 MiB: $.fs.read refuses it, scripts/transcript-slim.js --adv streams it, and the scan counts it as read.
+const bigCall = (n: number) => JSON.stringify({ type: 'assistant', timestamp: new Date(Date.now() - 3600000 + n * 1000).toISOString(), sessionId: 'S1', requestId: 'r' + n,
+  message: { id: 'm' + n, model: 'claude-opus-4-7', usage: { input_tokens: 5, cache_read_input_tokens: 100, output_tokens: 7, cache_creation_input_tokens: 0 } } });
+test('advisor analyze reads a main transcript over 4 MiB through the streaming helper (--adv) instead of skipping it', async ($, on) => {
+  const rows = Array.from({ length: 30 }, (_, i) => bigCall(i)).join('\n') + '\n';
+  const files: Files = { [PROJ + '/S1.jsonl']: rows };
+  world(on, files, { tooBig: /\/S1\.jsonl$/, sizes: { [PROJ + '/S1.jsonl']: 6 * 1024 * 1024 } });
+  const runs: string[][] = [];
+  on('process.run', (_: any, e: any) => {
+    runs.push(e.argv);
+    return { value: { exitCode: 0, stdout: rows, stderr: '', isStdoutTruncated: false } };
+  });
+  const a: any = await $.tool.call({ tool: ATOOL, mode: 'analyze', json: true } as any);
+  expect(runs.length).toBe(1);
+  expect(runs[0]!.join(' ')).toContain('transcript-slim.js');
+  expect(runs[0]!.join(' ')).toContain('--adv');
+  const cov = JSON.parse(a.result).coverage;
+  expect(cov.files).toBe(1);
+  expect(cov.read).toBe(1);
+  expect(cov.skipped).toBe(0);
+  const t: any = await $.tool.call({ tool: ATOOL, mode: 'analyze' } as any);
+  expect(t.result.split('\n')[0]).not.toMatch(/^Skipped/);
+});
+
+test('advisor analyze: a big transcript that cannot be streamed is skipped and the first line says how many and how much', async ($, on) => {
+  const files: Files = { [PROJ + '/S1.jsonl']: bigCall(1) + '\n', [PROJ + '/S2.jsonl']: bigCall(2) + '\n' };
+  world(on, files, { tooBig: /\/S1\.jsonl$/, sizes: { [PROJ + '/S1.jsonl']: 6 * 1024 * 1024 } });
+  on('process.run', () => ({ value: { exitCode: 1, stdout: '', stderr: 'no node', isStdoutTruncated: false } }));
+  const en: any = await $.tool.call({ tool: ATOOL, mode: 'analyze' } as any);
+  expect(en.result.split('\n')[0]).toMatch(/^Skipped 1 file \(\d+% of all bytes\)\.$/);
+  const ko: any = await $.tool.call({ tool: ATOOL, mode: 'analyze', lang: 'ko' } as any);
+  expect(ko.result.split('\n')[0]).toMatch(/^건너뜀 1개\(전체의 \d+%\)$/);
 });
 
 test('/ts-fleet prints the running subagents of this session and the sessions line', async ($, on) => {
@@ -256,6 +542,25 @@ test('/ts-savings counts a model downgrade as an estimate', async ($, on) => {
   expect(r.text).toContain('Model downgrade: 1 calls, 1.1k tokens, Opus-input equiv 600 (est.)');
   expect(r.text).toContain('Total: about 600 Opus input-token equivalents (est.)');
   expect(r.text).toContain('Not actual billing.');
+});
+
+test('/ts-savings reads a transcript over 4 MiB through the streaming helper instead of skipping it', async ($, on) => {
+  const events = line({ v: 5, ts: iso(), event: 'agent_model', action: 'inject', session: 'S1', tool_use_id: 't1', model: 'sonnet', requested_model: 'opus' });
+  const transcript =
+    asstAt('m1', 'claude-opus-4-7', { input_tokens: 10, output_tokens: 5 }, [{ type: 'tool_use', id: 't1', name: 'Agent', input: {} }]) +
+    line({ type: 'user', isSidechain: false, toolUseResult: { status: 'completed', resolvedModel: 'claude-sonnet-4-6', usage: { input_tokens: 1000, output_tokens: 100 } }, message: { role: 'user', content: [{ type: 'tool_result', tool_use_id: 't1', content: 'ok' }] } });
+  world(on, { [HOME + '/events.jsonl']: events, [PROJ + '/S1.jsonl']: transcript }, { tooBig: /\/S1\.jsonl$/ });
+  const runs: string[][] = [];
+  on('process.run', (_: any, e: any) => {
+    runs.push(e.argv);
+    return { value: { exitCode: 0, stdout: transcript, stderr: '', isStdoutTruncated: false } };
+  });
+  const r: any = await $.command.run({ command: 'ts-savings' } as any);
+  expect(runs.length).toBe(1);
+  expect(runs[0]!.join(' ')).toContain('transcript-slim.js');
+  expect(runs[0]!.join(' ')).not.toContain('--chat');
+  expect(r.text).toContain('Model downgrade: 1 calls, 1.1k tokens, Opus-input equiv 600 (est.)');
+  expect(r.text).not.toContain('skipped');
 });
 
 test('/ts-report totals tokens by model, main against subagent, and the unspecified Agent calls', async ($, on) => {
@@ -606,7 +911,7 @@ const rowDoc = (sid: string, over: Record<string, unknown> = {}) => ({
 });
 async function callBoard($: any, input: Record<string, unknown>): Promise<any> {
   const r: any = await $.tool.call({ tool: BTOOL, ...input } as any);
-  return JSON.parse(r.result.content[0].text);
+  return JSON.parse(r.deny !== undefined ? r.deny : r.result); // 0.6.8: the answer is a string; an error is a deny
 }
 const redUsage = () => {
   const resets = new Date(Date.now() + 3 * 86400 * 1000).toISOString();
@@ -756,8 +1061,8 @@ test('board tool apply: a config.json that cannot be parsed is left as it is, an
   const files: Files = { [HOME + '/config.json']: broken, '/t/dec.json': '[]' };
   world(on, files);
   const r: any = await $.tool.call({ tool: BTOOL, mode: 'apply', decisions: '/t/dec.json' } as any);
-  expect(r.result.isError).toBe(true);
-  const out = JSON.parse(r.result.content[0].text);
+  expect(typeof r.deny).toBe('string');
+  const out = JSON.parse(r.deny);
   expect(out.ops).toEqual([]);
   expect(out.error).toContain('config.json');
   expect(files[HOME + '/config.json']).toBe(broken);
@@ -785,7 +1090,8 @@ const ATOOL = 'mcp__token-stamina__advisor';
 const ADV = HOME + '/advisor';
 const callAdvisor = async ($: any, input: Record<string, unknown>): Promise<{ text: string; isError: boolean }> => {
   const r: any = await $.tool.call({ tool: ATOOL, ...input } as any);
-  return { text: r.result.content[0].text, isError: r.result.isError };
+  // 0.6.8: a string result, or a deny for an error (an object result fails the engine's output-shape check)
+  return r.deny !== undefined ? { text: r.deny, isError: true } : { text: r.result, isError: false };
 };
 // Plays the person at the AskUserQuestion dialog: answers every question with `label` and keeps the question texts.
 const answer: { label: string | null } = { label: null };
@@ -1371,11 +1677,396 @@ test('inline hint after the first one is the short line without the full instruc
 
 test('line_tokens: the topic_check event', async ($, on) => {
   const usage = { startedAt: 0, context: { tokens: 215000, window: 1000000 }, rateLimits: [] };
-  const files: Files = { [TG]: JSON.stringify({ S1: { cwd: '/w', hintAt: 150000, ts: Date.now() } }) };
+  const files: Files = { [TG]: JSON.stringify({ S1: { cwd: '/w', hintAt: 190000, ts: Date.now() } }) };
   world(on, files, { usage });
   on('classic.UserPromptSubmit', () => ({}));
   await $.classic.UserPromptSubmit({ session_id: 'S1', cwd: '/w', prompt: 'next', transcript_path: '/t/S1.jsonl' } as any);
   const t = evOf(files, 'topic_check')[0];
   expect(typeof t.line_tokens).toBe('number');
   expect(t.line_tokens).toBeGreaterThan(0);
+});
+
+// ---- 0.6.7: repeat hints, pace_sample, transcript line, /ts-recall, the Clear button ----
+
+const hintRun = async ($: any, on: any, tokens: number, rec: Record<string, unknown> | null, cfg: Record<string, unknown>) => {
+  const usage = { startedAt: 0, context: { tokens, window: 1000000 }, rateLimits: [] };
+  const files: Files = { [HOME + '/config.json']: JSON.stringify({ topicGate: false, topicCheck: false, ...cfg }) };
+  if (rec) files[TG] = JSON.stringify({ S1: { cwd: '/w', ts: Date.now(), ...rec } });
+  world(on, files, { usage });
+  on('classic.UserPromptSubmit', () => ({}));
+  await $.classic.UserPromptSubmit({ session_id: 'S1', cwd: '/w', prompt: 'next', transcript_path: '/t/S1.jsonl' } as any);
+  return { files, hints: evOf(files, 'inline_hint'), book: JSON.parse(files[TG] || '{}').S1 };
+};
+
+test('0.6.7 repeat hints: a 1M window needs 100k of growth since the last hint (too early: none)', async ($, on) => {
+  const near = await hintRun($, on, 240000, { hintAt: 160000, hintCount: 1 }, { compactWindowTokens: 1000000 });
+  expect(near.hints.length).toBe(0);
+});
+
+test('0.6.7 repeat hints: after 100k of growth the repeat comes and the counter is stored', async ($, on) => {
+  const far = await hintRun($, on, 265000, { hintAt: 160000, hintCount: 1 }, { compactWindowTokens: 1000000 });
+  expect(far.hints.length).toBe(1);
+  expect(far.book.hintCount).toBe(2);
+  expect(far.book.hintAt).toBe(265000);
+});
+
+test('0.6.7 repeat hints: at most 5 per context', async ($, on) => {
+  const capped = await hintRun($, on, 900000, { hintAt: 700000, hintCount: 5 }, { compactWindowTokens: 1000000 });
+  expect(capped.hints.length).toBe(0);
+});
+
+test('0.6.7 repeat hints: after a drop the counter starts over with a first hint', async ($, on) => {
+  const reset = await hintRun($, on, 170000, { hintAt: 700000, hintCount: 5 }, { compactWindowTokens: 1000000 });
+  expect(reset.hints.length).toBe(1);
+  expect(reset.book.hintCount).toBe(1);
+});
+
+test('0.6.7 pace_sample: one event per hour, numbers and the grade only', async ($, on) => {
+  const resets = new Date(Date.now() + 3 * 86400 * 1000).toISOString();
+  const usage = { startedAt: 0, context: { tokens: 1000, window: 200000 }, rateLimits: [{ kind: 'seven_day', percentUsed: 60, resetsAt: resets }, { kind: 'five_hour', percentUsed: 30, resetsAt: resets }] };
+  const files: Files = {};
+  world(on, files, { usage });
+  on('classic.UserPromptSubmit', () => ({}));
+  await $.classic.UserPromptSubmit({ session_id: 'S1', cwd: '/w', prompt: 'a', transcript_path: '/t/S1.jsonl' } as any);
+  await $.classic.UserPromptSubmit({ session_id: 'S1', cwd: '/w', prompt: 'b', transcript_path: '/t/S1.jsonl' } as any);
+  const ps = evOf(files, 'pace_sample');
+  expect(ps.length).toBe(1);
+  expect(Object.keys(ps[0]).filter((k) => !['v', 'ts', 'event', 'session'].includes(k)).sort().join(',')).toBe('five_h_pct,five_h_reset_at,grade,week_pct,week_reset_at');
+  expect(ps[0].week_pct).toBe(60);
+  expect(typeof ps[0].week_reset_at).toBe('number');
+  expect(typeof ps[0].grade).toBe('string');
+  // an hour later a second one is allowed
+  files[HOME + '/pace-sample.json'] = JSON.stringify({ ts: Date.now() - 61 * MIN });
+  await $.classic.UserPromptSubmit({ session_id: 'S1', cwd: '/w', prompt: 'c', transcript_path: '/t/S1.jsonl' } as any);
+  expect(evOf(files, 'pace_sample').length).toBe(2);
+});
+
+test('0.6.7 the handoff note carries the transcript line (home shortened to ~)', async ($, on) => {
+  const files: Files = { '/h/.claude/projects/p/S1.jsonl': prompt('hello') + asst([{ type: 'text', text: 'hi' }]) };
+  world(on, files);
+  on('classic.Stop', () => ({}));
+  await $.classic.Stop({ session_id: 'S1', cwd: '/w', transcript_path: '/h/.claude/projects/p/S1.jsonl' } as any);
+  expect(files[sessionFileName(DIR, 'S1')] || '').toContain('- transcript: ~/.claude/projects/p/S1.jsonl');
+  expect(files[latestFileName(DIR, '/w')] || '').toContain('- transcript: ~/.claude/projects/p/S1.jsonl');
+});
+
+test('0.6.7 the handoff note has no transcript line when the Stop event has no path', async ($, on) => {
+  const files: Files = {};
+  world(on, files);
+  on('classic.Stop', () => ({}));
+  await $.classic.Stop({ session_id: 'S2', cwd: '/w' } as any);
+  expect(files[sessionFileName(DIR, 'S2')] || '').not.toContain('transcript:');
+});
+
+// -- /ts-recall and the "previous chat" button --
+
+const PREV = '/h/.claude/projects/p/OLD.jsonl';
+const chatLog = (n: number) => Array.from({ length: n }, (_, i) => prompt(`question ${i} about ${i % 2 ? 'parser' : 'lexer'}`) + asst([{ type: 'text', text: `answer ${i}` }, { type: 'tool_use', id: 't' + i, name: 'Bash', input: {} }]) + result('t' + i)).join('');
+const recallWorld = (on: any, files: Files, sizes?: Record<string, number>) => {
+  world(on, files, { sizes });
+  const logged: string[] = [];
+  on('ui.log', (_: any, e: any) => { logged.push(String(e.text)); return { value: undefined }; });
+  const appended: any[] = [];
+  on('session.append', (_: any, e: any) => { appended.push(e); return { value: undefined }; });
+  on('session.start', (_: any, e: any) => ({ cwd: e.cwd }));
+  on('command.register', () => ({ value: { command: 'x' } }));
+  on('tool.register', () => ({ value: undefined }));
+  on('prompt.submit', (_: any, e: any) => ({ text: e.text }));
+  on('command.run', { command: 'ts-recall' }, () => ({}));
+  engineBand(on);
+  return { logged, appended };
+};
+const recFile = (from = 'OLD', transcript: string | null = PREV, ageMs = 1000, extra: object = {}) => JSON.stringify({ from, ...(transcript ? { transcript } : {}), at: Date.now() - ageMs, ...extra });
+
+test('/ts-recall shows the last 6 turns of the previous chat on screen only (no tool text)', async ($, on) => {
+  const files: Files = { [PREV]: chatLog(9), [HOME + '/recall.json']: recFile() };
+  const { logged, appended } = recallWorld(on, files);
+  await $.session.start({ cwd: '/w', surface: 'terminal', isInteractive: true } as any);
+  await $.command.run({ command: 'ts-recall' } as any);
+  const shown = logged.join('\n');
+  expect(shown).toContain('last 6 turns');
+  expect(shown).toContain('> question 8 about lexer');
+  expect(shown).toContain('answer 8');
+  expect(shown).not.toContain('question 2 about');
+  expect(shown).not.toContain('Bash');
+  expect(appended.length).toBe(0); // nothing was added to the conversation
+});
+
+test('/ts-recall with words searches the previous chat', async ($, on) => {
+  const files: Files = { [PREV]: chatLog(9), [HOME + '/recall.json']: recFile() };
+  const { logged } = recallWorld(on, files);
+  await $.session.start({ cwd: '/w', surface: 'terminal', isInteractive: true } as any);
+  await $.command.run({ command: 'ts-recall', args: 'parser' } as any);
+  const hits = logged.join('\n');
+  expect(hits).toContain('4 match');
+  expect(hits).toContain('question 7 about parser');
+  expect(hits).not.toContain('about lexer');
+});
+
+test('/ts-recall: a search shows at most 10 matches', async ($, on) => {
+  const files: Files = { [PREV]: chatLog(30), [HOME + '/recall.json']: recFile() };
+  const { logged } = recallWorld(on, files);
+  await $.session.start({ cwd: '/w', surface: 'terminal', isInteractive: true } as any);
+  await $.command.run({ command: 'ts-recall', args: 'question' } as any);
+  expect(logged.filter((l) => l.startsWith('> ')).length).toBe(10);
+});
+
+test('/ts-recall: a search with no hit is one line', async ($, on) => {
+  const files: Files = { [PREV]: chatLog(5), [HOME + '/recall.json']: recFile() };
+  const { logged } = recallWorld(on, files);
+  await $.session.start({ cwd: '/w', surface: 'terminal', isInteractive: true } as any);
+  await $.command.run({ command: 'ts-recall', args: 'zzzz' } as any);
+  expect(logged.length).toBe(1);
+  expect(logged[0]).toContain('no turn');
+});
+
+test('/ts-recall with no previous session prints one line', async ($, on) => {
+  const w = recallWorld(on, {});
+  await $.session.start({ cwd: '/w', surface: 'terminal', isInteractive: true } as any);
+  await $.command.run({ command: 'ts-recall' } as any);
+  expect(w.logged.length).toBe(1);
+  expect(w.logged[0]).toContain('no just-cleared');
+});
+
+test('/ts-recall reads a transcript over 4 MiB through the streaming helper (node, --chat, only its end)', async ($, on) => {
+  const files: Files = { [PREV]: chatLog(2), [HOME + '/recall.json']: recFile() };
+  const { logged } = recallWorld(on, files, { [PREV]: 6 * 1024 * 1024 });
+  const runs: string[][] = [];
+  on('process.run', (_: any, e: any) => {
+    runs.push(e.argv);
+    const rows = [{ type: 'user', message: { role: 'user', content: 'huge session question' } }, { type: 'assistant', message: { role: 'assistant', content: 'huge session answer' } }];
+    return { value: { exitCode: 0, stdout: rows.map((r) => JSON.stringify(r)).join('\n') + '\n', stderr: '', isStdoutTruncated: false } };
+  });
+  await $.session.start({ cwd: '/w', surface: 'terminal', isInteractive: true } as any);
+  await $.command.run({ command: 'ts-recall' } as any);
+  expect(runs.length).toBe(1);
+  expect(runs[0]!.join(' ')).toContain('--chat');
+  expect(runs[0]!.join(' ')).toContain('--tail');
+  expect(logged.join('\n')).toContain('huge session answer');
+});
+
+const recallButtonOnce = async ($: any, on: any, surface: 'terminal' | 'desktop') => {
+  const files: Files = { [PREV]: chatLog(3), [HOME + '/recall.json']: recFile() };
+  const { logged, appended } = recallWorld(on, files);
+  await $.session.start({ cwd: '/w', surface, isInteractive: true } as any);
+  const ui = await $.ui.mount({ ...BAND, surface });
+  expect(await ui.find({ type: 'Button', key: 'recall' })).toBeTruthy();
+  await ui.press({ key: 'recall' });
+  expect(logged.join('\n')).toContain('question 2 about lexer');
+  await ui.unmount();
+  const again = await $.ui.mount({ ...BAND, surface });
+  expect(await again.find({ type: 'Button', key: 'recall' })).toBeFalsy();
+  await again.unmount();
+  expect(appended.length).toBe(0);
+};
+test('the "Previous chat" button (terminal): one press shows the turns and it is gone; no model context', async ($, on) => recallButtonOnce($, on, 'terminal'));
+test('the "Previous chat" button (desktop): one press shows the turns and it is gone; no model context', async ($, on) => recallButtonOnce($, on, 'desktop'));
+
+test('the "Previous chat" button goes after 5 prompts', async ($, on) => {
+  const files: Files = { [PREV]: chatLog(3), [HOME + '/recall.json']: recFile() };
+  recallWorld(on, files);
+  await $.session.start({ cwd: '/w', surface: 'terminal', isInteractive: true } as any);
+  const seen = async () => {
+    const ui = await $.ui.mount({ ...BAND, surface: 'terminal' });
+    const found = !!(await ui.find({ type: 'Button', key: 'recall' }));
+    await ui.unmount();
+    return found;
+  };
+  expect(await seen()).toBe(true);
+  for (let i = 0; i < 4; i++) await $.prompt.submit({ text: 'p' + i } as any);
+  expect(await seen()).toBe(true);
+  await $.prompt.submit({ text: 'p5' } as any);
+  expect(await seen()).toBe(false);
+});
+
+test('no previous session: no "Previous chat" button', async ($, on) => {
+  recallWorld(on, {});
+  await $.session.start({ cwd: '/w', surface: 'terminal', isInteractive: true } as any);
+  const ui = await $.ui.mount({ ...BAND, surface: 'terminal' });
+  expect(await ui.find({ type: 'Button', key: 'recall' })).toBeFalsy();
+  await ui.unmount();
+});
+
+const noRecallButton = async ($: any, on: any, rec: string) => {
+  const files: Files = { [PREV]: chatLog(3), [HOME + '/recall.json']: rec };
+  recallWorld(on, files);
+  await $.session.start({ cwd: '/w', surface: 'terminal', isInteractive: true } as any);
+  const ui = await $.ui.mount({ ...BAND, surface: 'terminal' });
+  expect(await ui.find({ type: 'Button', key: 'recall' })).toBeFalsy();
+  await ui.unmount();
+};
+test('a recall record over 60 minutes old gives no button', async ($, on) => noRecallButton($, on, recFile('OLD', PREV, 61 * MIN)));
+test('a recall record of this very session gives no button', async ($, on) => noRecallButton($, on, recFile('S1', PREV)));
+
+// -- the Clear button --
+
+const clearWorld = (on: any, files: Files, cfg: Record<string, unknown> = {}, tokens = 209000, host?: string) => {
+  world(on, files, { host, usage: { startedAt: 0, context: { tokens, window: 1000000 }, rateLimits: [] } });
+  files[HOME + '/config.json'] = JSON.stringify(cfg);
+  const logged: string[] = [];
+  on('ui.log', (_: any, e: any) => { logged.push(String(e.text)); return { value: undefined }; });
+  const appended: any[] = [];
+  on('session.append', (_: any, e: any) => { appended.push(e); return { value: undefined }; });
+  on('session.start', (_: any, e: any) => ({ cwd: e.cwd }));
+  on('command.register', () => ({ value: { command: 'x' } }));
+  on('tool.register', () => ({ value: undefined }));
+  on('classic.Stop', () => ({}));
+  engineBand(on);
+  return { logged, appended };
+};
+
+const clearLabel = async ($: any, on: any, surface: any, cfg: Record<string, unknown>) => {
+  clearWorld(on, {}, cfg);
+  await $.session.start({ cwd: '/w', surface, isInteractive: true } as any);
+  const ui = await $.ui.mount({ ...BAND, surface });
+  const b = await ui.find({ type: 'Button', key: 'clear' });
+  await ui.unmount();
+  return b ? ((b as any).props ? (b as any).props.label : (b as any).label) : null;
+};
+test('the Clear button shows the context size (terminal)', async ($, on) => {
+  expect(await clearLabel($, on, 'terminal', {})).toBe('Clear (209k)');
+});
+test('the Clear button shows the context size (desktop, Korean, status line style)', async ($, on) => {
+  expect(await clearLabel($, on, 'desktop', { lang: 'ko' })).toBe('비우기 (20.9만)');
+});
+test('the Clear button: none on mobile', async ($, on) => {
+  expect(await clearLabel($, on, 'mobile', {})).toBe(null);
+});
+test('the Clear button: none when clearButton is false', async ($, on) => {
+  expect(await clearLabel($, on, 'terminal', { clearButton: false })).toBe(null);
+});
+
+const S1T = '/h/.claude/projects/p/S1.jsonl';
+const pressClear = async ($: any, on: any, files: Files, surface: 'terminal' | 'desktop', label: string | null, clearAnswer: (e: any) => any, host?: string) => {
+  const w = clearWorld(on, files, {}, 209000, host);
+  const cleared: any[] = [];
+  on('command.run', { command: 'clear' }, (_: any, e: any) => { cleared.push(e); return clearAnswer(e); });
+  const asked = person(on, label);
+  await $.classic.Stop({ session_id: 'S1', cwd: '/w', transcript_path: S1T } as any);
+  delete files[sessionFileName(DIR, 'S1')]; // the button writes the note again
+  delete files[latestFileName(DIR, '/w')];
+  await $.session.start({ cwd: '/w', surface, isInteractive: true } as any);
+  const ui = await $.ui.mount({ ...BAND, surface });
+  await ui.press({ key: 'clear' });
+  await ui.unmount();
+  return { ...w, cleared, asked };
+};
+const S1_FILES = (): Files => ({ [S1T]: prompt('work on x') + asst([{ type: 'text', text: 'ok' }]) });
+
+test('Clear button: Cancel saves the note but clears nothing and records no event', async ($, on) => {
+  const files = S1_FILES();
+  const r = await pressClear($, on, files, 'terminal', 'Cancel', () => ({}));
+  expect(r.asked.length).toBe(1);
+  expect(r.asked[0]).toContain('The handoff note is saved. Clear now?');
+  expect(seenQuestions[0].options.map((o: any) => o.label)).toEqual(['Cancel', 'Clear']);
+  expect(r.cleared.length).toBe(0);
+  expect(evOf(files, 'clear_button').length).toBe(0);
+  expect(r.appended.length).toBe(0);
+  expect(files[sessionFileName(DIR, 'S1')]).toContain('work on x');
+});
+
+test('Clear button: a dismissed question clears nothing', async ($, on) => {
+  const files = S1_FILES();
+  const r = await pressClear($, on, files, 'terminal', null, () => ({}));
+  expect(r.cleared.length).toBe(0);
+  expect(evOf(files, 'clear_button').length).toBe(0);
+});
+
+test('Clear button: Clear saves the note (with the transcript line), records clear_button and runs the built-in clear', async ($, on) => {
+  const files = S1_FILES();
+  const r = await pressClear($, on, files, 'desktop', 'Clear', () => ({}));
+  expect(files[sessionFileName(DIR, 'S1')]).toContain('- transcript: ~/.claude/projects/p/S1.jsonl');
+  expect(files[latestFileName(DIR, '/w')]).toContain('work on x');
+  const ev = evOf(files, 'clear_button');
+  expect(ev.length).toBe(1);
+  expect(ev[0].tokens_at_clear).toBe(209000);
+  expect(r.cleared.length).toBe(1);
+  expect(r.cleared[0].command).toBe('clear');
+  expect(r.appended.length).toBe(0); // no model context
+  expect(JSON.parse(files[HOME + '/recall.json']!).from).toBe('S1');
+});
+
+test('Clear button: a refused built-in clear puts /clear in the prompt box', async ($, on) => {
+  const files = S1_FILES();
+  const filled: string[] = [];
+  on('prompt.fill', (_: any, e: any) => { filled.push(e.text); return { isFilled: true }; });
+  const r = await pressClear($, on, files, 'terminal', 'Clear', () => { throw new Error('a built-in is not runnable here'); });
+  expect(filled).toEqual(['/clear']);
+  expect(r.logged.join('\n')).toContain('/clear is in the prompt box');
+  expect(evOf(files, 'clear_button').length).toBe(1);
+});
+
+test('Clear button: refused clear and no prompt box: one on-screen line, the note is saved', async ($, on) => {
+  const files = S1_FILES();
+  on('prompt.fill', () => ({ isFilled: false, reason: 'no_composer' }));
+  const r = await pressClear($, on, files, 'terminal', 'Clear', () => { throw new Error('refused'); });
+  expect(r.logged.join('\n')).toContain('type /clear - handoff note saved');
+  expect(files[sessionFileName(DIR, 'S1')]).toContain('work on x');
+});
+
+test('savings section C counts a restore tagged clear_button (CLEAR_SOURCES)', async ($, on) => {
+  // /clear restores only a note Claude wrote (the auto note is for the model to open when asked)
+  const files: Files = { ...S1_FILES(), [latestFileName(DIR, '/w', true)]: '# note by Claude\nnext: ship it\n', [latestFileName(DIR, '/w', true) + '.from']: 'S1' };
+  on('classic.SessionStart', () => ({}));
+  await pressClear($, on, files, 'terminal', 'Clear', () => ({}));
+  await $.classic.SessionStart({ source: 'clear', session_id: 'S2', cwd: '/w', transcript_path: '/t/S2.jsonl' } as any);
+  const rs = evOf(files, 'handoff_restore');
+  expect(rs.length).toBe(1);
+  expect(rs[0].source).toBe('clear_button');
+  expect(rs[0].tokens_at_clear).toBe(209000);
+});
+
+// -- after the Clear button: the auto note comes back once, even with no Claude note --
+
+const pressThenNew = async ($: any, on: any, files: Files, host: string | undefined) => {
+  on('classic.SessionStart', () => ({}));
+  on('classic.UserPromptSubmit', () => ({}));
+  await pressClear($, on, files, 'terminal', 'Clear', () => ({}), host);
+};
+
+test('Clear button then the new session starts: the auto note is restored once as clear_button; the prompts add nothing', async ($, on) => {
+  const files = S1_FILES();
+  await pressThenNew($, on, files, HOST);
+  const mk = JSON.parse(files[pendingClearName(DIR, HOST)]!);
+  expect(mk.button).toBe(true); expect(mk.from).toBe('S1'); expect(mk.tokens).toBe(209000); expect(typeof mk.at).toBe('number');
+  const start: any = await $.classic.SessionStart({ source: 'clear', session_id: 'S2', cwd: '/w', transcript_path: '/t/S2.jsonl' } as any);
+  expect(ctxOf(start)).toContain('work on x');
+  const p1: any = await $.classic.UserPromptSubmit({ session_id: 'S2', cwd: '/w', prompt: 'first' } as any);
+  const p2: any = await $.classic.UserPromptSubmit({ session_id: 'S2', cwd: '/w', prompt: 'second' } as any);
+  expect(ctxOf(p1)).not.toContain('work on x');
+  expect(ctxOf(p2)).not.toContain('work on x');
+  const rs = evOf(files, 'handoff_restore');
+  expect(rs.length).toBe(1);
+  expect(rs[0].source).toBe('clear_button'); expect(rs[0].kind).toBe('auto'); expect(rs[0].tokens_at_clear).toBe(209000);
+});
+
+test('Clear button with SessionStart missing: the first prompt restores once, the second does not (no host id)', async ($, on) => {
+  const files = S1_FILES();
+  await pressThenNew($, on, files, undefined);
+  const p1: any = await $.classic.UserPromptSubmit({ session_id: 'S2', cwd: '/w', prompt: 'first' } as any);
+  const p2: any = await $.classic.UserPromptSubmit({ session_id: 'S2', cwd: '/w', prompt: 'second' } as any);
+  expect(ctxOf(p1)).toContain('work on x');
+  expect(ctxOf(p2)).not.toContain('work on x');
+  const rs = evOf(files, 'handoff_restore');
+  expect(rs.length).toBe(1);
+  expect(rs[0].source).toBe('clear_button');
+});
+
+test('Clear button: a Claude note written in the last hour wins over the auto note (existing rule)', async ($, on) => {
+  const files: Files = { ...S1_FILES(), [sessionFileName(DIR, 'S1', true)]: '# note by Claude\nnext: ship it\n' };
+  await pressThenNew($, on, files, HOST);
+  const p1: any = await $.classic.UserPromptSubmit({ session_id: 'S2', cwd: '/w', prompt: 'first' } as any);
+  expect(ctxOf(p1)).toContain('next: ship it');
+  expect(ctxOf(p1)).not.toContain('work on x');
+  expect(evOf(files, 'handoff_restore')[0].kind).toBe('claude');
+});
+
+test('Clear button: an expired marker (over 60 minutes) is dropped; a plain /clear marker stays untagged', async ($, on) => {
+  const files = S1_FILES();
+  await pressThenNew($, on, files, HOST);
+  const k = pendingClearName(DIR, HOST);
+  files[k] = JSON.stringify({ ...JSON.parse(files[k]!), at: Date.now() - 61 * 60 * 1000 });
+  const p1: any = await $.classic.UserPromptSubmit({ session_id: 'S2', cwd: '/w', prompt: 'first' } as any);
+  expect(ctxOf(p1)).not.toContain('work on x');
+  expect(evOf(files, 'handoff_restore').length).toBe(0);
 });

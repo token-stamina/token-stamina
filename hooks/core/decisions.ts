@@ -11,7 +11,7 @@ const KIND_ALIAS = { agent_model_default: 'agent_default_model' };
 const normKind = (k) => (typeof k === 'string' && Object.prototype.hasOwnProperty.call(KIND_ALIAS, k) ? KIND_ALIAS[k] : k);
 const LOWER = ['sonnet', 'haiku'];
 const UPPER = ['opus', 'fable'];
-const RANK = { haiku: 0, sonnet: 1, opus: 2, fable: 2 };
+export const RANK = { haiku: 0, sonnet: 1, opus: 2, fable: 2 };
 const WEIGHT = { haiku: 1, sonnet: 3, opus: 5, fable: 5 }; // same table as scripts/report.js (relative price)
 // Ids handed to set_session_model. Code constants: the decision document can never choose the id string.
 export const MODEL_IDS = { sonnet: 'sonnet', haiku: 'haiku' };

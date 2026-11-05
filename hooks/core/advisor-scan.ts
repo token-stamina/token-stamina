@@ -1,7 +1,8 @@
 // Transcript scan: ~/.claude/projects/**/*.jsonl -> per-call records. No text is kept: prompts and descriptions are
 // classified in memory and dropped; session/file ids leave this module only as salted hashes.
 // Mod build differences from the Node scan: `$.fs.read` returns a whole file and rejects one over 4 MiB, so a file is
-// parsed from a string (parseTranscript) and a bigger file is never opened: it is only counted (coverage). The
+// parsed from a string (parseTranscript). A bigger file is read through io.read(p, { adv: true }) (0.6.8: register.ts streams it with
+// scripts/transcript-slim.js --adv, any size); when that is not possible it is only counted (coverage). The
 // incremental cache is split into 64 shards (advisor/scan-cache/<00..3f>.json), each kept under 3.5 MiB.
 import type { CmdIO } from './cmd-io.ts';
 import { walkJsonl, baseName, parentDir } from './cmd-io.ts';
@@ -289,9 +290,9 @@ export async function scanProjects(ctx: AdvisorCtx, opts: ScanOpts): Promise<any
   const cached = useCache ? await loadCache(ctx, kwh) : {};
   let skippedFiles = 0, staleFiles = 0;
   // read_bytes: bytes of the files that were read (or came from the cache); unread: left by the time budget; failed: a read that returned nothing
-  const cov = { files: 0, read: 0, skipped: 0, bytes: 0, skipped_bytes: 0, skipped_main: 0, skipped_sub: 0, read_bytes: 0, unread: 0, failed: 0 };
+  const cov = { files: 0, read: 0, skipped: 0, bytes: 0, skipped_bytes: 0, skipped_main: 0, skipped_sub: 0, read_bytes: 0, unread: 0, failed: 0, failed_bytes: 0 };
 
-  interface Cand { p: string; size: number; mtimeMs: number; ck: string; sub: boolean; entry: any | null; dead?: boolean }
+  interface Cand { p: string; size: number; mtimeMs: number; ck: string; sub: boolean; entry: any | null; dead?: boolean; big?: boolean }
   const cands: Cand[] = [];
   const onDisk = new Set<string>();
   const listed = (await walkJsonl(io, opts.dir)).sort((a, b) => (a.path < b.path ? -1 : a.path > b.path ? 1 : 0));
@@ -301,13 +302,8 @@ export async function scanProjects(ctx: AdvisorCtx, opts: ScanOpts): Promise<any
     if (f.mtimeMs < sinceMs) { staleFiles++; continue; }
     const sub = f.sub || f.name.startsWith('agent-');
     cov.files++; cov.bytes += f.size;
-    if (f.size > maxBytes) {
-      cov.skipped++; cov.skipped_bytes += f.size;
-      if (sub) cov.skipped_sub++; else cov.skipped_main++;
-      continue;
-    }
     const c = cached[ck];
-    cands.push({ p: f.path, size: f.size, mtimeMs: f.mtimeMs, ck, sub, entry: c && c.size === f.size && c.mtimeMs === f.mtimeMs ? c : null });
+    cands.push({ p: f.path, size: f.size, mtimeMs: f.mtimeMs, ck, sub, big: f.size > maxBytes, entry: c && c.size === f.size && c.mtimeMs === f.mtimeMs ? c : null });
   }
 
   const todo = cands.filter((c) => !c.entry).sort((a, b) => b.mtimeMs - a.mtimeMs || (a.p < b.p ? -1 : 1));
@@ -319,8 +315,13 @@ export async function scanProjects(ctx: AdvisorCtx, opts: ScanOpts): Promise<any
     if ((typeof opts.budgetMs === 'number' && Date.now() - t0 >= opts.budgetMs) || (typeof opts.maxReads === 'number' && reread >= opts.maxReads)) break;
     left--;
     await maybeYield(ctx, ++tick); // every YIELD_EVERY files: let other hooks run
-    const text = await io.read(c.p);
-    if (text == null) { skippedFiles++; c.dead = true; continue; }
+    const text = await io.read(c.p, c.big ? { slim: true, adv: true } : undefined);
+    if (text == null) {
+      c.dead = true;
+      if (c.big) { cov.skipped++; cov.skipped_bytes += c.size; if (c.sub) cov.skipped_sub++; else cov.skipped_main++; } // over 4 MiB and not streamable: counted, not read
+      else { skippedFiles++; cov.failed_bytes += c.size; }
+      continue;
+    }
     c.entry = parseTranscript(text, { size: c.size, mtimeMs: c.mtimeMs }, c.sub, salt, kw);
     dirty.add(shardOf(c.ck));
     reread++;

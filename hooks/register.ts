@@ -26,7 +26,7 @@
 import { atom, read, update } from 'claude-code';
 import type { Register, EngineInterface } from 'claude-code';
 
-import type { RecentBand } from '../types';
+import type { RecentBand, Recall } from '../types';
 
 import { resolveLang, withLang, type LangBook } from './core/lang.ts';
 import { decide as nudgeDecide, oldModelNotice, type NudgeCfg } from './core/nudge.ts';
@@ -35,6 +35,8 @@ import {
   attributed,
   adaptSession,
   definitionPaths,
+  effectiveMode,
+  userAgentHook,
   recordLedger,
   waitAdvice,
   type AgentModelCfg,
@@ -56,7 +58,7 @@ import {
   type FleetEntry,
   type SessionItem,
 } from './core/fleet.ts';
-import { shouldSkipHook, type PaceState } from './core/pacer.ts';
+import { shouldSkipHook, paceSample, type PaceConfig, type PaceState } from './core/pacer.ts';
 import {
   decide as topicGateDecide,
   decideHint,
@@ -69,7 +71,8 @@ import {
   clearOffered,
   type TopicGateCfg,
 } from './core/topic-gate.ts';
-import { parseTailLines, analyze as boundaryAnalyze, decide as boundaryDecide, message as boundaryMessage } from './core/boundary.ts';
+import { parseTailLines, analyze as boundaryAnalyze, decide as boundaryDecide, message as boundaryMessage, tokLabel } from './core/boundary.ts';
+import { chatTurns, parseRows, recallLines, noPreviousLine } from './core/recall.ts';
 import {
   scan as handoffScan,
   renderCapped,
@@ -91,6 +94,7 @@ import {
   decidePromptReason,
   markerKey,
   clearContext,
+  withTranscriptLine,
   pickClearNote,
   pendingClearName,
   recentLog,
@@ -99,7 +103,7 @@ import {
 } from './core/handoff.ts';
 import { computeProfile, cacheIsFresh, firstCallTokensFromText, meetsMinEffect, type ProfileResult } from './core/clear-savings.ts';
 import { segment as statuslineSegment, legacyStatusNotice } from './core/statusline.ts';
-import { joinPath, estimateTokens, encodeCwd } from './core/text.ts';
+import { joinPath, estimateTokens, encodeCwd, tildePath } from './core/text.ts';
 import { splitArgs, dayAgo, skippedLine, walkJsonl, type CmdIO } from './core/cmd-io.ts';
 import { createAgg as reportAgg, render as reportRender, sinceMsOf, defaultWindow as reportDefaultWindow, defaultWindowNote as reportWindowNote, DEFAULT_REPORT_DAYS } from './core/report.ts';
 import { compute as savingsCompute, renderText as savingsRender, parseArgs as savingsArgs } from './core/savings.ts';
@@ -429,8 +433,25 @@ function trimBook(book: Record<string, { ts: number }>, max = 50): void {
     .forEach((k) => delete book[k]);
 }
 
+// pace_sample: numbers-only record of the pace readings, at most once an hour on this machine (pace-sample.json holds the
+// last time), so a later back-test can judge the yellow threshold. Best-effort.
+async function recordPaceSample($: $T, env: Env, cfg: Cfg, state: PaceState, sid: string, nowMs: number): Promise<void> {
+  try {
+    const file = joinPath(env.home, 'pace-sample.json');
+    const last = await readJson($, file, {} as { ts?: number });
+    if (typeof last.ts === 'number' && nowMs - last.ts < 3600 * 1000 && nowMs >= last.ts) return;
+    const s = paceSample(state, Math.floor(nowMs / 1000), cfg as PaceConfig);
+    if (!s) return;
+    await writeJson($, file, { ts: nowMs });
+    await appendEvent($, env, { event: 'pace_sample', session: sid, ...s });
+  } catch {
+    /* best-effort */
+  }
+}
+
 // nudge.js::run: one line when the pace grade changes for this session.
 async function nudge($: $T, env: Env, cfg: Cfg, state: PaceState, sid: string, event: string, nowMs: number): Promise<string | null> {
+  await recordPaceSample($, env, cfg, state, sid, nowMs);
   try {
     const file = joinPath(env.home, 'nudge.json');
     const book = await readJson($, file, {} as Record<string, any>);
@@ -472,15 +493,20 @@ async function hintedBefore($: $T, env: Env, mk: { from: string; at: number }): 
   }
 }
 
+const BUTTON_HOST = 'button';
 // Restore from the desktop-app clear marker (pending-clear-<host>.json), shared by SessionStart and
 // UserPromptSubmit. $.fs cannot delete, so a used marker is overwritten with {} (read as absent).
 async function restoreMarked($: $T, env: Env, sid: string, nowMs: number, via: string, lang: string): Promise<string | null> {
   try {
-    if (!env.host) return null;
     const dir = joinPath(env.home, 'handoff');
-    const pf = pendingClearName(dir, env.host);
-    const mk = await readJson($, pf, null as any);
-    if (!mk || !mk.from) return null;
+    // The desktop host's marker; else the Clear button's own (written when there is no host id, e.g. in the terminal).
+    let pf = env.host ? pendingClearName(dir, env.host) : '';
+    let mk = pf ? await readJson($, pf, null as any) : null;
+    if (!mk || !mk.from) {
+      pf = pendingClearName(dir, BUTTON_HOST);
+      mk = await readJson($, pf, null as any);
+      if (!mk || !mk.from || mk.button !== true) return null;
+    }
     const key = markerKey(mk);
     if (spentMarkers.has(key)) return null; // already handled by this process (a failed delete must not re-inject)
     if (via === 'clear_start') await loadBand($); // the band reads the marker, which the next line spends
@@ -503,12 +529,12 @@ async function restoreMarked($: $T, env: Env, sid: string, nowMs: number, via: s
     const ct = ctext === null ? null : await mtimeOf($, cf);
     const p = pickClearNote(ct === null ? null : ctext, ct, await readNote($, sessionFileName(dir, mk.from)), mk.at);
     if (!p) return drop('no_note');
-    const ev: Record<string, unknown> = { event: 'handoff_restore', session: sid, source: via, kind: p.kind, from_session: mk.from };
+    const ev: Record<string, unknown> = { event: 'handoff_restore', session: sid, source: mk.button === true ? 'clear_button' : via, kind: p.kind, from_session: mk.from };
     if (typeof mk.tokens === 'number' && mk.tokens > 0) ev.tokens_at_clear = mk.tokens;
     ev.hinted = await hintedBefore($, env, mk);
     await appendEvent($, env, ev);
     await showRecent($, env, mk.from, lang);
-    return clearContext(p);
+    return clearContext({ ...p, text: withTranscriptLine(p.text, typeof mk.transcript === 'string' && mk.transcript ? tildePath(mk.transcript, env.userHome) : null) });
   } catch {
     return null;
   }
@@ -542,6 +568,13 @@ async function loadRecentBand($: $T): Promise<{ lines: string[]; ko: boolean } |
   } catch {
     return null;
   }
+}
+
+// The Clear button's record (recall.json), when it is fresh: the session it cleared and its context size then.
+async function buttonClear($: $T, env: Env, nowMs: number): Promise<{ from: string; tokens: number } | null> {
+  const rj = await readJson($, joinPath(env.home, 'recall.json'), null as any);
+  if (!rj || !rj.from || typeof rj.at !== 'number' || nowMs - rj.at > 3600 * 1000 || nowMs < rj.at) return null;
+  return { from: safeId(rj.from), tokens: typeof rj.tokens === 'number' ? rj.tokens : 0 };
 }
 
 // A note file emptied by pruneNotes reads as missing (text and mtime null).
@@ -625,13 +658,17 @@ async function onSessionStart($: $T, e: any): Promise<string[]> {
       const fromSide = await readText($, latestFileName(dir, e.cwd, true) + '.from');
       const p = pickFromData(sidS, e.source, own, latest, fromSide ? fromSide.trim() : null, nowMs);
       if (p) {
+        // A clear the Clear button started is recorded as source clear_button (savings section C counts it as a clear).
+        const btn = e.source === 'clear' && p.from ? await buttonClear($, env, nowMs) : null;
+        const viaButton = !!btn && safeId(p.from) === btn.from;
         await appendEvent($, env, {
           event: 'handoff_restore',
           session: sid,
-          source: e.source,
+          source: viaButton ? 'clear_button' : e.source,
           kind: p.kind,
           fallback: p.fallback,
           from_session: e.source === 'clear' ? p.from || null : undefined,
+          tokens_at_clear: viaButton && btn!.tokens > 0 ? btn!.tokens : undefined,
         });
         const ctx = handoffAdditionalContext(p);
         if (ctx) out.push(ctx);
@@ -676,15 +713,17 @@ async function onUserPromptSubmit($: $T, e: any): Promise<string[]> {
       const book = await readJson($, file, {} as Record<string, any>);
       const rec = book[sid];
       const noteFile = sessionFileName(joinPath(env.home, 'handoff'), safeId(sid), true);
+      // the path as shown to the model: `~/...` under the user's home (shorter; the tools expand it); the file itself is unchanged
+      const noteShown = tildePath(noteFile, env.userHome);
       // no timestamps in a transcript rebuilt from $.session.messages: the last Stop time stands in
       const stopAt = t.raw == null ? (await readJson($, joinPath(env.home, 'handoff', `${safeId(sid)}.json`), {} as Accumulated)).stopAt : undefined;
       const d = topicGateDecide({ tokens, lastAssistantMs: lastActiveMs(entries, stopAt, rec && rec.promptAt), nowMs, cwd: e.cwd }, cfg as TopicGateCfg, user, rec);
       // hintTrigger "gap" needs the idle/cwd gap `d` measured; hintMinEffectTokens drops a hint whose card is too small.
-      let h = decideHint(tokens, cfg as TopicGateCfg, user, rec && rec.hintAt, d);
+      let h = decideHint(tokens, cfg as TopicGateCfg, user, rec && rec.hintAt, d, rec && rec.hintCount);
       let hintProf: ProfileResult | null = null;
       if (h.hint) {
         hintProf = await buildProfile($, env, cfg, entries, t.raw);
-        if (!meetsMinEffect(tokens, 'clear', cfg as any, hintProf)) h = { hint: false, hintAt: rec && typeof rec.hintAt === 'number' ? rec.hintAt : null };
+        if (!meetsMinEffect(tokens, 'clear', cfg as any, hintProf)) h = { hint: false, hintAt: rec && typeof rec.hintAt === 'number' ? rec.hintAt : null, hintCount: rec && typeof rec.hintCount === 'number' ? rec.hintCount : rec && typeof rec.hintAt === 'number' ? 1 : 0, first: false };
       }
       let offeredAt = rec && rec.offeredAt;
       if (typeof offeredAt === 'number' && tokens < offeredAt) offeredAt = null;
@@ -695,6 +734,7 @@ async function onUserPromptSubmit($: $T, e: any): Promise<string[]> {
         cwd: e.cwd || (rec && rec.cwd),
         gatedAt: d.gate ? tokens : rec && rec.gatedAt,
         hintAt: h.hintAt,
+        hintCount: h.hintCount,
         offeredAt: typeof tc.offeredAt === 'number' ? tc.offeredAt : null,
         checkedAt: typeof tc.checkedAt === 'number' ? tc.checkedAt : null,
         ...promptStamps(e.prompt, rec, nowMs),
@@ -705,18 +745,17 @@ async function onUserPromptSubmit($: $T, e: any): Promise<string[]> {
 
       const lines: string[] = [];
       if (d.gate) {
-        const line = topicGateMessage(cfg.lang || 'en', tokens, d.idleSec ?? 0, !!d.cwdChanged, noteFile, app);
+        const line = topicGateMessage(cfg.lang || 'en', tokens, d.idleSec ?? 0, !!d.cwdChanged, noteShown, app);
         await appendEvent($, env, { event: 'topic_gate', session: sid, tokens, idle_sec: Math.round(d.idleSec ?? 0), cwd_changed: d.cwdChanged, line_tokens: lineTokens(line, cfg) });
         lines.push(line);
       }
       if (h.hint) {
-        const first = !(rec && typeof rec.hintAt === 'number');
-        const line = hintMessage(cfg.lang || 'en', tokens, noteFile, cfg as TopicGateCfg, hintProf as any, app, first);
+        const line = hintMessage(cfg.lang || 'en', tokens, noteShown, cfg as TopicGateCfg, hintProf as any, app, h.first);
         await appendEvent($, env, { event: 'inline_hint', session: sid, tokens, line_tokens: lineTokens(line, cfg) });
         lines.push(line);
       }
       if (tc.check) {
-        const line = topicCheckMessage(cfg.lang || 'en', tokens, noteFile, app);
+        const line = topicCheckMessage(cfg.lang || 'en', tokens, noteShown, app);
         await appendEvent($, env, { event: 'topic_check', session: sid, tokens, line_tokens: lineTokens(line, cfg) });
         lines.push(line);
       }
@@ -736,6 +775,52 @@ async function onUserPromptSubmit($: $T, e: any): Promise<string[]> {
   if (n) out.push(n);
   await oldModelWarn($, env, cfg, e, sid, nowMs);
   return out;
+}
+
+// The handoff note of handoff.js::runStop: written by the Stop hook and by the Clear button (same function, same files).
+async function saveHandoff($: $T, env: Env, cfg: Cfg, e: any, t: Transcript, usage: Usage, nowMs: number): Promise<void> {
+  const sid = safeId(e.session_id);
+  if (cfg.handoff !== false) {
+    try {
+      const dir = joinPath(env.home, 'handoff');
+      const entries = tail(t, HANDOFF_TAIL_BYTES);
+      const sideFile = joinPath(dir, `${sid}.json`);
+      const prevAcc = await readJson($, sideFile, { commits: [], files: [] } as Accumulated);
+      const fromFallback = t.raw == null;
+      let sc = handoffScan(entries);
+      if (fromFallback) {
+        // no timestamps in the rows: the prompt times topic-gate.json recorded stand in (read only)
+        const book = await readJson($, joinPath(env.home, 'topic-gate.json'), {} as Record<string, any>);
+        sc = fallbackPromptTs(sc, book[e.session_id || 'unknown'], prevAcc, nowMs);
+      }
+      const acc = accumulate(prevAcc, sc);
+      if (fromFallback) acc.stopAt = nowMs; // the idle-gap stand-in of the next prompt (topic-gate)
+      const cleared = !!env.host && clearedSelf(entries, env.host);
+      acc.recent = nextRecent(prevAcc.recent, entries, cleared, cfg.clearRecentTurns ?? 3, fromFallback);
+      await writeJson($, sideFile, acc);
+      const meta = buildMeta(sid, e.cwd, nowMs, sc, acc);
+      if (e.transcript_path) meta.transcript = tildePath(e.transcript_path, env.userHome);
+      const md = renderCapped(meta, cfg.handoffMaxTokens || 1500);
+      await writeText($, sessionFileName(dir, sid), md);
+      await writeText($, latestFileName(dir, e.cwd), md);
+      // A Claude-written note newer than the cwd's latest one becomes the latest, with its session.
+      const cf = sessionFileName(dir, sid, true);
+      const ct = (await readNote($, cf)) === null ? null : await mtimeOf($, cf);
+      const lcf = latestFileName(dir, e.cwd, true);
+      const lct = (await readNote($, lcf)) === null ? 0 : (await mtimeOf($, lcf)) || 0; // an emptied latest note counts as none
+      if (ct !== null && lct < ct) {
+        const text = await readNote($, cf);
+        if (text != null) {
+          await writeText($, lcf, text);
+          await writeText($, lcf + '.from', sid);
+        }
+      }
+      // Desktop-app clear_session that went through: leave a marker for the new session.
+      if (cleared) await writeJson($, pendingClearName(dir, env.host), { from: sid, host: env.host, cwd: e.cwd, at: nowMs, ...(usage.tokens ? { tokens: usage.tokens } : {}), ...(e.transcript_path ? { transcript: e.transcript_path } : {}) });
+    } catch {
+      /* handoff save is best-effort */
+    }
+  }
 }
 
 // ============================================================================
@@ -781,45 +866,7 @@ async function onStop($: $T, e: any): Promise<void> {
   }
 
   // --- handoff.js::runStop ---
-  if (cfg.handoff !== false) {
-    try {
-      const dir = joinPath(env.home, 'handoff');
-      const entries = tail(t, HANDOFF_TAIL_BYTES);
-      const sideFile = joinPath(dir, `${sid}.json`);
-      const prevAcc = await readJson($, sideFile, { commits: [], files: [] } as Accumulated);
-      const fromFallback = t.raw == null;
-      let sc = handoffScan(entries);
-      if (fromFallback) {
-        // no timestamps in the rows: the prompt times topic-gate.json recorded stand in (read only)
-        const book = await readJson($, joinPath(env.home, 'topic-gate.json'), {} as Record<string, any>);
-        sc = fallbackPromptTs(sc, book[e.session_id || 'unknown'], prevAcc, nowMs);
-      }
-      const acc = accumulate(prevAcc, sc);
-      if (fromFallback) acc.stopAt = nowMs; // the idle-gap stand-in of the next prompt (topic-gate)
-      const cleared = !!env.host && clearedSelf(entries, env.host);
-      acc.recent = nextRecent(prevAcc.recent, entries, cleared, cfg.clearRecentTurns ?? 3, fromFallback);
-      await writeJson($, sideFile, acc);
-      const md = renderCapped(buildMeta(sid, e.cwd, nowMs, sc, acc), cfg.handoffMaxTokens || 1500);
-      await writeText($, sessionFileName(dir, sid), md);
-      await writeText($, latestFileName(dir, e.cwd), md);
-      // A Claude-written note newer than the cwd's latest one becomes the latest, with its session.
-      const cf = sessionFileName(dir, sid, true);
-      const ct = (await readNote($, cf)) === null ? null : await mtimeOf($, cf);
-      const lcf = latestFileName(dir, e.cwd, true);
-      const lct = (await readNote($, lcf)) === null ? 0 : (await mtimeOf($, lcf)) || 0; // an emptied latest note counts as none
-      if (ct !== null && lct < ct) {
-        const text = await readNote($, cf);
-        if (text != null) {
-          await writeText($, lcf, text);
-          await writeText($, lcf + '.from', sid);
-        }
-      }
-      // Desktop-app clear_session that went through: leave a marker for the new session.
-      if (cleared) await writeJson($, pendingClearName(dir, env.host), { from: sid, host: env.host, cwd: e.cwd, at: nowMs, ...(usage.tokens ? { tokens: usage.tokens } : {}) });
-    } catch {
-      /* handoff save is best-effort */
-    }
-  }
+  await saveHandoff($, env, cfg, e, t, usage, nowMs);
 
   // --- board.js::run ---
   await boardRow($, env, cfg, e, t, nowMs);
@@ -882,6 +929,28 @@ async function fleetSnapshot($: $T, env: Env, transcriptPath: string | undefined
 
 const RESERVED = new Set(['tool', 'tool_use_id', 'agentId', 'requestMeta', 'consent']);
 
+// 0.6.8: agent_model_defer is written once per session (this process remembers which sessions it told).
+const deferTold = new Set<string>();
+
+// The merged settings (user, project, local, flag, policy) for the two things the Agent hook looks at: PreToolUse hooks
+// that cover Agent/Task, and env.CLAUDE_CODE_SUBAGENT_MODEL. Unreadable settings read as empty.
+async function readSettingsForAgent($: $T): Promise<{ hooks: unknown; subagentModelEnv: string | null }> {
+  let st: any = {};
+  try {
+    st = (await $.settings.read()) || {};
+  } catch {
+    /* unreadable settings: no user hook known, no env default */
+  }
+  const fromSettings = st && st.env && typeof st.env === 'object' && typeof st.env.CLAUDE_CODE_SUBAGENT_MODEL === 'string' ? st.env.CLAUDE_CODE_SUBAGENT_MODEL : '';
+  let fromProcess: string | undefined;
+  try {
+    fromProcess = await $.env.get('CLAUDE_CODE_SUBAGENT_MODEL');
+  } catch {
+    /* no env access */
+  }
+  return { hooks: st ? st.hooks : undefined, subagentModelEnv: (fromProcess || fromSettings || '').trim() || null };
+}
+
 async function agentModel($: $T, e: any, next: (e: any) => Promise<any>): Promise<any> {
   const kind = e.tool === 'mcp__ccd_session__start_session' ? 'start_session' : 'Agent';
   const env = await readEnv($);
@@ -899,7 +968,9 @@ async function agentModel($: $T, e: any, next: (e: any) => Promise<any>): Promis
   };
   const cfgL = await withLangFrom($, env, cfg0, null, sessionId, nowMs);
   if (shouldSkipHook(env.entrypoint, cwd, cfgL.excludeCwd)) return next(e);
-  let cfg: Cfg = cfgL;
+  // 0.6.8: subagentMode / sessionMode beat mode (core/agent-model.ts effectiveMode); require is for Agent/Task only.
+  const em = effectiveMode(cfgL, kind === 'start_session' ? 'start_session' : 'Agent');
+  let cfg: Cfg = Object.assign({}, cfgL, { mode: em });
   let dIn: AgentModelInput = input;
   let d: AgentDecision | null = null;
   if (kind === 'start_session') {
@@ -908,12 +979,30 @@ async function agentModel($: $T, e: any, next: (e: any) => Promise<any>): Promis
     if (ad.pass) d = { action: 'pass', reason: ad.pass };
     else if (ad.input) dIn = ad.input;
     if (cfgL.sessionModelInject === false) {
-      cfg = Object.assign({}, cfgL, { mode: cfgL.mode === 'off' ? 'off' : 'suggest' });
+      cfg = Object.assign({}, cfgL, { mode: em === 'off' ? 'off' : 'suggest' });
       const xd = cfgL.explicitDowngrade;
       if (!(xd === undefined || xd === null || xd === false || xd === 'off')) cfg.explicitDowngrade = 'suggest';
     }
   }
   let fl: Awaited<ReturnType<typeof fleetSnapshot>> = null;
+  let userHook = false;
+  let parentModel: string | null = null;
+  let envSubagentModel: string | null = null;
+  if (!d && kind === 'Agent' && em !== 'off') {
+    const stg = await readSettingsForAgent($);
+    envSubagentModel = stg.subagentModelEnv;
+    try {
+      parentModel = (await $.session.model()) || null;
+    } catch {
+      /* the main model is unknown: the keep-parent row does not apply */
+    }
+    // A user PreToolUse hook on Agent/Task runs beneath this module, after an inject rewrites the input, and a hook cannot be
+    // tried on the original input first ($.tool.check asks no PreToolUse hook): so inject only suggests then. require changes no input (it only denies), so it stays.
+    if (em === 'inject' && cfgL.respectUserAgentHooks !== false && userAgentHook(stg.hooks)) {
+      userHook = true;
+      cfg = Object.assign({}, cfg, { mode: 'suggest' });
+    }
+  }
   if (!d) {
     const usage = await readUsage($, env, nowMs);
     fl = await fleetSnapshot($, env, transcripts.get(sessionId), cfg, now);
@@ -926,9 +1015,16 @@ async function agentModel($: $T, e: any, next: (e: any) => Promise<any>): Promis
       ledger,
       homeDir: env.userHome,
       readText: (p) => defs.get(p) ?? null,
+      parentModel,
+      envSubagentModel,
     });
   }
-  if (d.message) d.message = attributed(d.message, cfg.lang, cfg._langAuto);
+  // a deny reason is the error text the model reads: no plugin-note suffix (it must stay within 120 tokens)
+  if (d.message && d.action !== 'deny') d.message = attributed(d.message, cfg.lang, cfg._langAuto);
+  if (userHook && sessionId && !deferTold.has(sessionId)) {
+    deferTold.add(sessionId);
+    await appendEvent($, env, { event: 'agent_model_defer', session: sessionId, tool: kind, reason: 'user_hook', mode: em });
+  }
   if ((d.reason === 'explicit_downgrade' || d.reason === 'explicit_suggest') && d.desc_hash && sessionId) {
     const file = joinPath(env.home, LEDGER);
     await writeJson($, file, recordLedger(await readJson($, file, null as any), sessionId, kind === 'start_session' ? 'session' : 'agent', d.desc_hash, d.requested_model || null, now));
@@ -948,6 +1044,7 @@ async function agentModel($: $T, e: any, next: (e: any) => Promise<any>): Promis
     fleet_running: fl ? fl.running : null,
     fleet_sessions: fl && typeof (fl as any).sessions === 'number' ? (fl as any).sessions : null,
   });
+  if (d.action === 'deny') return { deny: d.message || 'Token Stamina: set a model for this subagent.' };
   // PreToolUse's updatedInput is the rewrite passed to next; its additionalContext is read by the
   // model after the result here (a tool.call answer's `context`), never instead of the result.
   const msgs: string[] = d.message ? [d.message] : [];
@@ -974,16 +1071,61 @@ async function agentModel($: $T, e: any, next: (e: any) => Promise<any>): Promis
 // The logic is in core/{fleet,savings,report,audit}.ts; this is the file and settings access.
 // ============================================================================
 
-// CmdIO over $.fs. A file over 4 MiB rejects on read: it is counted (skipped) and reads as missing.
+// CmdIO over $.fs. A file over 4 MiB rejects on read: with { slim: true } it is streamed through
+// scripts/transcript-slim.js (`node`, 3.5 MiB of slim rows per run, resumed with --from until done); a failed
+// or impossible slim read counts as skipped and reads as missing.
+const SLIM_BUDGET_MS = 150000;
+const ADV_SLIM_BUDGET_MS = 120000; // the advisor scan's big transcripts, per command run (the rest wait for the next run)
+async function slimRead($: $T, root: string, p: string, deadline: number, extra: string[] = []): Promise<string | null> {
+  const script = joinPath(root, 'scripts', 'transcript-slim.js');
+  const parts: string[] = [];
+  let from = 0;
+  for (let runs = 0; runs < 200; runs++) {
+    const left = deadline - Date.now();
+    if (left < 2000) return null;
+    const r = await $.process.run(['node', script, p, '--from', String(from), ...extra], { timeoutMs: Math.min(60000, left) });
+    if (r.exitCode !== 0 || r.isStdoutTruncated) return null;
+    const lines = String(r.stdout).split('\n');
+    while (lines.length && !lines[lines.length - 1]) lines.pop();
+    const last = lines[lines.length - 1];
+    let next: number | null = null;
+    if (last && last.startsWith('{"_next"')) {
+      next = Number(JSON.parse(last)._next);
+      lines.pop();
+    }
+    parts.push(lines.join('\n'));
+    if (next === null) return parts.join('\n');
+    if (!(next > from)) return null;
+    from = next;
+  }
+  return null;
+}
+
 function cmdIO($: $T): CmdIO {
   let skipped = 0;
+  let slimDeadline = 0;
+  let advDeadline = 0;
+  let slimOff = false; // node is not there / not allowed: do not try for every file
   return {
-    async read(p) {
+    async read(p, opts) {
       try {
         return await $.fs.read(p);
       } catch {
         try {
-          if (await $.fs.exists(p)) skipped++;
+          if (await $.fs.exists(p)) {
+            if (opts && (opts.slim || opts.adv) && !slimOff) {
+              if (opts.adv) {
+                if (!advDeadline) advDeadline = Date.now() + ADV_SLIM_BUDGET_MS;
+              } else if (!slimDeadline) slimDeadline = Date.now() + SLIM_BUDGET_MS;
+              try {
+                const t = await slimRead($, $.plugin.root, p, opts.adv ? advDeadline : slimDeadline, opts.adv ? ['--adv'] : []);
+                if (t !== null) return t;
+              } catch {
+                slimOff = true; // no node on the PATH, or process.run refused
+              }
+            }
+            skipped++;
+          }
         } catch {
           /* not a readable place */
         }
@@ -1436,7 +1578,15 @@ async function boardRecordPush($: $T, env: Env, e: any, sid: string | undefined)
 
 // The `board` tool: the same JSON scripts/board.js printed for each flag, as one text block. A failure is the answer
 // (the Node script's error shape), never a throw into the engine.
-async function boardTool($: $T, e: any): Promise<{ result: { content: { type: 'text'; text: string }[]; isError: boolean } }> {
+// 0.6.8: a tool registered with $.tool.register answers with a string, never an object: the engine checks the result
+// against string | array | undefined ("does not match its output shape (invalid_union ...)" for the old
+// { content, isError } object). An error answer is a deny, which the model reads as an error result.
+type ToolAnswer = { result: string; deny?: undefined } | { deny: string; result?: undefined };
+function toolAnswer(text: string, isError: boolean): ToolAnswer {
+  return isError ? { deny: text } : { result: text };
+}
+
+async function boardTool($: $T, e: any): Promise<ToolAnswer> {
   const mode = String(e.mode);
   let out: unknown;
   let isError = false;
@@ -1469,7 +1619,7 @@ async function boardTool($: $T, e: any): Promise<{ result: { content: { type: 't
           : mode === 'json' ? { count: 0, error }
             : { skip: true, reason: 'error', error };
   }
-  return { result: { content: [{ type: 'text', text: JSON.stringify(out) }], isError } };
+  return toolAnswer(JSON.stringify(out), isError);
 }
 
 // ============================================================================
@@ -1681,14 +1831,14 @@ async function advisorRun($: $T, a: Record<string, any>): Promise<{ text: string
   }
 }
 
-async function advisorTool($: $T, e: any): Promise<{ result: { content: { type: 'text'; text: string }[]; isError: boolean } }> {
+async function advisorTool($: $T, e: any): Promise<ToolAnswer> {
   let r: { text: string; isError: boolean };
   try {
     r = await advisorRun($, e);
   } catch (err) {
     r = { text: 'advisor: ' + (err instanceof Error ? err.message : String(err)), isError: true };
   }
-  return { result: { content: [{ type: 'text', text: r.text }], isError: r.isError } };
+  return toolAnswer(r.text, r.isError);
 }
 
 // /ts-advisor [--json] [--days N] [--brief]: the read-only analysis, no model.
@@ -1712,9 +1862,75 @@ async function advisorCommand($: $T, args: string): Promise<string> {
 const bandAtom = atom({ plugin: 'token-stamina', key: 'band' } as const, null);
 const bandOpen = atom({ plugin: 'token-stamina', key: 'isOpen' } as const, false);
 const bandGone = atom({ plugin: 'token-stamina', key: 'isGone' } as const, false);
+// "Previous chat" button / /ts-recall: where the just-cleared session's transcript is. `recallGone` holds the key of the
+// recall whose button was pressed or ran out (5 prompts); the record itself stays for the command.
+const recallAtom = atom({ plugin: 'token-stamina', key: 'recall' } as const, null);
+const recallGone = atom({ plugin: 'token-stamina', key: 'recallGone' } as const, '');
+// The always-on Clear button: switched by config.clearButton, labelled in the session's language.
+const clearBtnAtom = atom({ plugin: 'token-stamina', key: 'clearBtn' } as const, null);
+
+const RECALL_BUTTON_TURNS = 5;
+const RECALL_BIG_BYTES = 4 * 1024 * 1024 - 1024; // $.fs.read rejects above 4 MiB
+const RECALL_TAIL_BYTES = 3 * 1024 * 1024; // the last turns are at the end: stream only this much of a big file
+const RECALL_SEARCH_TAIL_BYTES = 24 * 1024 * 1024; // a search looks further back
+
+async function langOf($: $T, env: Env, cfg0: Cfg, nowMs: number): Promise<{ cfg: Cfg; ko: boolean }> {
+  const cfg = await withLangFrom($, env, cfg0, null, (await $.session.id()) || undefined, nowMs);
+  return { cfg, ko: cfg.lang === 'ko' };
+}
+
+// The previous session this one was cleared from: the desktop marker (clear_session) or recall.json (the Clear button),
+// both fresh (60 minutes) and not this very session; null when neither applies or the transcript path is unknown.
+async function findRecall($: $T): Promise<Recall | null> {
+  try {
+    const env = await readEnv($);
+    const { cfg: cfg0 } = await loadConfig($, env);
+    if (cfg0.handoff === false) return null;
+    const nowMs = Date.now();
+    const sid = safeId(await $.session.id());
+    const { ko } = await langOf($, env, cfg0, nowMs);
+    if (env.host) {
+      const mk = await readJson($, pendingClearName(joinPath(env.home, 'handoff'), env.host), null as any);
+      if (mk && mk.from && typeof mk.transcript === 'string' && mk.transcript && decidePrompt(mk, sid, nowMs) === 'restore') {
+        return { from: String(mk.from), transcript: mk.transcript, ko, key: 'm' + mk.from + ':' + mk.at, left: RECALL_BUTTON_TURNS };
+      }
+    }
+    const rj = await readJson($, joinPath(env.home, 'recall.json'), null as any);
+    if (rj && rj.from && typeof rj.transcript === 'string' && rj.transcript && safeId(rj.from) !== sid && typeof rj.at === 'number' && nowMs - rj.at <= 3600 * 1000 && nowMs >= rj.at) {
+      return { from: String(rj.from), transcript: rj.transcript, ko, key: 'r' + rj.from + ':' + rj.at, left: RECALL_BUTTON_TURNS };
+    }
+  } catch {
+    /* no recall */
+  }
+  return null;
+}
+
+async function loadRecall($: $T): Promise<void> {
+  try {
+    if (await read($, recallAtom)) return;
+    const r = await findRecall($);
+    if (r && (await read($, recallGone)) !== r.key) await update($, recallAtom, () => r);
+  } catch {
+    /* best-effort */
+  }
+}
+
+let recallLookedAt = 0;
+async function loadButtons($: $T): Promise<void> {
+  try {
+    const env = await readEnv($);
+    const { cfg: cfg0 } = await loadConfig($, env);
+    const { ko } = await langOf($, env, cfg0, Date.now());
+    await update($, clearBtnAtom, () => ({ on: cfg0.clearButton !== false, ko }));
+  } catch {
+    /* best-effort */
+  }
+}
 
 async function loadBand($: $T): Promise<void> {
   try {
+    await loadButtons($);
+    await loadRecall($);
     if (await read($, bandGone)) return;
     const b = await loadRecentBand($);
     if (b) await update($, bandAtom, () => b);
@@ -1723,38 +1939,189 @@ async function loadBand($: $T): Promise<void> {
   }
 }
 
+// The text rows of a transcript for /ts-recall: whole when $.fs can read it, else streamed by scripts/transcript-slim.js
+// (--chat, only the end of the file). null when it cannot be read.
+async function readChat($: $T, path: string, wide: boolean): Promise<any[] | null> {
+  let size = 0;
+  try {
+    size = (await $.fs.stat(path)).size;
+  } catch {
+    return null;
+  }
+  if (size <= RECALL_BIG_BYTES) {
+    const text = await readText($, path);
+    return text == null ? null : parseRows(text);
+  }
+  try {
+    const t = await slimRead($, $.plugin.root, path, Date.now() + SLIM_BUDGET_MS, ['--chat', '--tail', String(wide ? RECALL_SEARCH_TAIL_BYTES : RECALL_TAIL_BYTES)]);
+    return t == null ? null : parseRows(t);
+  } catch {
+    return null;
+  }
+}
+
+// /ts-recall and the button: screen only ($.ui.log), nothing reaches the model.
+async function recallRun($: $T, query: string): Promise<void> {
+  let lang = 'en';
+  try {
+    const env = await readEnv($);
+    const { cfg: cfg0 } = await loadConfig($, env);
+    lang = (await langOf($, env, cfg0, Date.now())).ko ? 'ko' : 'en';
+    const rc = (await read($, recallAtom)) || (await findRecall($));
+    if (!rc) {
+      $.ui.log(noPreviousLine(lang));
+      return;
+    }
+    const rows = await readChat($, rc.transcript, !!query.trim());
+    if (!rows) {
+      $.ui.log(noPreviousLine(lang));
+      return;
+    }
+    for (const l of recallLines(chatTurns(rows), lang, query)) $.ui.log(l);
+  } catch {
+    $.ui.log(noPreviousLine(lang));
+  }
+}
+
+// The Clear button: save the handoff note (the Stop hook's function), ask, then clear. Events only on a confirmed press.
+async function clearPress($: $T): Promise<void> {
+  let ko = false;
+  try {
+    const env = await readEnv($);
+    const { cfg: cfg0, user } = await loadConfig($, env);
+    const nowMs = Date.now();
+    const sidRaw = (await $.session.id()) || undefined;
+    const { cfg, ko: k } = await langOf($, env, cfg0, nowMs);
+    ko = k;
+    if (cfg.clearButton === false) return;
+    const sid = safeId(sidRaw);
+    const usage = await readUsage($, env, nowMs);
+    updateStatus($, usage, cfg, user);
+    const tp = sidRaw ? transcripts.get(sidRaw) : undefined;
+    let cwd: string | undefined;
+    try {
+      cwd = await $.session.cwd();
+    } catch {
+      cwd = undefined;
+    }
+    const noteOn = cfg.handoff !== false;
+    if (noteOn) await saveHandoff($, env, cfg, { session_id: sidRaw, cwd, transcript_path: tp }, await readTranscript($, tp), usage, nowMs);
+    const q = noteOn
+      ? ko ? '인계 메모는 저장됐어요. 비울까요?' : 'The handoff note is saved. Clear now?'
+      : ko ? '비울까요?' : 'Clear now?';
+    const yes = ko ? '비우기' : 'Clear';
+    let answer = '';
+    try {
+      answer = await $.ui.ask(q, [ko ? '취소' : 'Cancel', yes]);
+    } catch {
+      return; // dismissed
+    }
+    if (answer !== yes) return;
+    const ev: Record<string, unknown> = { event: 'clear_button', session: sid };
+    if (usage.tokens > 0) ev.tokens_at_clear = usage.tokens;
+    await appendEvent($, env, ev);
+    // The same marker a desktop /clear leaves (read by SessionStart and the first prompt), flagged as the button's: the
+    // auto note is restored once even when no Claude note exists.
+    if (noteOn) await writeJson($, pendingClearName(joinPath(env.home, 'handoff'), env.host || BUTTON_HOST), { from: sid, host: env.host || BUTTON_HOST, ...(cwd ? { cwd } : {}), at: nowMs, button: true, ...(usage.tokens > 0 ? { tokens: usage.tokens } : {}), ...(tp ? { transcript: tp } : {}) });
+    await writeJson($, joinPath(env.home, 'recall.json'), { from: sid, at: nowMs, ...(tp ? { transcript: tp } : {}), ...(usage.tokens > 0 ? { tokens: usage.tokens } : {}) });
+    try {
+      await $.command.run({ command: 'clear' });
+      return;
+    } catch {
+      /* the built-in clear is not runnable from a plugin here: fill the prompt box instead */
+    }
+    try {
+      const r = await $.prompt.fill({ text: '/clear' });
+      if (r && r.isFilled) {
+        $.ui.log(ko ? 'Token Stamina: 입력창에 /clear 를 넣었어요 - Enter 를 누르세요 (인계 메모 저장됨)' : 'Token Stamina: /clear is in the prompt box - press Enter (handoff note saved)');
+        return;
+      }
+    } catch {
+      /* no prompt box */
+    }
+    $.ui.log(ko ? 'Token Stamina: /clear 를 입력하세요 - 인계 메모 저장됨' : 'Token Stamina: type /clear - handoff note saved');
+  } catch {
+    $.ui.log(ko ? 'Token Stamina: 비우기 버튼을 처리하지 못했어요. /clear 를 입력하세요' : 'Token Stamina: the Clear button failed; type /clear');
+  }
+}
+
 // session.start loads it too: that hook is in register, below, with the commands.
 function registerBand(on: any): void {
   // The desktop attaches after the process starts: look again if session.start found nothing.
   on('session.attach', async ($: $T, e: any, next: any) => {
-    if (!(await read($, bandAtom))) await loadBand($);
+    if (!(await read($, bandAtom)) || !(await read($, clearBtnAtom)) || !(await read($, recallAtom))) await loadBand($);
     return next(e);
   }).catch(($: $T, e: any, next: any) => next(e));
 
   // Any prompt retires the band for good; classic.UserPromptSubmit consumes the marker on its own.
+  // The "previous chat" button lives for 5 prompts.
   on('prompt.submit', async ($: $T, e: any, next: any) => {
     await update($, bandGone, () => true);
+    try {
+      const rc = (await read($, recallAtom)) as Recall | null;
+      if (rc && (await read($, recallGone)) !== rc.key) {
+        if (rc.left <= 1) await update($, recallGone, () => rc.key);
+        else await update($, recallAtom, () => ({ ...rc, left: rc.left - 1 }));
+      }
+    } catch {
+      /* best-effort */
+    }
     return next(e);
   }).catch(($: $T, e: any, next: any) => next(e));
 
   on('ui.render', { component: 'AbovePrompt' }, async ($: $T, e: any, next: any) => {
+    if (e.props.hasSurvey) return next(e);
+    // Buttons only where the prompt has a band you can press: desktop and terminal (mobile gets none).
+    const pressable = e.surface === 'terminal' || e.surface === 'desktop';
     const b = (await read($, bandAtom)) as RecentBand | null;
-    if (!b || e.props.hasSurvey || (await read($, bandGone))) return next(e);
+    const showBand = !!b && !(await read($, bandGone));
+    const btn = pressable ? await read($, clearBtnAtom) : null;
+    let rc: Recall | null = pressable ? ((await read($, recallAtom)) as Recall | null) : null;
+    if (pressable && !rc && Date.now() - recallLookedAt > 5000) {
+      // a /clear in this process starts a new session: look for the Clear button's record now and then
+      recallLookedAt = Date.now();
+      await loadRecall($);
+      rc = (await read($, recallAtom)) as Recall | null;
+    }
+    if (rc && (await read($, recallGone)) === rc.key) rc = null;
+    const showClear = !!(btn && btn.on);
+    if (!showBand && !showClear && !rc) return next(e);
+    const inner = await next(e);
     const open = await read($, bandOpen);
     const { Box, Text, Button } = $.ui.resolve(e) as any;
-    const label = open ? (b.ko ? '접기' : 'Collapse') : b.ko ? '펼치기' : 'Expand';
-    return h(
-      Box,
-      { flexDirection: 'column' },
-      ...(open ? b.lines : b.lines.slice(0, 1)).map((l, i) => h(Text, { key: 'l' + i, dimColor: true }, l)),
-      h(
-        Box,
-        null,
-        h(Button, { key: 'toggle', label, onPress: () => update($, bandOpen, (v: boolean) => !v) }),
-        h(Text, null, ' '),
-        h(Button, { key: 'close', label: b.ko ? '닫기' : 'Close', onPress: () => update($, bandGone, () => true) }),
-      ),
-    );
+    const ko = b ? b.ko : rc ? rc.ko : !!(btn && btn.ko);
+    const row: any[] = [];
+    const add = (el: any) => {
+      if (row.length) row.push(h(Text, { key: 'sp' + row.length }, ' '));
+      row.push(el);
+    };
+    if (showBand) {
+      add(h(Button, { key: 'toggle', label: open ? (b!.ko ? '접기' : 'Collapse') : b!.ko ? '펼치기' : 'Expand', onPress: () => update($, bandOpen, (v: boolean) => !v) }));
+      add(h(Button, { key: 'close', label: b!.ko ? '닫기' : 'Close', onPress: () => update($, bandGone, () => true) }));
+    }
+    if (rc) {
+      const keyOf = rc.key;
+      add(h(Button, { key: 'recall', label: ko ? '이전 대화' : 'Previous chat', onPress: async () => {
+        await update($, recallGone, () => keyOf);
+        await recallRun($, '');
+      } }));
+    }
+    if (showClear) {
+      let tokens = 0;
+      try {
+        const u: any = await $.session.usage();
+        tokens = num(u && u.context && u.context.tokens) || 0;
+      } catch {
+        tokens = 0;
+      }
+      const word = btn!.ko ? '비우기' : 'Clear';
+      add(h(Button, { key: 'clear', label: tokens > 0 ? `${word} (${tokLabel(tokens, btn!.ko ? 'ko' : 'en')})` : word, onPress: () => clearPress($) }));
+    }
+    const children: any[] = [];
+    if (inner) children.push(inner);
+    if (showBand) (open ? b!.lines : b!.lines.slice(0, 1)).forEach((l, i) => children.push(h(Text, { key: 'l' + i, dimColor: true }, l)));
+    children.push(h(Box, null, ...row));
+    return h(Box, { flexDirection: 'column' }, ...children);
   });
 }
 
@@ -1800,6 +2167,11 @@ export const register: Register = (on) => {
     }
     try {
       await $.command.register({ name: 'ts-report', description: 'Summarize local token usage by model, subagent share and unspecified Agent calls', argumentHint: '[--since YYYY-MM-DD] [--until YYYY-MM-DD]' });
+    } catch {
+      /* name taken */
+    }
+    try {
+      await $.command.register({ name: 'ts-recall', description: 'Show the last turns of the chat you just cleared (on screen only, not sent to the model); add words to search it', argumentHint: '[search words]' });
     } catch {
       /* name taken */
     }
@@ -1877,5 +2249,9 @@ export const register: Register = (on) => {
   on('command.run', { command: 'ts-savings' }, ($, e) => answer('ts-savings', () => savingsCommand($, e.args)));
   on('command.run', { command: 'ts-report' }, ($, e) => answer('ts-report', () => reportCommand($, e.args)));
   on('command.run', { command: 'ts-audit' }, ($, e) => answer('ts-audit', () => auditCommand($, e.args)));
+  on('command.run', { command: 'ts-recall' }, async ($, e) => {
+    await recallRun($, String(e.args || ''));
+    return {};
+  });
   on('command.run', { command: 'ts-advisor' }, ($, e) => answer('ts-advisor', () => advisorCommand($, e.args)));
 };
