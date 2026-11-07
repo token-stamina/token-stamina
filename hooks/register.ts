@@ -73,7 +73,7 @@ import {
 } from './core/topic-gate.ts';
 import { parseTailLines, analyze as boundaryAnalyze, decide as boundaryDecide, message as boundaryMessage, tokLabel } from './core/boundary.ts';
 import { chatTurns, parseRows, recallLines, noPreviousLine } from './core/recall.ts';
-import { usageChip, chipColor } from './core/usage-chip.ts';
+import { usageChip, dailyUse, todayUse, chipColor, type ChipExtra } from './core/usage-chip.ts';
 import {
   scan as handoffScan,
   renderCapped,
@@ -102,7 +102,7 @@ import {
   staleNotes,
   noteText,
 } from './core/handoff.ts';
-import { computeProfile, cacheIsFresh, firstCallTokensFromText, meetsMinEffect, type ProfileResult } from './core/clear-savings.ts';
+import { computeProfile, cacheIsFresh, firstCallTokensFromText, meetsMinEffect, hintLine, type ProfileResult } from './core/clear-savings.ts';
 import { segment as statuslineSegment, legacyStatusNotice } from './core/statusline.ts';
 import { joinPath, estimateTokens, encodeCwd, tildePath } from './core/text.ts';
 import { splitArgs, dayAgo, skippedLine, walkJsonl, type CmdIO } from './core/cmd-io.ts';
@@ -1994,7 +1994,7 @@ async function recallRun($: $T, query: string, surface?: string): Promise<void> 
 }
 
 // The Clear button: save the handoff note (the Stop hook's function), ask, then clear. Events only on a confirmed press.
-async function clearPress($: $T): Promise<void> {
+async function clearPress($: $T, asked = false): Promise<void> {
   let ko = false;
   try {
     const env = await readEnv($);
@@ -2020,11 +2020,13 @@ async function clearPress($: $T): Promise<void> {
       ? ko ? '인계 메모는 저장됐어요. 비울까요?' : 'The handoff note is saved. Clear now?'
       : ko ? '비울까요?' : 'Clear now?';
     const yes = ko ? '비우기' : 'Clear';
-    let answer = '';
-    try {
-      answer = await $.ui.ask(q, [ko ? '취소' : 'Cancel', yes]);
-    } catch {
-      return; // dismissed
+    let answer = asked ? yes : '';
+    if (!asked) {
+      try {
+        answer = await $.ui.ask(q, [yes, ko ? '취소' : 'Cancel']); // the first option is the default: the press means clear
+      } catch {
+        return; // dismissed
+      }
     }
     if (answer !== yes) return;
     const ev: Record<string, unknown> = { event: 'clear_button', session: sid };
@@ -2086,7 +2088,7 @@ async function compactPress($: $T, asked = false): Promise<void> {
     let answer = asked ? yes : '';
     if (!asked) {
       try {
-        answer = await $.ui.ask(q, [ko ? '취소' : 'Cancel', yes]);
+        answer = await $.ui.ask(q, [yes, ko ? '취소' : 'Cancel']); // the first option is the default: the press means compact
       } catch {
         return; // dismissed
       }
@@ -2127,7 +2129,7 @@ async function peekPace($: $T, home: string, u: any): Promise<PaceState> {
 }
 
 // The usage chip's press: a dialog that says what the chip is and the numbers behind it (the desktop draws no $.ui.log
-// row), with Compact as the second choice. Nothing reaches the model.
+// row), with Compact and Clear as choices (Close first = the default). Nothing reaches the model.
 async function chipPress($: $T): Promise<void> {
   try {
     const env = await readEnv($);
@@ -2140,17 +2142,64 @@ async function chipPress($: $T): Promise<void> {
     } catch {
       u = null;
     }
-    const c = usageChip(await peekPace($, env.home, u), Math.floor(Date.now() / 1000), cfg as PaceConfig, ko ? 'ko' : 'en');
+    // Everything below is read from files or computed from numbers already kept (no LLM, no transcript scan): the pace_sample
+    // events (per-day trend, today), the fleet metas, the Clear/Compact card (clear-savings). The 7-day model split would
+    // need a transcript scan (~18 s here), so the dialog points to /ts-report for it.
+    const nowMs = Date.now();
+    const pace = await peekPace($, env.home, u);
+    const c0 = usageChip(pace, Math.floor(nowMs / 1000), cfg as PaceConfig, ko ? 'ko' : 'en');
+    if (!c0) return;
+    const lang = ko ? 'ko' : 'en';
+    const extra: ChipExtra = {};
+    let evs: any[] = [];
+    try {
+      evs = await readEvents(cmdIO($), env.home, nowMs - 7 * 86400 * 1000);
+    } catch {
+      evs = [];
+    }
+    try {
+      extra.daily = dailyUse(evs, nowMs);
+      const w = pace.seven_day;
+      if (w && typeof w.pct === 'number' && typeof w.resets_at === 'number') extra.today = todayUse(evs, nowMs, w.pct, w.resets_at);
+    } catch {
+      /* no trend */
+    }
+    let tp: string | undefined;
+    try {
+      const sidRaw = (await $.session.id()) || undefined;
+      tp = sidRaw ? transcripts.get(sidRaw) : undefined;
+    } catch {
+      tp = undefined;
+    }
+    try {
+      const fl = tp ? await fleetSnapshot($, env, tp, { ...cfg, fleetSessions: false }, Math.floor(nowMs / 1000)) : null;
+      if (fl && fl.running > 0) extra.fleet = { running: fl.running, models: fl.models };
+    } catch {
+      /* no fleet line */
+    }
+    try {
+      const tokens = num(u && u.context && u.context.tokens) || 0;
+      if (tokens > 0) {
+        const t = await readTranscript($, tp);
+        const prof = await buildProfile($, env, cfg, tail(t, BOUNDARY_TAIL_BYTES), t.raw);
+        extra.ctx = { tokens, clearLine: hintLine(tokens, lang, 'clear', cfg as any, prof), compactLine: hintLine(tokens, lang, 'compact', cfg as any, prof) };
+      }
+    } catch {
+      /* no card */
+    }
+    const c = usageChip(pace, Math.floor(nowMs / 1000), cfg as PaceConfig, lang, extra);
     if (!c) return;
     const close = ko ? '닫기' : 'Close';
     const now = ko ? '지금 압축' : 'Compact now';
+    const clr = ko ? '지금 비우기' : 'Clear now';
     let answer = '';
     try {
-      answer = await $.ui.ask(c.dialog, { options: [close, now], header: ko ? '사용량' : 'Usage' });
+      answer = await $.ui.ask(c.dialog, { options: [close, now, clr], header: ko ? '사용량' : 'Usage' });
     } catch {
       return; // dismissed
     }
     if (answer === now) await compactPress($, true);
+    else if (answer === clr) await clearPress($, true);
   } catch {
     /* the chip is best-effort */
   }
@@ -2231,7 +2280,7 @@ function registerBand(on: any): void {
     if (showClear) {
       const tokens = num(u && u.context && u.context.tokens) || 0;
       const word = btn!.ko ? '비우기' : 'Clear';
-      add(h(Button, { key: 'clear', label: tokens > 0 ? `${word} (${tokLabel(tokens, btn!.ko ? 'ko' : 'en')})` : word, onPress: () => clearPress($) }));
+      add(h(Button, { key: 'clear', label: tokens > 0 ? `${word} (${tokLabel(tokens, btn!.ko ? 'ko' : 'en')})` : word, onPress: () => { void clearPress($); } }));
     }
     if (rc) {
       const keyOf = rc.key;

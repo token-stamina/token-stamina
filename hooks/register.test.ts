@@ -2012,7 +2012,7 @@ test('Compact button: Cancel saves the note, compacts nothing, records no event'
   const r = await pressCompact($, on, files, 'Cancel', () => ({ messages: [{ role: 'user', text: 'summary', toolUses: [] }], tokensBefore: 209000, tokensAfter: 20000 }));
   expect(r.asked.length).toBe(1);
   expect(r.asked[0]).toContain('Compact now?');
-  expect(seenQuestions[0].options.map((o: any) => o.label)).toEqual(['Cancel', 'Compact']);
+  expect(seenQuestions[0].options.map((o: any) => o.label)).toEqual(['Compact', 'Cancel']); // the first option is the default: pressing the button means compact
   expect(r.compacted.length).toBe(0);
   expect(evOf(files, 'compact_button').length).toBe(0);
   expect(files[sessionFileName(DIR, 'S1')]).toContain('work on x');
@@ -2022,7 +2022,7 @@ test('Compact button: Korean question names the summary and puts Cancel first', 
   const files = S1_FILES();
   const r = await pressCompact($, on, files, '취소', () => ({ messages: [{ role: 'user', text: 'summary', toolUses: [] }], tokensBefore: 209000, tokensAfter: 20000 }), 'desktop', { lang: 'ko' });
   expect(r.asked[0]).toContain('지금 압축할까요? 대화가 요약으로 바뀌어요');
-  expect(seenQuestions[0].options.map((o: any) => o.label)).toEqual(['취소', '압축']);
+  expect(seenQuestions[0].options.map((o: any) => o.label)).toEqual(['압축', '취소']);
   expect(r.compacted.length).toBe(0);
 });
 
@@ -2073,7 +2073,12 @@ test('usage chip: label (en), press opens a dialog that says what the chip is; C
   expect(asked[0]).toMatch(/Weekly limit 46% used/);
   expect(asked[0]).toContain('resets');
   expect(asked[0]).toMatch(/Use at most \d+(\.\d)?% a day/);
-  expect(seenQuestions[0].options.map((o: any) => o.label)).toEqual(['Close', 'Compact now']);
+  expect(seenQuestions[0].options.map((o: any) => o.label)).toEqual(['Close', 'Compact now', 'Clear now']); // Close first = the default
+  expect(asked[0]).toContain('left until the reset');
+  expect(asked[0]).toContain('see /ts-report'); // no model split here: a transcript scan is too slow for a press
+  expect(asked[0]).not.toContain('Recent days'); // no pace_sample history: no trend line
+  expect(asked[0]).not.toMatch(/\nToday /);
+  expect(asked[0]).toContain('This chat is about 209k tokens');
   expect(compacted.length).toBe(0);
   expect(appended.length).toBe(0);
 });
@@ -2087,6 +2092,64 @@ test('usage chip: "Compact now" compacts once with no second question', async ($
   expect(asked.length).toBe(1);
   expect(compacted.length).toBe(1);
   expect(evOf(files, 'compact_button').length).toBe(1);
+});
+
+test('usage chip: "Clear now" saves the note, clears once with no second question, records clear_button', async ($, on) => {
+  const asked = person(on, 'Clear now');
+  const cleared: any[] = [];
+  on('command.run', { command: 'clear' }, (_: any, e: any) => { cleared.push(e); return {}; });
+  const { ui, files } = await mountChip($, on, 'terminal', {}, weekRl(46));
+  await $.classic.Stop({ session_id: 'S1', cwd: '/w', transcript_path: S1T } as any);
+  Object.assign(files, { [S1T]: prompt('work on x') + asst([{ type: 'text', text: 'ok' }]) });
+  delete files[sessionFileName(DIR, 'S1')];
+  delete files[latestFileName(DIR, '/w')];
+  await ui.press({ key: 'usage' });
+  await until(() => cleared.length > 0);
+  await ui.unmount();
+  expect(asked.length).toBe(1);
+  expect(asked[0]).toMatch(/^Token Stamina usage/);
+  expect(cleared.length).toBe(1);
+  expect(evOf(files, 'clear_button').length).toBe(1);
+  expect(files[sessionFileName(DIR, 'S1')]).toContain('work on x'); // the handoff note is saved first, as for the Clear button
+});
+
+test('usage chip: today and the recent days come from pace_sample events; days without a pair are left out', async ($, on) => {
+  const asked = person(on, 'Close');
+  const rl = weekRl(46);
+  const { ui, files } = await mountChip($, on, 'terminal', {}, rl);
+  const reset = Math.floor(Date.parse(rl[0].resetsAt) / 1000);
+  const mid = new Date(); mid.setHours(0, 0, 0, 0);
+  const at = (hOff: number, pct: number) => JSON.stringify({ v: 5, ts: new Date(mid.getTime() + hOff * 3600000).toISOString(), event: 'pace_sample', week_pct: pct, week_reset_at: reset }) + '\n';
+  files[HOME + '/events.jsonl'] = at(-50, 20) + at(-26, 30) + at(-2, 40);
+  await ui.press({ key: 'usage' });
+  await until(() => asked.length > 0);
+  await ui.unmount();
+  expect(asked[0]).toMatch(/\nToday so far: 6% used \/ today's share \d+(\.\d)?%\n/);
+  expect(asked[0]).toMatch(/Recent days \(weekly limit %\): \d\d\/\d\d 10 · \d\d\/\d\d 10\n/);
+  // order: summary, today, reset, trend, report pointer, chat size
+  const i = (t: string) => asked[0]!.indexOf(t);
+  const left = asked[0]!.search(/\d+d \d+h left until the reset/);
+  expect(i('Use at most')).toBeLessThan(i('Today so far'));
+  expect(i('Today so far')).toBeLessThan(left);
+  expect(left).toBeLessThan(i('Recent days'));
+  expect(i('Recent days')).toBeLessThan(i('see /ts-report'));
+  expect(i('see /ts-report')).toBeLessThan(i('This chat is about'));
+  expect(asked[0]!.split('\n').length).toBeLessThanOrEqual(15);
+});
+
+test('usage chip: Korean today and trend lines; a reading from another week is not counted', async ($, on) => {
+  const asked = person(on, '닫기');
+  const rl = weekRl(46);
+  const { ui, files } = await mountChip($, on, 'desktop', { lang: 'ko' }, rl);
+  const reset = Math.floor(Date.parse(rl[0].resetsAt) / 1000);
+  const mid = new Date(); mid.setHours(0, 0, 0, 0);
+  const at = (hOff: number, pct: number, r = reset) => JSON.stringify({ v: 5, ts: new Date(mid.getTime() + hOff * 3600000).toISOString(), event: 'pace_sample', week_pct: pct, week_reset_at: r }) + '\n';
+  files[HOME + '/events.jsonl'] = at(-50, 20) + at(-26, 30) + at(-2, 40) + at(-1, 99, reset - 7 * 86400);
+  await ui.press({ key: 'usage' });
+  await until(() => asked.length > 0);
+  await ui.unmount();
+  expect(asked[0]).toMatch(/오늘 지금까지 6% 사용 \/ 오늘 몫 \d+(\.\d)?%/);
+  expect(asked[0]).toMatch(/최근 하루별 사용\(주간 한도 %\): \d\d\/\d\d 10 · \d\d\/\d\d 10/);
 });
 
 test('usage chip: the text is coloured by the pace grade (green on pace, red when far over)', async ($, on) => {
@@ -2111,7 +2174,10 @@ test('usage chip: Korean label and dialog on the desktop', async ($, on) => {
   expect(asked[0]).toContain('주간 한도를 얼마나 썼는지');
   expect(asked[0]).toContain('주간 한도 46% 사용');
   expect(asked[0]).toContain('리셋');
-  expect(seenQuestions[0].options.map((o: any) => o.label)).toEqual(['닫기', '지금 압축']);
+  expect(seenQuestions[0].options.map((o: any) => o.label)).toEqual(['닫기', '지금 압축', '지금 비우기']);
+  expect(asked[0]).toMatch(/리셋까지 \d+일 \d+시간 남았어요/);
+  expect(asked[0]).toContain('/ts-report 로 자세히');
+  expect(asked[0]).toContain('지금 대화 크기 약 20.9만 토큰');
 });
 
 test('usage chip: the 5-hour window joins the block when it is read', async ($, on) => {
@@ -2173,7 +2239,7 @@ test('Clear button: Cancel saves the note but clears nothing and records no even
   const r = await pressClear($, on, files, 'terminal', 'Cancel', () => ({}));
   expect(r.asked.length).toBe(1);
   expect(r.asked[0]).toContain('The handoff note is saved. Clear now?');
-  expect(seenQuestions[0].options.map((o: any) => o.label)).toEqual(['Cancel', 'Clear']);
+  expect(seenQuestions[0].options.map((o: any) => o.label)).toEqual(['Clear', 'Cancel']); // the first option is the default: pressing the button means clear
   expect(r.cleared.length).toBe(0);
   expect(evOf(files, 'clear_button').length).toBe(0);
   expect(r.appended.length).toBe(0);
