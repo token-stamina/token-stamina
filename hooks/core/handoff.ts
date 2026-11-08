@@ -98,6 +98,68 @@ export interface ScanResult {
   todos: any[] | null;
   lastPromptTs: string | null;
   prevPromptTs: string | null;
+  // Work started and not finished when the rows end (see waitingOn); optional for callers that build a ScanResult by hand.
+  waiting?: string[];
+}
+
+export const WAITING_MAX = 5;
+const WAIT_CLIP = 80;
+const TASK_DONE = /^(completed|failed|killed|stopped|cancelled|canceled)$/i;
+
+function resultText(b: any): string {
+  const c = b && b.content;
+  if (typeof c === 'string') return c;
+  if (Array.isArray(c)) return c.map((x: any) => (x && typeof x.text === 'string' ? x.text : '')).join(' ');
+  return '';
+}
+
+// What the next session should know is still running: a Bash/PowerShell started with run_in_background whose
+// <task-notification> (completed/failed/killed) has not come, and an Agent call that has no tool_result yet.
+// Newest last, at most WAITING_MAX. Pure; reads transcript-shaped rows (also the ones apiRows builds).
+export function waitingOn(entries: any[]): string[] {
+  const bg = new Map<string, string>(); // tool_use_id -> description
+  const taskOf = new Map<string, string>(); // tool_use_id -> task id
+  const agents = new Map<string, string>(); // tool_use_id -> description
+  const resolved = new Set<string>();
+  const doneTasks = new Set<string>();
+  for (const o of entries) {
+    if (!o || o.isSidechain || !o.message) continue;
+    const c = o.message.content;
+    if (o.type === 'assistant' && Array.isArray(c)) {
+      for (const b of c) {
+        if (!b || b.type !== 'tool_use' || !b.id) continue;
+        const inp = b.input || {};
+        const desc = String(inp.description || inp.command || inp.prompt || b.name || '').replace(/\s+/g, ' ').trim();
+        if (SHELL_TOOLS.has(b.name) && inp.run_in_background === true) bg.set(b.id, clip(desc, WAIT_CLIP));
+        else if (b.name === 'Agent' || b.name === 'Task') agents.set(b.id, clip(desc, WAIT_CLIP));
+        else if (b.name === 'TaskStop' && inp.task_id) doneTasks.add(String(inp.task_id));
+      }
+    } else if (o.type === 'user') {
+      let text = typeof c === 'string' ? c : '';
+      if (Array.isArray(c))
+        for (const b of c) {
+          if (!b) continue;
+          if (b.type === 'tool_result') {
+            resolved.add(b.tool_use_id);
+            const m = bg.has(b.tool_use_id) ? /\bID:\s*([A-Za-z0-9_-]+)/.exec(resultText(b)) : null;
+            if (m) taskOf.set(b.tool_use_id, m[1]);
+          } else if (b.type === 'text') text += ' ' + b.text;
+        }
+      for (const m of text.matchAll(/<task-notification>[\s\S]*?<\/task-notification>/g)) {
+        const id = /<task-id>\s*([^<\s]+)\s*<\/task-id>/.exec(m[0]);
+        const st = /<status>\s*([^<\s]+)\s*<\/status>/.exec(m[0]);
+        if (id && st && TASK_DONE.test(st[1])) doneTasks.add(id[1]);
+      }
+    }
+  }
+  const out: string[] = [];
+  for (const [id, d] of bg) {
+    const task = taskOf.get(id);
+    if (task && doneTasks.has(task)) continue;
+    out.push(`background ${task ? 'task ' + task : 'command'}: ${d}`);
+  }
+  for (const [id, d] of agents) if (!resolved.has(id)) out.push(`agent: ${d}`);
+  return out.slice(-WAITING_MAX);
 }
 
 // Pure: extract what the note needs from parsed transcript lines.
@@ -152,7 +214,7 @@ export function scan(entries: any[]): ScanResult {
       commits.push({ id: b.id || null, s });
     }
   }
-  return { prompts, commits, files, todos, lastPromptTs, prevPromptTs };
+  return { prompts, commits, files, todos, lastPromptTs, prevPromptTs, waiting: waitingOn(entries) };
 }
 
 export const clip = (s: string, n: number): string => (s.length > n ? s.slice(0, n - 3) + '...' : s);
@@ -167,6 +229,7 @@ export interface RenderMeta {
   commits: ScanCommit[];
   files: string[];
   todos: any[] | null;
+  waiting?: string[];
 }
 export interface RenderParams { promptLen: number; nCommits: number; nFiles: number; nTodos: number }
 
@@ -190,6 +253,10 @@ export function render(m: RenderMeta, p: RenderParams): string {
   if (m.prompts.length) {
     out.push('', '## Last user requests (oldest first)');
     for (const t of m.prompts.slice(-3)) out.push(`- ${clip(t, p.promptLen)}`);
+  }
+  if (m.waiting && m.waiting.length) {
+    out.push('', '## Waiting on (started, no result yet when this note was saved)');
+    for (const w of m.waiting.slice(-WAITING_MAX)) out.push(`- ${clip(w, p.promptLen + 40)}`);
   }
   if (m.commits.length) {
     out.push('', '## Commits this session');
@@ -362,6 +429,7 @@ export function buildMeta(sid: string, cwd: string | undefined, nowMs: number, s
     commits: acc.commits,
     files: acc.files,
     todos: sc.todos,
+    ...(sc.waiting ? { waiting: sc.waiting } : {}),
   };
 }
 

@@ -2351,3 +2351,58 @@ test('Clear button: an expired marker (over 60 minutes) is dropped; a plain /cle
   expect(ctxOf(p1)).not.toContain('work on x');
   expect(evOf(files, 'handoff_restore').length).toBe(0);
 });
+
+// ---- 0.6.12: the clear_session tool.call hook leaves the marker beside the call ----
+
+const CLEAR = 'mcp__ccd_session_mgmt__clear_session';
+
+test('clear_session on self that went through: note and marker are written at the call, without a Stop', async ($, on) => {
+  const files: Files = { '/t/S1.jsonl': prompt('clear it') + asst([{ type: 'tool_use', id: 'c1', name: CLEAR, input: { session_id: 'self' } }]) };
+  world(on, files, { host: HOST });
+  on('classic.SessionStart', () => ({}));
+  on('tool.call', () => ({ result: {}, text: 'queued' }));
+  await $.classic.SessionStart({ source: 'startup', session_id: 'S1', cwd: '/w', transcript_path: '/t/S1.jsonl' } as any);
+  await $.tool.call({ tool: CLEAR, session_id: 'self' } as any);
+  const mk = JSON.parse(files[pendingClearName(DIR, HOST)] || 'null');
+  expect(mk?.from).toBe('S1');
+  expect(mk?.transcript).toBe('/t/S1.jsonl');
+  expect(files[sessionFileName(DIR, 'S1')]).toContain('clear it');
+});
+
+test('clear_session denied, errored or aimed at another session leaves no marker', async ($, on) => {
+  const files: Files = {};
+  world(on, files, { host: HOST });
+  let mode = 'deny';
+  on('tool.call', () => (mode === 'deny' ? { deny: 'no' } : { result: {}, text: 'boom', isError: true }));
+  await $.tool.call({ tool: CLEAR, session_id: 'self' } as any);
+  mode = 'error';
+  await $.tool.call({ tool: CLEAR, session_id: 'self' } as any);
+  mode = 'ok';
+  await $.tool.call({ tool: CLEAR, session_id: 'someone_else' } as any);
+  expect(files[pendingClearName(DIR, HOST)]).toBeUndefined();
+});
+
+test('a Stop after the hook marker keeps the marker the hook wrote (same from)', async ($, on) => {
+  const transcript = prompt('wrap up') + asst([{ type: 'tool_use', id: 'c1', name: CLEAR, input: { session_id: 'self' } }]) + result('c1');
+  const files: Files = { '/t/S1.jsonl': transcript, [pendingClearName(DIR, HOST)]: JSON.stringify({ from: 'S1', host: HOST, at: Date.now() - 1000, hook: true }) };
+  world(on, files, { host: HOST });
+  on('classic.Stop', () => ({}));
+  await $.classic.Stop({ session_id: 'S1', cwd: '/w', transcript_path: '/t/S1.jsonl' } as any);
+  expect(JSON.parse(files[pendingClearName(DIR, HOST)]!).hook).toBe(true);
+});
+
+test('fallback Stop on API rows: a request typed beside a tool_result and a Waiting on section reach the note', async ($, on) => {
+  const files: Files = {};
+  const messages = [
+    { role: 'user', content: 'start' },
+    { role: 'assistant', content: [{ type: 'tool_use', id: 'a1', name: 'Agent', input: { description: 'look up 4 things', prompt: 'x' } }] },
+    { role: 'user', content: [{ type: 'text', text: 'also fix the footer' }] },
+  ];
+  world(on, files, { messages });
+  on('classic.Stop', () => ({}));
+  await $.classic.Stop({ session_id: 'S1', cwd: '/w', transcript_path: '/t/big.jsonl' } as any);
+  const note = files[sessionFileName(DIR, 'S1')]!;
+  expect(note).toContain('also fix the footer');
+  expect(note).toContain('## Waiting on');
+  expect(note).toContain('agent: look up 4 things');
+});

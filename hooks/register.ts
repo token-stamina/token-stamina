@@ -91,6 +91,7 @@ import {
   type NotePairFetch,
   TAIL_BYTES as HANDOFF_TAIL_BYTES,
   clearedSelf,
+  CLEAR_LINK_MAX_SEC,
   decidePrompt,
   decidePromptReason,
   markerKey,
@@ -102,6 +103,7 @@ import {
   staleNotes,
   noteText,
 } from './core/handoff.ts';
+import { apiRows } from './core/api-rows.ts';
 import { computeProfile, cacheIsFresh, firstCallTokensFromText, meetsMinEffect, hintLine, type ProfileResult } from './core/clear-savings.ts';
 import { segment as statuslineSegment, legacyStatusNotice } from './core/statusline.ts';
 import { joinPath, estimateTokens, encodeCwd, tildePath } from './core/text.ts';
@@ -329,8 +331,7 @@ async function readTranscript($: $T, path: string | undefined): Promise<Transcri
   try {
     const msgs: any = await $.session.messages({ as: 'api' });
     if (!Array.isArray(msgs)) return { raw: null, bytes: null, fallback: [] };
-    const rows = msgs.map((m: any) => ({ type: m.role, isSidechain: false, message: { role: m.role, content: m.content } }));
-    return { raw: null, bytes: null, fallback: rows };
+    return { raw: null, bytes: null, fallback: apiRows(msgs) };
   } catch {
     return { raw: null, bytes: null, fallback: [] };
   }
@@ -817,11 +818,54 @@ async function saveHandoff($: $T, env: Env, cfg: Cfg, e: any, t: Transcript, usa
         }
       }
       // Desktop-app clear_session that went through: leave a marker for the new session.
-      if (cleared) await writeJson($, pendingClearName(dir, env.host), { from: sid, host: env.host, cwd: e.cwd, at: nowMs, ...(usage.tokens ? { tokens: usage.tokens } : {}), ...(e.transcript_path ? { transcript: e.transcript_path } : {}) });
+      // (The clear_session tool.call hook, clearMark, may have left the same marker already: it stays.)
+      if (cleared) {
+        const mkFile = pendingClearName(dir, env.host);
+        const ex = await readJson($, mkFile, null as any);
+        if (!(ex && ex.from === sid && typeof ex.at === 'number' && nowMs - ex.at < CLEAR_LINK_MAX_SEC * 1000)) {
+          await writeJson($, mkFile, { from: sid, host: env.host, cwd: e.cwd, at: nowMs, ...(usage.tokens ? { tokens: usage.tokens } : {}), ...(e.transcript_path ? { transcript: e.transcript_path } : {}) });
+        }
+      }
     } catch {
       /* handoff save is best-effort */
     }
   }
+}
+
+// ============================================================================
+// tool.call clear_session: the marker no longer waits for the Stop hook to read the clear out of the
+// conversation (0.6.12). When the call went through (no deny, no error) on 'self' or the app session id, the note
+// is saved and the marker written here, beside the call. A denied or failed call leaves nothing.
+// ============================================================================
+
+async function clearMark($: $T, e: any, next: (e: any) => Promise<any>): Promise<any> {
+  const ran = await next(e);
+  try {
+    if (!ran || ran.deny !== undefined || ran.isError) return ran;
+    const env = await readEnv($);
+    const arg = e.session_id;
+    if (!env.host || !(arg === 'self' || arg === env.host)) return ran;
+    const { cfg: cfg0 } = await loadConfig($, env);
+    if (cfg0.handoff === false) return ran;
+    const sidRaw = await $.session.id();
+    if (!sidRaw) return ran;
+    const sid = safeId(sidRaw);
+    const cwd = await $.session.cwd();
+    const nowMs = Date.now();
+    const tp = transcripts.get(sidRaw);
+    const usage = await readUsage($, env, nowMs);
+    const dir = joinPath(env.home, 'handoff');
+    if (tp) {
+      // the same note a Stop writes, from the rows as they stand now
+      const t = await readTranscript($, tp);
+      await saveHandoff($, env, await withLangFrom($, env, cfg0, null, sidRaw, nowMs), { session_id: sidRaw, cwd, transcript_path: tp }, t, usage, nowMs);
+    }
+    await writeJson($, pendingClearName(dir, env.host), { from: sid, host: env.host, cwd, at: nowMs, ...(usage.tokens ? { tokens: usage.tokens } : {}), ...(tp ? { transcript: tp } : {}) });
+    await appendEvent($, env, { event: 'clear_marker', session: sid, via: 'tool_call' });
+  } catch {
+    /* the Stop hook's own marker is still there as the second chance */
+  }
+  return ran;
 }
 
 // ============================================================================
@@ -2321,6 +2365,7 @@ export const register: Register = (on) => {
 
   on('tool.call', { tool: 'Agent' }, ($, e, next) => agentModel($, e, next)).catch(($, e, next) => next(e));
   on('tool.call', { tool: 'mcp__ccd_session__start_session' }, ($, e, next) => agentModel($, e, next)).catch(($, e, next) => next(e));
+  on('tool.call', { tool: 'mcp__ccd_session_mgmt__clear_session' }, ($, e, next) => clearMark($, e, next)).catch(($, e, next) => next(e));
   on('tool.call', { tool: 'Bash' }, ($, e, next) => subWait($, e, next)).catch(($, e, next) => next(e));
   on('tool.call', { tool: 'PowerShell' }, ($, e, next) => subWait($, e, next)).catch(($, e, next) => next(e));
 
