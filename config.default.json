@@ -68,6 +68,8 @@
   "renotifyGrowthTokens": 100000,
   "turnCostYellowTokens": 100000,
   "handoff": true,
+  "handoffSaveEveryTurns": 5,
+  "handoffSaveEveryMin": 10,
   "topicGate": true,
   "topicCheckStepTokens": 50000,
   "gateAtTokens": 200000,

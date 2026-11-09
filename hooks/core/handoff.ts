@@ -104,12 +104,30 @@ export interface ScanResult {
   prevPromptTs: string | null;
   // Work started and not finished when the rows end (see waitingOn); optional for callers that build a ScanResult by hand.
   waiting?: string[];
+  // The last one or two replies of Claude (one per turn, shortened), newest last (0.6.14).
+  conclusions?: string[];
 }
 
 export const WAITING_MAX = 5;
 export const SESSIONS_MAX = 8; // sessions opened with start_session (a coordinator can run 5 to 10)
 const START_SESSION = /(?:^|__)start_session$/;
 const END_SESSION = /(?:^|__)(?:stop_session|archive_session|delete_session)$/;
+const PLAN_TOOL = /(?:^|__)update_plan$/;
+const DISMISS_TASK = /(?:^|__)dismiss_task$/;
+const PROPOSAL_TEXT = /\b(proposal|proposed|not (?:yet )?started|awaiting|waiting for the user|suggested)\b/i;
+const SESSION_DONE = /\b(idle|ended|finished|completed|done|stopped|archived|exited|closed|terminated)\b/i;
+
+// A <side-sessions-event> segment that names the session (by id, or by a title of 4+ letters) and says it is idle or ended.
+function reportedDone(ss: { title: string; id: string }, segs: string[]): boolean {
+  const id = ss.id;
+  const bare = id.replace(/^local_/, '');
+  const title = ss.title.toLowerCase();
+  for (const seg of segs) {
+    if (id && (seg.includes(id) || (bare.length >= 6 && seg.includes(bare)))) return true;
+    if (title.length >= 4 && seg.toLowerCase().includes(title)) return true;
+  }
+  return false;
+}
 const WAIT_CLIP = 80;
 const TASK_DONE = /^(completed|failed|killed|stopped|cancelled|canceled)$/i;
 
@@ -129,8 +147,10 @@ export function waitingOn(entries: any[]): string[] {
   const agents = new Map<string, string>(); // tool_use_id -> description
   const resolved = new Set<string>();
   const doneTasks = new Set<string>();
-  const sess = new Map<string, { title: string; id: string }>(); // tool_use_id -> a session start_session opened
+  const sess = new Map<string, { title: string; id: string; initiation: string; proposal: boolean; taskId: string }>(); // tool_use_id -> a session start_session opened
   const endedSessions = new Set<string>();
+  const dismissedTasks = new Set<string>();
+  const eventSegments: string[] = []; // lines of <side-sessions-event> blocks that say a session is idle or ended (0.6.14)
   for (const o of entries) {
     if (!o || o.isSidechain || !o.message) continue;
     const c = o.message.content;
@@ -144,8 +164,9 @@ export function waitingOn(entries: any[]): string[] {
         else if (b.name === 'TaskStop' && inp.task_id) doneTasks.add(String(inp.task_id));
         else if (START_SESSION.test(String(b.name || ''))) {
           const title = String(inp.title || inp.name || inp.prompt || '').replace(/\s+/g, ' ').trim();
-          sess.set(b.id, { title: clip(title, WAIT_CLIP), id: '' });
+          sess.set(b.id, { title: clip(title, WAIT_CLIP), id: '', initiation: String(inp.initiation || ''), proposal: false, taskId: '' });
         } else if (END_SESSION.test(String(b.name || '')) && inp.session_id) endedSessions.add(String(inp.session_id));
+        else if (DISMISS_TASK.test(String(b.name || '')) && inp.task_id) dismissedTasks.add(String(inp.task_id));
       }
     } else if (o.type === 'user') {
       let text = typeof c === 'string' ? c : '';
@@ -162,11 +183,21 @@ export function waitingOn(entries: any[]): string[] {
               const rt = resultText(b);
               const idm = /"?session_?id"?\s*[:=]\s*"?([A-Za-z0-9_-]{4,})|\b(local_[A-Za-z0-9_-]+)/i.exec(rt);
               if (idm) ss.id = idm[1] || idm[2] || '';
+              // A card offered to the person (initiation offer / own_initiative) or a result that calls itself a proposal:
+              // nothing was started, so nothing is waiting (0.6.14).
+              else if (ss.initiation === 'own_initiative' || ss.initiation === 'offer' || PROPOSAL_TEXT.test(rt)) {
+                ss.proposal = true;
+                const tm = /"?task_?id"?\s*[:=]\s*"?([A-Za-z0-9_-]{4,})/i.exec(rt);
+                if (tm) ss.taskId = tm[1] || '';
+              }
               const nm = /"?(?:title|name)"?\s*[:=]\s*"([^"\n]{1,80})"/i.exec(rt);
               if (nm && !ss.title) ss.title = nm[1];
             }
           } else if (b.type === 'text') text += ' ' + b.text;
         }
+      for (const m of text.matchAll(/<side-sessions-event>([\s\S]*?)<\/side-sessions-event>/g)) {
+        for (const seg of (m[1] || '').split(/[\n;{}[\]]/)) if (SESSION_DONE.test(seg)) eventSegments.push(seg);
+      }
       for (const m of text.matchAll(/<task-notification>[\s\S]*?<\/task-notification>/g)) {
         const id = /<task-id>\s*([^<\s]+)\s*<\/task-id>/.exec(m[0]);
         const st = /<status>\s*([^<\s]+)\s*<\/status>/.exec(m[0]);
@@ -183,18 +214,48 @@ export function waitingOn(entries: any[]): string[] {
   for (const [id, d] of agents) if (!resolved.has(id)) out.push(`agent: ${d}`);
   const sessions: string[] = [];
   for (const [, ss] of sess) {
+    if (ss.proposal || (ss.taskId && dismissedTasks.has(ss.taskId))) continue;
     if (ss.id && endedSessions.has(ss.id)) continue;
+    if (reportedDone(ss, eventSegments)) continue;
     sessions.push(`session${ss.id ? ' ' + ss.id : ''}: ${ss.title || '(untitled)'}`);
   }
   return [...out.slice(-WAITING_MAX), ...sessions.slice(-SESSIONS_MAX)];
 }
 
-// Pure: extract what the note needs from parsed transcript lines.
-export function scan(entries: any[]): ScanResult {
+// The task list of the desktop app's update_plan tool (0.6.14), read like TodoWrite's: `items` is the whole list, and the later
+// calls change it ({ advance: true } completes the step in progress and starts the next pending one; { done: [2], start: 4 }
+// are 1-based). Returns the list as { content, status } rows, or the old one when the call changes nothing.
+export function applyPlan(cur: any[] | null, inp: any): any[] | null {
+  if (!inp || typeof inp !== 'object') return cur;
+  if (Array.isArray(inp.items)) {
+    const items = inp.items.filter((x: any) => x && typeof x.content === 'string').map((x: any) => ({ content: x.content, status: typeof x.status === 'string' ? x.status : 'pending' }));
+    return items.length ? items : cur;
+  }
+  if (!cur || !cur.length) return cur;
+  const next = cur.map((x) => ({ ...x }));
+  if (inp.advance === true) {
+    const at = next.findIndex((x) => x.status === 'in_progress');
+    if (at >= 0) next[at].status = 'completed';
+    const pend = next.findIndex((x, i) => i > at && x.status === 'pending');
+    if (pend >= 0) next[pend].status = 'in_progress';
+  }
+  if (Array.isArray(inp.done)) for (const n of inp.done) if (Number.isInteger(n) && next[n - 1]) next[n - 1].status = 'completed';
+  if (Number.isInteger(inp.start) && next[inp.start - 1]) next[inp.start - 1].status = 'in_progress';
+  return next;
+}
+
+export const CONCLUSION_CLIP = 200;
+export const CONCLUSIONS_MAX = 2;
+
+// Pure: extract what the note needs from parsed transcript lines. prevTodos: the list the side file carried from an earlier
+// tail (an update_plan or TodoWrite call can sit before the tail the note reads).
+export function scan(entries: any[], prevTodos?: any[] | null): ScanResult {
   const prompts: string[] = [];
   const calls: any[] = [];
   const failed = new Set<string>();
-  let todos: any[] | null = null;
+  let todos: any[] | null = prevTodos && prevTodos.length ? prevTodos : null;
+  const concl: string[] = []; // the last reply text of each turn
+  let turnText = '';
   let lastPromptTs: string | null = null;
   let prevPromptTs: string | null = null;
   for (const o of entries) {
@@ -205,6 +266,8 @@ export function scan(entries: any[]): ScanResult {
       if (!o.isMeta && isRealPrompt(o)) {
         const t = promptBody(promptText(o));
         if (t) {
+          if (turnText) concl.push(turnText);
+          turnText = '';
           prompts.push(t);
           if (o.timestamp) {
             prevPromptTs = lastPromptTs;
@@ -213,13 +276,17 @@ export function scan(entries: any[]): ScanResult {
         }
       }
     } else if (o.type === 'assistant' && Array.isArray(c)) {
+      const said = c.filter((b: any) => b && b.type === 'text' && typeof b.text === 'string').map((b: any) => b.text).join(' ').replace(/\s+/g, ' ').trim();
+      if (said) turnText = said;
       for (const b of c) {
         if (!b || b.type !== 'tool_use') continue;
         calls.push(b);
         if (b.name === 'TodoWrite' && b.input && Array.isArray(b.input.todos)) todos = b.input.todos;
+        else if (PLAN_TOOL.test(String(b.name || ''))) todos = applyPlan(todos, b.input);
       }
     }
   }
+  if (turnText) concl.push(turnText);
   const commits: ScanCommit[] = [];
   const files: string[] = [];
   const seen = new Set<string>();
@@ -241,7 +308,7 @@ export function scan(entries: any[]): ScanResult {
       commits.push({ id: b.id || null, s });
     }
   }
-  return { prompts, commits, files, todos, lastPromptTs, prevPromptTs, waiting: waitingOn(entries) };
+  return { prompts, commits, files, todos, lastPromptTs, prevPromptTs, waiting: waitingOn(entries), conclusions: concl.slice(-CONCLUSIONS_MAX).map((x) => clip(x, CONCLUSION_CLIP)) };
 }
 
 export const clip = (s: string, n: number): string => (s.length > n ? s.slice(0, n - 3) + '...' : s);
@@ -257,8 +324,9 @@ export interface RenderMeta {
   files: string[];
   todos: any[] | null;
   waiting?: string[];
+  conclusions?: string[];
 }
-export interface RenderParams { promptLen: number; nCommits: number; nFiles: number; nTodos: number; nPrompts?: number }
+export interface RenderParams { promptLen: number; nCommits: number; nFiles: number; nTodos: number; nPrompts?: number; nConclusions?: number }
 
 // One line pointing at the session's own conversation file, so a model asked "what was that earlier?" can search it.
 export const transcriptLine = (shown: string): string => `- transcript: ${shown}`;
@@ -281,9 +349,21 @@ export function render(m: RenderMeta, p: RenderParams): string {
     out.push('', '## Last user requests (oldest first)');
     for (const t of m.prompts.slice(-(p.nPrompts || 3))) out.push(`- ${clip(t, p.promptLen)}`);
   }
-  if (m.waiting && m.waiting.length) {
+  // Sessions opened with start_session are "started": no idle or end report has been seen, which is not the same as waiting (0.6.14).
+  const waits = (m.waiting || []).filter((w) => !/^session[ :]/.test(w));
+  const started = (m.waiting || []).filter((w) => /^session[ :]/.test(w));
+  if (waits.length) {
     out.push('', '## Waiting on (started, no result yet when this note was saved)');
-    for (const w of m.waiting.slice(-(WAITING_MAX + SESSIONS_MAX))) out.push(`- ${clip(w, p.promptLen + 40)}`);
+    for (const w of waits.slice(-WAITING_MAX)) out.push(`- ${clip(w, p.promptLen + 40)}`);
+  }
+  if (started.length) {
+    out.push('', '## Sessions started (no idle or end report seen in this chat; they may have finished)');
+    for (const w of started.slice(-SESSIONS_MAX)) out.push(`- ${clip(w, p.promptLen + 40)}`);
+  }
+  const nConc = p.nConclusions === undefined ? CONCLUSIONS_MAX : p.nConclusions;
+  if (m.conclusions && m.conclusions.length && nConc > 0) {
+    out.push('', "## Last conclusions (Claude's last replies, shortened)");
+    for (const c of m.conclusions.slice(-nConc)) out.push(`- ${clip(c, CONCLUSION_CLIP)}`);
   }
   if (m.commits.length) {
     out.push('', '## Commits this session');
@@ -312,6 +392,7 @@ export function renderCapped(m: RenderMeta, maxTokens: number, requests = 3): st
     },
     () => {
       p.nFiles = 8;
+      p.nConclusions = 1;
     },
     () => {
       p.nFiles = 3;
@@ -322,6 +403,7 @@ export function renderCapped(m: RenderMeta, maxTokens: number, requests = 3): st
       p.nCommits = 3;
       p.nTodos = 3;
       p.promptLen = 120;
+      p.nConclusions = 0;
     },
     () => {
       p.promptLen = 80;
@@ -353,13 +435,14 @@ export const stripMeta = (md: string): string => md.replace(/^(?:\s*<!--[\s\S]*?
 
 // Pure replacement for runStop's side-file accumulation (the tail only covers the end of long
 // sessions, so commits/files are merged into a running per-session total across calls).
-export interface Accumulated { commits: ScanCommit[]; files: string[]; lastPromptTs?: string | null; prevPromptTs?: string | null; recent?: RecentTurn[]; stopAt?: number }
+export interface Accumulated { commits: ScanCommit[]; files: string[]; lastPromptTs?: string | null; prevPromptTs?: string | null; recent?: RecentTurn[]; stopAt?: number; todos?: any[] }
 export function accumulate(acc: Accumulated, sc: ScanResult): Accumulated {
   const ids = new Set(acc.commits.map((c) => c.id).filter(Boolean));
   const commits = acc.commits.slice();
   for (const c of sc.commits) if (!c.id || !ids.has(c.id)) commits.push(c);
   const files = acc.files.filter((f) => !sc.files.includes(f)).concat(sc.files).slice(-40);
   const out: Accumulated = { commits: commits.slice(-40), files };
+  if (sc.todos && sc.todos.length) out.todos = sc.todos.slice(0, 40);
   // The tail can hold only the last prompt after big tool output, so the prompt before it is carried here.
   if (sc.lastPromptTs && sc.lastPromptTs !== acc.lastPromptTs) {
     out.lastPromptTs = sc.lastPromptTs;
@@ -464,6 +547,7 @@ export function buildMeta(sid: string, cwd: string | undefined, nowMs: number, s
     files: acc.files,
     todos: sc.todos,
     ...(sc.waiting ? { waiting: sc.waiting } : {}),
+    ...(sc.conclusions && sc.conclusions.length ? { conclusions: sc.conclusions } : {}),
   };
 }
 

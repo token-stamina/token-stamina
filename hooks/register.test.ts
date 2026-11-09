@@ -129,7 +129,7 @@ test('after the clear the last turns are drawn with ui.log (not the clearing tur
   expect(shown).toContain('> fix the parser');
   expect(shown).toContain('parser fixed');
   expect(shown).not.toContain('wrap up and clear');
-  expect((r.additionalContext || []).join('\n')).not.toContain('parser fixed');
+  expect((r.additionalContext || []).join('\n')).not.toContain('> fix the parser'); // the drawn turns stay out; the note keeps the last reply under Last conclusions
 });
 
 // Nothing draws beneath the plugin: where the band passes, this stands for the engine's own band.
@@ -1920,6 +1920,7 @@ const clearWorld = (on: any, files: Files, cfg: Record<string, unknown> = {}, to
   on('command.register', () => ({ value: { command: 'x' } }));
   on('tool.register', () => ({ value: undefined }));
   on('classic.Stop', () => ({}));
+  on('clock.sleep', () => ({ value: undefined }));
   engineBand(on);
   return { logged, appended };
 };
@@ -2190,9 +2191,9 @@ test('usage chip: the 5-hour window joins the block when it is read', async ($, 
   expect(asked[0]).toContain('5-hour window 30%');
 });
 
-test('usage chip: none without a usage reading', async ($, on) => {
+test('usage chip: a reading with no weekly window gives the no-limit chip (0.6.14)', async ($, on) => {
   const m = await mountBand($, on, 'terminal', {}, []);
-  expect(await keyLabel(m.ui, 'usage')).toBe(null);
+  expect(await keyLabel(m.ui, 'usage')).toMatch(/^no weekly limit/);
   expect(await keyLabel(m.ui, 'compact')).toBe('Compact');
   await m.ui.unmount();
 });
@@ -2265,6 +2266,23 @@ test('Clear button: Clear saves the note (with the transcript line), records cle
   expect(r.cleared[0].command).toBe('clear');
   expect(r.appended.length).toBe(0); // no model context
   expect(JSON.parse(files[HOME + '/recall.json']!).from).toBe('S1');
+});
+
+test('Clear button: the same session id still answering after the clear gives one "did not run" toast', async ($, on) => {
+  const files = S1_FILES();
+  const toasts: string[] = [];
+  on('ui.toast', (_: any, e: any) => { toasts.push(String(e && (e.text ?? e.message ?? e))); return { value: undefined }; });
+  await pressClear($, on, files, 'desktop', 'Clear', () => ({}));
+  expect(toasts.filter((t) => t.includes('/clear did not run')).length).toBe(1);
+});
+
+test('Clear button: a new session id after the press means no "did not run" toast', async ($, on) => {
+  const files = S1_FILES();
+  const toasts: string[] = [];
+  let sid = 'S1';
+  on('ui.toast', (_: any, e: any) => { toasts.push(String(e && (e.text ?? e.message ?? e))); return { value: undefined }; });
+  await pressClear($, on, files, 'desktop', 'Clear', () => { sid = 'S2'; on('session.id', () => ({ value: sid })); return {}; });
+  expect(toasts.filter((t) => t.includes('/clear did not run')).length).toBe(0);
 });
 
 test('Clear button: a refused built-in clear puts /clear in the prompt box', async ($, on) => {
@@ -2501,7 +2519,8 @@ test('classic events absent while turns run: classic_bypassed is recorded once p
   await ui.press({ key: 'clear' });
   await ui.unmount();
   expect(asked[0]).toContain('The handoff note is saved. Clear now?');
-  expect(asked[0]).toContain('classic hooks are being skipped; restore runs from prompt.context');
+  expect(asked[0]).toContain('A managed plugin switches off some features');
+  expect(asked[0]).not.toContain('prompt.context');
   expect(evOf(files, 'classic_bypassed').length).toBe(1);
   expect(w.appended.length).toBe(0);
 });
@@ -2544,4 +2563,130 @@ test('fallback rows: injected user text is not listed as a request; started sess
   expect(note).not.toContain('task-notification');
   expect(note).not.toContain('SYSTEM NOTIFICATION');
   expect(note).toContain('session local_abc123: worker A');
+});
+
+// ---- 0.6.14: follow-up to the 0.6.13 review ----
+
+test('A1: the transcript is found by one look through projects/* when the cwd of the session moved, and under its first cwd', async ($, on) => {
+  const tp = '/h/.claude/projects/-elsewhere/MOVE1.jsonl'; // the session started elsewhere; session.cwd now says /w
+  const files: Files = { [tp]: prompt('moved around') + asst([{ type: 'text', text: 'ok' }]) };
+  const sid = { v: 'MOVE1' };
+  asSession(on, files, sid);
+  await $.turn.complete(completeArgs());
+  expect(files[sessionFileName(DIR, 'MOVE1')]).toContain('- transcript: ~/.claude/projects/-elsewhere/MOVE1.jsonl');
+});
+
+test('A2: prompt.submit stamps the prompt time into topic-gate.json (the format fallbackPromptTs reads)', async ($, on) => {
+  const files: Files = {};
+  const sid = { v: 'STAMP1' };
+  asSession(on, files, sid);
+  await $.prompt.submit({ text: 'first question' } as any);
+  const rec = JSON.parse(files[TG]!).STAMP1;
+  expect(typeof rec.promptAt).toBe('number');
+  await $.prompt.submit({ text: 'second question' } as any);
+  const rec2 = JSON.parse(files[TG]!).STAMP1;
+  expect(rec2.promptAt).toBeGreaterThanOrEqual(rec.promptAt);
+  expect(typeof rec2.prevPromptAt).toBe('number');
+});
+
+test('A3: without a classic hook prompt.submit carries the context-size hint once; the classic prompt for the same text adds none', async ($, on) => {
+  const usage = { startedAt: 0, context: { tokens: 270000, window: 1000000 }, rateLimits: [] };
+  const tp = '/h/.claude/projects/-w/HINT1.jsonl';
+  const files: Files = { [HOME + '/config.json']: JSON.stringify({ topicGate: false, topicCheck: false }), [tp]: prompt('x') + asst([{ type: 'text', text: 'ok' }]) };
+  const sid = { v: 'HINT1' };
+  asSession(on, files, sid, { usage });
+  on('classic.UserPromptSubmit', () => ({}));
+  const s: any = await $.prompt.submit({ text: 'next step' } as any);
+  expect((s.context || []).join('\n')).toContain('clear_session');
+  expect(evOf(files, 'inline_hint').length).toBe(1);
+  const c: any = await $.classic.UserPromptSubmit({ session_id: 'HINT1', cwd: '/w', prompt: 'next step', transcript_path: tp } as any);
+  expect(ctxOf(c)).not.toContain('clear_session');
+  expect(evOf(files, 'inline_hint').length).toBe(1);
+});
+
+test('A3: turn.complete writes the pace sample without a classic hook', async ($, on) => {
+  const tp = '/h/.claude/projects/-w/PACE1.jsonl';
+  const files: Files = { [tp]: prompt('work') + asst([{ type: 'text', text: 'ok' }]) };
+  const sid = { v: 'PACE1' };
+  asSession(on, files, sid, { usage: { startedAt: 0, context: { tokens: 1000, window: 200000 }, rateLimits: weekRl(30) } });
+  await $.turn.complete(completeArgs());
+  expect(evOf(files, 'pace_sample').length).toBe(1);
+});
+
+test('A4: proposals, dismissed and idle-reported sessions are not waited on; the rest are labelled started', async ($, on) => {
+  const files: Files = {};
+  const use = (id: string, input: object) => ({ role: 'assistant', content: [{ type: 'tool_use', id, name: 'mcp__ccd_session__start_session', input }] });
+  const res = (id: string, text: string) => ({ role: 'user', content: [{ type: 'tool_result', tool_use_id: id, content: text }] });
+  const messages = [
+    { role: 'user', content: 'coordinate' },
+    use('p1', { title: 'only a card', prompt: 'x', initiation: 'own_initiative' }),
+    res('p1', '{"task_id":"task_p1","proposed":true}'),
+    use('a1', { title: 'worker alpha', prompt: 'x' }),
+    res('a1', '{"session_id":"local_alpha1","name":"worker alpha"}'),
+    use('b1', { title: 'worker beta', prompt: 'x' }),
+    res('b1', '{"session_id":"local_beta22","name":"worker beta"}'),
+    { role: 'user', content: '<side-sessions-event>session local_alpha1 is now idle</side-sessions-event>' },
+    { role: 'user', content: 'go on' },
+  ];
+  world(on, files, { messages });
+  on('classic.Stop', () => ({}));
+  await $.classic.Stop({ session_id: 'S1', cwd: '/w', transcript_path: '/t/big.jsonl' } as any);
+  const note = files[sessionFileName(DIR, 'S1')]!;
+  expect(note).not.toContain('only a card');
+  expect(note).not.toContain('local_alpha1');
+  expect(note).toContain('session local_beta22: worker beta');
+  expect(note).toContain('## Sessions started');
+});
+
+test('B16: update_plan items fill the task list and advance/done calls change it; the last replies are listed', async ($, on) => {
+  const files: Files = {};
+  const plan = (id: string, input: object) => ({ role: 'assistant', content: [{ type: 'tool_use', id, name: 'mcp__ccd_turn__update_plan', input }] });
+  const messages = [
+    { role: 'user', content: 'plan it' },
+    plan('u1', { items: [{ content: 'step one', status: 'in_progress' }, { content: 'step two', status: 'pending' }] }),
+    plan('u2', { advance: true }),
+    { role: 'assistant', content: [{ type: 'text', text: 'Step one is finished, moving on to step two.' }] },
+  ];
+  world(on, files, { messages });
+  on('classic.Stop', () => ({}));
+  await $.classic.Stop({ session_id: 'S1', cwd: '/w', transcript_path: '/t/big.jsonl' } as any);
+  const note = files[sessionFileName(DIR, 'S1')]!;
+  expect(note).toMatch(/step one/);
+  expect(note).toMatch(/step two/);
+  expect(note).toContain('## Last conclusions');
+  expect(note).toContain('Step one is finished');
+});
+
+test('A6: turn.complete saves on the first turn, then once 5 turns have passed since the save', async ($, on) => {
+  const tp = '/h/.claude/projects/-w/THR1.jsonl';
+  const files: Files = { [tp]: prompt('throttle me') + asst([{ type: 'text', text: 'ok' }]) };
+  const sid = { v: 'THR1' };
+  asSession(on, files, sid);
+  const f = sessionFileName(DIR, 'THR1');
+  await $.turn.complete(completeArgs());
+  expect(files[f]).toContain('throttle me');
+  files[tp] += prompt('second prompt') + asst([{ type: 'text', text: 'ok' }]);
+  for (let i = 2; i <= 5; i++) await $.turn.complete(completeArgs({ turnId: 't' + i }));
+  expect(files[f]).not.toContain('second prompt'); // turns 2 to 5: no save
+  await $.turn.complete(completeArgs({ turnId: 't6' }));
+  expect(files[f]).toContain('second prompt'); // the 5th turn since the save saves
+});
+
+test('B10: no 5-hour or weekly window: the chip shows no percentage and says there is no weekly limit', async ($, on) => {
+  const { ui } = await mountChip($, on, 'terminal', {}, []);
+  const label = await keyLabel(ui, 'usage');
+  await ui.unmount();
+  expect(label).toMatch(/^no weekly limit · 209k tokens/);
+  expect(label).not.toMatch(/%/);
+});
+
+test('B12: an old json tmp file is emptied; B13: /ts-report names where the events are', async ($, on) => {
+  const files: Files = { [HOME + '/lang.json.123.tmp']: '{"x":1}', [HOME + '/events/s0a1.jsonl']: '{}\n', [HOME + '/events/s0b2.jsonl']: '{}\n' };
+  asSession(on, files, { v: 'TMP1' }, { ages: { [HOME + '/lang.json.123.tmp']: 3 * 86400 * 1000 } });
+  const r: any = await $.command.run({ command: 'ts-report' } as any);
+  expect(r.text).toContain('events: events/s???.jsonl (2 files)');
+  const sid = { v: 'TMP1' };
+  files['/h/.claude/projects/-w/TMP1.jsonl'] = prompt('x') + asst([{ type: 'text', text: 'ok' }]);
+  await $.turn.complete(completeArgs());
+  expect(files[HOME + '/lang.json.123.tmp']).toBe('');
 });

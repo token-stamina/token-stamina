@@ -83,6 +83,19 @@ export interface UsageChip { label: string; grade: 'green' | 'yellow' | 'red'; l
 const COLOR: Record<string, string> = { green: 'green', yellow: 'yellow', red: 'red' };
 export const chipColor = (grade: string): string => COLOR[grade] || 'green';
 
+// A plan with no 5-hour or weekly window (0.6.14): no percentage is shown, only the context size and the spend when known.
+function fmtTok(n: number): string {
+  return n >= 1e6 ? (n / 1e6).toFixed(1) + 'M' : n >= 1e3 ? Math.round(n / 1e3) + 'k' : String(Math.round(n));
+}
+export function noWindowChip(tokens: number, usd: number | null | undefined, lang: string | undefined): UsageChip {
+  const ko = lang === 'ko';
+  const spend = typeof usd === 'number' && usd > 0 ? ' · $' + usd.toFixed(2) : '';
+  const label = (ko ? '주간 한도 없음 · ' : 'no weekly limit · ') + fmtTok(tokens) + (ko ? ' 토큰' : ' tokens') + spend;
+  const note = ko ? '이 요금제에는 5시간·주간 한도가 없어요' : 'No 5-hour or weekly limit on this plan';
+  const lines = [note, (ko ? '이 대화 맥락: ' : 'This chat context: ') + fmtTok(tokens) + (ko ? ' 토큰' : ' tokens') + spend];
+  return { label, grade: 'green', lines, dialog: lines.join('\n') };
+}
+
 // null when there is no fresh weekly reading (no chip is drawn then).
 export function usageChip(state: PaceState | null | undefined, nowSec: number, cfg: PaceConfig | undefined, lang: string | undefined, extra?: ChipExtra): UsageChip | null {
   const a = assess(state, nowSec, cfg);
