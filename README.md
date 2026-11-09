@@ -60,6 +60,7 @@ Grades: green `u <= elapsed%`, yellow up to +10 points, red beyond or `u >= 90`.
 /ts-savings                     # estimated tokens saved (default last 7 days)
 /ts-audit --days 30             # always-loaded files, plugins, MCP/skill usage, turn-off candidates
 /ts-fleet --all                 # subagents running now, by model
+/ts-selftest                         # which events fired in this process, whether classic hooks are skipped, and a restore run on a canary note (touches no real data)
 /token-stamina:autocompact 400k # pick when auto-compact happens: 300k / 400k / 600k / default
 /token-stamina:setup            # language, old status line cleanup, defaults
 /token-stamina:advisor          # Usage Advisor: analyze, recommend, apply (with your yes), revert, review
@@ -143,6 +144,12 @@ An optional board for people who run several sessions at once. It shows, per ses
 ## Development
 - `claude plugin test .` runs the spec in `hooks/register.test.ts` against a fake engine.
 - `claude plugin validate .` checks the manifest and the types contract (every plugin state key must be declared in `types/index.d.ts`).
+
+## v0.6.15: the restore also works when prompt.context is skipped
+- **prompt.submit restores without a marker.** A managed plugin can skip `prompt.context` as well as the classic hooks (seen live: the notice "its prompt.context hook was skipped", while `prompt.submit`, `turn.complete`, `session.start` and `session.end` run). So the first prompt of a session that `session.end` reported as a `/clear` (typed by hand: no marker exists) now gets the folder's latest note, and the first prompt after a compaction gets the session's note. Compaction is seen through the `session.compact` hook (a real compaction of the main conversation that was not skipped; the ahead-of-time `precompute` does not count). A resume or a plain startup restores nothing, and a note another path already put in (classic SessionStart, `prompt.context`, a marker) is not added again.
+- **The Clear question is straight about it.** Under a bypass it says the button attaches this chat's note, and a typed `/clear` may bring back the latest note of the folder instead.
+- **The button marker fallback is for the terminal only.** A session with a desktop host id no longer takes `pending-clear-button.json`, which a terminal session may have written.
+- **`/ts-selftest`.** Prints how often each path fired in this process (`classic.SessionStart`, `classic.UserPromptSubmit`, `classic.Stop`, `prompt.context`, `prompt.submit`, `turn.complete`, `session.end`, `session.compact`) and the bypass verdict, then runs the restore logic on a canary note and markers in a scratch folder (the system temp folder, else `selftest/` under the data folder; the files are emptied afterwards) and ends with PASS or FAIL. Your real notes and markers are not touched.
 
 ## v0.6.14: the hints and rows work without classic hooks, a calmer "Waiting on", no-window plans
 - **The same hints without classic hooks.** When a managed plugin sends the classic events past Token Stamina, the context-size hint, the topic gate and check, the pace nudge and the old-model warning now run from `prompt.submit` (the lines go beside the prompt as `context`), and the pace sample runs from `turn.complete`. Each prompt is served once: whichever path comes second stands down. The prompt time is also written to `topic-gate.json` there, so a big chat's note has its prompt times. Not moved (they need a classic input): the weekly advisor check and its card, the boundary notice and the session-start grade line. So "some features are off" stays true under a bypass.
@@ -287,6 +294,7 @@ Everything goes under `~/.claude/token-stamina/` (or `TOKEN_STAMINA_HOME`):
 
 `handoff/` holds **text from your session**:
 - `<session>.md` and `latest-<hash>.md`: the working folder path and session id, up to the last `handoffPrompts` requests (default 3, clipped to 200 characters each), commit subjects, edited file paths and to-do items, capped by `handoffMaxTokens`.
+- A managed plugin ahead of this one can send the classic events and `prompt.context` past Token Stamina (the notice "its prompt.context hook was skipped"). Then `prompt.submit` is the restore path: it attaches the Clear-button or `clear_session` note to the first message of the new chat, and (0.6.15) the latest note after a `/clear` that `session.end` reported and after a compaction. A resume restores nothing.
 - `<session>.json`: up to 40 commit subjects and file paths, and the last `clearRecentTurns` turns (your text and Claude's reply, 140 characters each) used for the on-screen replay after a clear. `0` stores none.
 - `<session>.claude.md`: a note Claude writes itself when asked to before a compact or clear (free text, no cap); `latest-<hash>.claude.md` and its `.from` file point to the newest one.
 - `pending-clear-<id>.json`: a short marker left when Claude clears its own session in the desktop app; emptied once used.

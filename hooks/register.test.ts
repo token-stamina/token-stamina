@@ -223,7 +223,7 @@ const PROJ = CLAUDE + '/projects/-w';
 const asstAt = (id: string, model: string, usage: unknown, content: unknown[] = []) =>
   line({ type: 'assistant', isSidechain: false, timestamp: iso(), message: { id, model, role: 'assistant', content, usage } });
 
-test('session.start registers fleet, savings, report, audit and recall', async ($, on) => {
+test('session.start registers fleet, savings, report, audit, recall and selftest', async ($, on) => {
   const names: string[] = [];
   on('command.register', (_: any, e: any) => {
     names.push(e.name);
@@ -232,7 +232,7 @@ test('session.start registers fleet, savings, report, audit and recall', async (
   on('session.start', (_: any, e: any) => ({ cwd: e.cwd }));
   world(on, {});
   await $.session.start({ cwd: '/w', surface: 'terminal', isInteractive: true } as any);
-  expect(names.sort().join(',')).toBe('ts-advisor,ts-audit,ts-fleet,ts-recall,ts-report,ts-savings');
+  expect(names.sort().join(',')).toBe('ts-advisor,ts-audit,ts-fleet,ts-recall,ts-report,ts-savings,ts-selftest');
 });
 
 // ---- 0.6.8: user Agent hooks, judgment keep-parent, require mode, mode precedence, advisor analyze ----
@@ -2689,4 +2689,119 @@ test('B12: an old json tmp file is emptied; B13: /ts-report names where the even
   files['/h/.claude/projects/-w/TMP1.jsonl'] = prompt('x') + asst([{ type: 'text', text: 'ok' }]);
   await $.turn.complete(completeArgs());
   expect(files[HOME + '/lang.json.123.tmp']).toBe('');
+});
+
+// ---- 0.6.15: prompt.context can be skipped too; prompt.submit is the restore path, /ts-selftest, the host-id marker fallback ----
+
+const submitText = (r: any) => ((r && r.context) || []).join('\n');
+
+test('0.6.15 compact: after a compaction that stood, the next prompt carries the note once (no classic hook, no prompt.context)', async ($, on) => {
+  const files: Files = { [sessionFileName(DIR, 'CMP1')]: autoNote('finish the parser') };
+  asSession(on, files, { v: 'CMP1' });
+  on('session.compact', () => ({ messages: [{ role: 'user', text: 'summary', toolUses: [] }], tokensBefore: 209000, tokensAfter: 20000 }));
+  const first: any = await $.prompt.submit({ text: 'hello' } as any); // a plain first prompt: nothing to restore
+  expect(submitText(first)).not.toContain('finish the parser');
+  await $.session.compact({ trigger: 'manual', messages: [{ role: 'user', text: 'hi', toolUses: [] }] } as any);
+  const s: any = await $.prompt.submit({ text: 'continue' } as any);
+  expect(submitText(s)).toContain('finish the parser');
+  const again: any = await $.prompt.submit({ text: 'and more' } as any);
+  expect(submitText(again)).not.toContain('finish the parser');
+  const rs = evOf(files, 'handoff_restore');
+  expect(rs.length).toBe(1);
+  expect(rs[0].source).toBe('compact');
+});
+
+test('0.6.15 compact: a vetoed compaction restores nothing', async ($, on) => {
+  const files: Files = { [sessionFileName(DIR, 'CMP2')]: autoNote('keep quiet') };
+  asSession(on, files, { v: 'CMP2' });
+  on('session.compact', () => ({ skip: 'off' }));
+  await $.prompt.submit({ text: 'hello' } as any);
+  await $.session.compact({ trigger: 'manual', messages: [{ role: 'user', text: 'hi', toolUses: [] }] } as any);
+  const s: any = await $.prompt.submit({ text: 'continue' } as any);
+  expect(submitText(s)).not.toContain('keep quiet');
+  expect(evOf(files, 'handoff_restore').length).toBe(0);
+});
+
+test('0.6.15 compact: the classic SessionStart(compact) restore made after the compaction is not repeated by prompt.submit', async ($, on) => {
+  const files: Files = { [sessionFileName(DIR, 'CMP3')]: autoNote('already back') };
+  asSession(on, files, { v: 'CMP3' });
+  on('classic.SessionStart', () => ({}));
+  on('session.compact', () => ({ messages: [{ role: 'user', text: 'summary', toolUses: [] }] }));
+  await $.prompt.submit({ text: 'hello' } as any);
+  await $.session.compact({ trigger: 'manual', messages: [{ role: 'user', text: 'hi', toolUses: [] }] } as any);
+  const st: any = await $.classic.SessionStart({ source: 'compact', session_id: 'CMP3', cwd: '/w', transcript_path: '/t/CMP3.jsonl' } as any);
+  expect(ctxOf(st)).toContain('already back');
+  const s: any = await $.prompt.submit({ text: 'continue' } as any);
+  expect(submitText(s)).not.toContain('already back');
+  expect(evOf(files, 'handoff_restore').length).toBe(1);
+});
+
+test('0.6.15 startup: a new session with no session.end clear report gets no restore from prompt.submit', async ($, on) => {
+  const files: Files = { [latestFileName(DIR, '/w')]: autoNote('older work') };
+  asSession(on, files, { v: 'ST1' });
+  const s: any = await $.prompt.submit({ text: 'hello' } as any);
+  expect(submitText(s)).not.toContain('older work');
+  expect(evOf(files, 'handoff_restore').length).toBe(0);
+});
+
+test('0.6.15 marker fallback: a session with a host id does not take the terminal button marker', async ($, on) => {
+  const files: Files = { [sessionFileName(DIR, 'TERM1')]: autoNote('terminal note'), [pendingClearName(DIR, 'button')]: marker('TERM1', 2000, { button: true, host: 'button' }) };
+  asSession(on, files, { v: 'DESK1' }); // asSession gives the world a host id
+  const s: any = await $.prompt.submit({ text: 'hello' } as any);
+  expect(submitText(s)).not.toContain('terminal note');
+  expect(JSON.parse(files[pendingClearName(DIR, 'button')]!).from).toBe('TERM1'); // left in place
+  expect(evOf(files, 'handoff_restore').length).toBe(0);
+});
+
+test('0.6.15 marker fallback: a terminal session (no host id) still takes the button marker', async ($, on) => {
+  const files: Files = { [sessionFileName(DIR, 'TERM2')]: autoNote('terminal note two'), [pendingClearName(DIR, 'button')]: marker('TERM2', 2000, { button: true, host: 'button' }) };
+  world(on, files, { noSid: true, sidRef: { v: 'TERMNEW' } });
+  on('prompt.submit', (_: any, e: any) => ({ text: e.text, context: e.context }));
+  const s: any = await $.prompt.submit({ text: 'hello' } as any);
+  expect(submitText(s)).toContain('terminal note two');
+  expect(files[pendingClearName(DIR, 'button')]).toBe('{}');
+});
+
+test('0.6.15 Clear question under a bypass says what a typed /clear brings back', async ($, on) => {
+  const files = S1_FILES();
+  clearWorld(on, files, {}, 209000, HOST);
+  on('prompt.submit', (_: any, e: any) => ({ text: e.text, context: e.context }));
+  on('turn.complete', (_: any, e: any) => ({ text: e.answer }));
+  on('command.run', { command: 'clear' }, () => ({}));
+  const asked = person(on, 'Clear');
+  await $.session.start({ cwd: '/w', surface: 'terminal', isInteractive: true } as any);
+  await $.prompt.submit({ text: 'hello' } as any);
+  await $.turn.complete(completeArgs());
+  const ui = await $.ui.mount({ ...BAND, surface: 'terminal' });
+  await ui.press({ key: 'clear' });
+  await ui.unmount();
+  expect(asked[0]).toContain('Clear with this button');
+  expect(asked[0]).toContain('A typed /clear may bring back the latest note of this folder');
+});
+
+test('0.6.15 /ts-selftest: counts, the bypass verdict, PASS on the canary restore, and the scratch files are emptied', async ($, on) => {
+  const files: Files = {};
+  asSession(on, files, { v: 'SELF1' }, { env: { TEMP: '/tmp/x' } });
+  await $.prompt.submit({ text: 'hello' } as any);
+  await $.turn.complete(completeArgs());
+  const r: any = await $.command.run({ command: 'ts-selftest' } as any);
+  expect(r.text).toMatch(/prompt\.submit\s+1/);
+  expect(r.text).toMatch(/turn\.complete\s+1/);
+  expect(r.text).toMatch(/classic\.SessionStart\s+0/);
+  expect(r.text).toContain('bypass: yes');
+  expect(r.text.split('\n').pop()).toBe('PASS');
+  const scratch = Object.keys(files).filter((p) => p.startsWith('/tmp/x/ts-selftest-'));
+  expect(scratch.length).toBeGreaterThan(0);
+  for (const p of scratch) expect(files[p]).toBe('');
+  expect(Object.keys(files).filter((p) => p.startsWith(HOME) && /SELFOLD|SELFNEW/.test(p)).length).toBe(0); // nothing of the canary in the real data folder
+});
+
+test('0.6.15 /ts-selftest: with no temp folder it uses selftest/ under the data folder and leaves it empty', async ($, on) => {
+  const files: Files = {};
+  asSession(on, files, { v: 'SELF2' });
+  const r: any = await $.command.run({ command: 'ts-selftest' } as any);
+  expect(r.text.split('\n').pop()).toBe('PASS');
+  const mine = Object.keys(files).filter((p) => p.startsWith(HOME + '/selftest/'));
+  expect(mine.length).toBeGreaterThan(0);
+  for (const p of mine) expect(files[p]).toBe('');
 });

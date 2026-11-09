@@ -15,6 +15,9 @@
 //   prompt.submit / turn.complete / prompt.context / session.end   the same hints, notes and rows without a classic hook (0.6.14):
 //                             a managed plugin can send the classic events past this one. Each turn is served once: whichever path
 //                             comes second stands down (claimPrompt, classicStopSeen).
+//                             0.6.15: prompt.context can be skipped too, so prompt.submit also restores the note after a /clear that session.end
+//                             reported and after a compaction (session.compact), once per session (submitRestore).
+//   command.run selftest    /ts-selftest: events fired in this process + a restore run on a canary note in a scratch home
 //   tool.call Agent / mcp__ccd_session__start_session   agent-model.js
 //   every hook above          statusline.js, as $.ui.status from $.session.usage()
 //   command.run fleet / savings / report / audit   scripts/{fleet,savings,report,audit}.js, answered as { text }
@@ -61,6 +64,7 @@ import {
   type FleetEntry,
   type SessionItem,
 } from './core/fleet.ts';
+import { submitRestoreSource, compactStood, renderSelftest, newCounts, type SelfCheck } from './core/restore-gate.ts';
 import { shouldSkipHook, paceSample, type PaceConfig, type PaceState } from './core/pacer.ts';
 import {
   decide as topicGateDecide,
@@ -517,11 +521,14 @@ async function restoreMarked($: $T, env: Env, sid: string, nowMs: number, via: s
     // The desktop host's marker; else the Clear button's own (written when there is no host id, e.g. in the terminal).
     let pf = env.host ? pendingClearName(dir, env.host) : '';
     let mk = pf ? await readJson($, pf, null as any) : null;
-    if (!mk || !mk.from) {
+    // The button's own marker is for a session with no host id (the terminal). A desktop session has its own file; taking the
+    // other one could inject the note of a terminal session it never cleared (0.6.15).
+    if ((!mk || !mk.from) && !env.host) {
       pf = pendingClearName(dir, BUTTON_HOST);
       mk = await readJson($, pf, null as any);
       if (!mk || !mk.from || mk.button !== true) return null;
     }
+    if (!mk || !mk.from) return null;
     const key = markerKey(mk);
     if (spentMarkers.has(key)) return null; // already handled by this process (a failed delete must not re-inject)
     const dec = decidePromptReason(mk, sid, nowMs);
@@ -658,6 +665,9 @@ const ctxSeen = new Set<string>(); // sessions prompt.context has fired for
 const restoredVia = new Map<string, number>(); // sid -> when a classic / prompt.submit path injected a restore (prompt.context then skips)
 const ctxRestoredAt = new Map<string, number>(); // sid -> when prompt.context injected one (the classic latest-note path then skips)
 const notClearedLogged = new Set<string>();
+const fired = newCounts(); // how often each path fired in this process (/ts-selftest)
+const submitSeen = new Set<string>(); // sessions whose first real prompt prompt.submit has served (0.6.15)
+const compactAt = new Map<string, number>(); // sid -> when a compaction of it stood (session.compact) and no prompt has served the restore yet
 // How the last session of this process ended (session.end: clear, resume, exit ...). After a /clear no session.start fires, but
 // session.end does, so the first prompt.context of the next session can tell a /clear from a /resume (0.6.14).
 let lastEnd: { sid: string; reason: string; at: number } | null = null;
@@ -669,8 +679,9 @@ const END_MAX_AGE_MS = 6 * 3600 * 1000;
 const RESTORE_DEDUP_MS = 30 * 60 * 1000;
 const CTX_COMPACT_GAP_MS = 20 * 60 * 1000; // prompt.context fires once per conversation: a compact restore at most this often per session
 
-function remember(e: { session_id?: string; transcript_path?: string }): void {
+function remember(e: { session_id?: string; transcript_path?: string }, which?: 'classic.SessionStart' | 'classic.UserPromptSubmit' | 'classic.Stop'): void {
   classicCount++;
+  if (which) fired[which]++;
   if (e.session_id) seenSessions.add(safeId(e.session_id));
   if (e.session_id && e.transcript_path) transcripts.set(e.session_id, e.transcript_path);
 }
@@ -750,7 +761,7 @@ async function legacyStatusOnce($: $T, env: Env, lang: string, nowMs: number): P
 }
 
 async function onSessionStart($: $T, e: any): Promise<string[]> {
-  remember(e);
+  remember(e, 'classic.SessionStart');
   const env = await readEnv($);
   const { cfg: cfg0, user } = await loadConfig($, env);
   if (shouldSkipHook(env.entrypoint, e.cwd, cfg0.excludeCwd)) return [];
@@ -824,6 +835,7 @@ async function restoreLatest($: $T, env: Env, cfg: Cfg, sidS: string, sid: strin
 // /clear or a compaction. Blocks it returns reach the model with the first message. Marker first (the Clear button, a desktop
 // clear_session), then, with no marker, the same compact / clear notes the classic SessionStart restores.
 async function contextRestore($: $T): Promise<string | null> {
+  fired['prompt.context']++;
   try {
     const env = await readEnv($);
     const { cfg: cfg0 } = await loadConfig($, env);
@@ -881,6 +893,9 @@ async function contextRestore($: $T): Promise<string | null> {
 }
 
 // prompt.submit (0.6.13): the second non-classic path for the marker, as the first prompt of a cleared session reaches the model.
+// 0.6.15: a managed plugin can skip prompt.context as well, so this is also the path that restores without a marker: the first
+// prompt of a session that session.end reported as a clear (a /clear typed by hand), and the first prompt after a compaction
+// (session.compact stood). A resume restores nothing. Another path's restore for the session stands (restoredVia / ctxRestoredAt).
 async function submitRestore($: $T): Promise<string | null> {
   try {
     const env = await readEnv($);
@@ -895,11 +910,27 @@ async function submitRestore($: $T): Promise<string | null> {
       cwd = undefined;
     }
     if (shouldSkipHook(env.entrypoint, cwd, cfg0.excludeCwd)) return null;
+    const sid = safeId(sidRaw);
     const nowMs = Date.now();
+    const first = !submitSeen.has(sid);
+    submitSeen.add(sid);
+    seenSessions.add(sid);
+    noteCwd(sidRaw, cwd);
     const cfg = await withLangFrom($, env, cfg0, null, sidRaw, nowMs);
-    const r = await restoreMarked($, env, safeId(sidRaw), nowMs, 'clear_prompt', cfg.lang || 'en');
-    if (r) restoredVia.set(safeId(sidRaw), nowMs);
-    return r;
+    const r = await restoreMarked($, env, sid, nowMs, 'clear_prompt', cfg.lang || 'en');
+    if (r) {
+      restoredVia.set(sid, nowMs);
+      compactAt.delete(sid);
+      return r;
+    }
+    const restoredAt = Math.max(restoredVia.get(sid) ?? 0, ctxRestoredAt.get(sid) ?? 0) || null;
+    const cAt = compactAt.get(sid) ?? null;
+    compactAt.delete(sid); // served or stood down: either way once
+    const source = submitRestoreSource({ sid, nowMs, first, lastEnd, compactAt: cAt, restoredAt, endMaxAgeMs: END_MAX_AGE_MS, dedupMs: RESTORE_DEDUP_MS });
+    if (!source) return null;
+    const text = await restoreLatest($, env, cfg, sid, sidRaw, cwd, source, nowMs);
+    if (text) restoredVia.set(sid, nowMs);
+    return text;
   } catch {
     return null;
   }
@@ -1012,7 +1043,7 @@ async function stampPrompt($: $T, env: Env, sid: string, cwd: string | undefined
 }
 
 async function onUserPromptSubmit($: $T, e: any): Promise<string[]> {
-  remember(e);
+  remember(e, 'classic.UserPromptSubmit');
   const env = await readEnv($);
   const { cfg: cfg0, user } = await loadConfig($, env);
   if (shouldSkipHook(env.entrypoint, e.cwd, cfg0.excludeCwd)) return [];
@@ -1212,7 +1243,7 @@ async function clearMark($: $T, e: any, next: (e: any) => Promise<any>): Promise
 // ============================================================================
 
 async function onStop($: $T, e: any): Promise<void> {
-  remember(e);
+  remember(e, 'classic.Stop');
   if (e.session_id) classicStopSeen.add(e.session_id);
   const env = await readEnv($);
   const { cfg: cfg0, user } = await loadConfig($, env);
@@ -1265,6 +1296,7 @@ async function onStop($: $T, e: any): Promise<void> {
 
 async function onTurnComplete($: $T, e: any): Promise<void> {
   turnsSeen++;
+  fired['turn.complete']++;
   if (e.agentId !== undefined) return;
   const env = await readEnv($);
   const sidRaw = (await $.session.id()) || undefined;
@@ -1756,6 +1788,87 @@ async function answer(name: string, run: () => Promise<string>): Promise<{ text:
   } catch (err) {
     return { text: name + ': ' + (err instanceof Error ? err.message : String(err)) };
   }
+}
+
+// /ts-selftest (0.6.15): how often each path fired in this process, the bypass verdict, and a run of the restore logic against a canary
+// note and markers in a scratch home (the system temp folder, else <data folder>/selftest/). The real data folder is never read or
+// written for the canary. $.fs cannot delete, so every file the check made is emptied at the end.
+const CANARY = 'TS-SELFTEST-CANARY';
+async function emptyTree($: $T, dir: string): Promise<void> {
+  try {
+    for (const x of await $.fs.list(dir)) {
+      const p = joinPath(dir, x.name);
+      if (x.kind === 'dir') await emptyTree($, p);
+      else if (x.kind === 'file' && x.size > 0) await writeText($, p, '');
+    }
+  } catch {
+    /* nothing there */
+  }
+}
+
+async function scratchHome($: $T, env: Env): Promise<string | null> {
+  const stamp = 'ts-selftest-' + Date.now();
+  const roots: string[] = [];
+  // $.env.get takes a literal name (the engine lists the variables a module reads)
+  let tmp = '';
+  try {
+    tmp = (await $.env.get('TEMP')) || (await $.env.get('TMPDIR')) || (await $.env.get('TMP')) || '';
+  } catch {
+    tmp = '';
+  }
+  if (tmp) roots.push(joinPath(tmp, stamp));
+  roots.push(joinPath(env.home, 'selftest', stamp));
+  for (const r of roots) {
+    try {
+      await $.fs.write(joinPath(r, 'probe.txt'), 'x');
+      if ((await $.fs.read(joinPath(r, 'probe.txt'))) === 'x') return r;
+    } catch {
+      /* try the next place */
+    }
+  }
+  return null;
+}
+
+async function selftestRun($: $T): Promise<string> {
+  const env = await readEnv($);
+  const { cfg: cfg0 } = await loadConfig($, env);
+  const nowMs = Date.now();
+  const { cfg } = await langOf($, env, cfg0, nowMs);
+  const checks: SelfCheck[] = [];
+  const home = await scratchHome($, env);
+  if (!home) {
+    checks.push({ name: 'scratch folder', ok: false, detail: 'no writable temp folder' });
+  } else {
+    try {
+      const dir = joinPath(home, 'handoff');
+      const note = (body: string) => '# Handoff note (auto, no LLM)' + String.fromCharCode(10) + body + String.fromCharCode(10);
+      const mk = (from: string, host: string) => JSON.stringify({ from, host, cwd: '/selftest', at: Date.now() - 1000, button: true });
+      const term: Env = { ...env, home, userHome: home, host: '', entrypoint: '' }; // a terminal session
+      const desk: Env = { ...term, host: 'selftest-host' }; // a desktop session
+      // 1. the desktop host's own marker
+      await writeText($, sessionFileName(dir, 'SELFOLD1'), note(CANARY + ' one'));
+      await writeText($, pendingClearName(dir, desk.host), mk('SELFOLD1', desk.host));
+      const r1 = await restoreMarked($, desk, 'SELFNEW1', Date.now(), 'selftest', cfg.lang || 'en');
+      checks.push({ name: 'marker of the desktop host is found and its note comes out', ok: !!r1 && r1.includes(CANARY + ' one') });
+      const r1b = await restoreMarked($, desk, 'SELFNEW1', Date.now(), 'selftest', cfg.lang || 'en');
+      checks.push({ name: 'the same marker is not restored twice', ok: r1b === null });
+      // 2. the Clear button marker: a session with no host id takes it, a desktop session does not
+      await writeText($, sessionFileName(dir, 'SELFOLD2'), note(CANARY + ' two'));
+      await writeText($, pendingClearName(dir, BUTTON_HOST), mk('SELFOLD2', BUTTON_HOST));
+      const r2 = await restoreMarked($, desk, 'SELFNEW2', Date.now(), 'selftest', cfg.lang || 'en');
+      checks.push({ name: 'a session with a host id leaves the terminal button marker alone', ok: r2 === null });
+      const r3 = await restoreMarked($, term, 'SELFNEW3', Date.now(), 'selftest', cfg.lang || 'en');
+      checks.push({ name: 'a session with no host id takes the button marker', ok: !!r3 && r3.includes(CANARY + ' two') });
+      // 3. the compaction restore from the session own note
+      await writeText($, sessionFileName(dir, 'SELFC'), note(CANARY + ' three'));
+      const r4 = await restoreLatest($, term, cfg, 'SELFC', 'SELFC', '/selftest', 'compact', Date.now());
+      checks.push({ name: 'the note of a compacted session comes back', ok: !!r4 && r4.includes(CANARY + ' three') });
+    } catch (err) {
+      checks.push({ name: 'restore logic', ok: false, detail: err instanceof Error ? err.message : String(err) });
+    }
+    await emptyTree($, home);
+  }
+  return renderSelftest(fired, classicBypassed(), checks, cfg.lang || 'en');
 }
 
 // ============================================================================
@@ -2485,7 +2598,9 @@ async function clearPress($: $T, asked = false): Promise<void> {
     const q0 = noteOn
       ? ko ? '인계 메모는 저장됐어요. 비울까요?' : 'The handoff note is saved. Clear now?'
       : ko ? '비울까요?' : 'Clear now?';
-    const q = bypassed ? q0 + (ko ? ' (관리 플러그인 때문에 일부 기능이 꺼져 있어요. 인계 메모는 새 대화 첫 메시지에 붙어요)' : ' (A managed plugin switches off some features. The handoff note is attached to the first message of the new chat)') : q0;
+    // With the button the exact note (of this chat) is attached to the first message. A /clear typed by hand leaves no marker: the first
+    // message after it gets the folder's latest note, when session.end reports the clear and prompt.submit is not skipped too (0.6.15).
+    const q = bypassed ? q0 + (ko ? ' (관리 플러그인 때문에 일부 기능이 꺼져 있어요. 이 버튼으로 비우면 이 대화의 인계 메모가 새 대화 첫 메시지에 붙어요. 직접 친 /clear 는 이 폴더의 가장 최근 메모가 붙을 수 있지만 같은 대화의 메모라는 보장은 없어요)' : ' (A managed plugin switches off some features. Clear with this button and the handoff note of this chat is attached to the first message of the new chat. A typed /clear may bring back the latest note of this folder instead, not necessarily the note of this chat)') : q0;
     const yes = ko ? '비우기' : 'Clear';
     let answer = asked ? yes : '';
     if (!asked) {
@@ -2691,6 +2806,7 @@ function registerBand(on: any): void {
   // The "previous chat" button lives for 5 prompts.
   on('prompt.submit', async ($: $T, e: any, next: any) => {
     turnsSeen++;
+    fired['prompt.submit']++;
     await update($, bandGone, () => true);
     try {
       const rc = (await read($, recallAtom)) as Recall | null;
@@ -2713,6 +2829,7 @@ function registerBand(on: any): void {
 
   // How a session ended (clear, resume, exit): contextRestore reads it to tell a /clear from a /resume; clearCheck reads it too.
   on('session.end', async ($: $T, e: any, next: any) => {
+    fired['session.end']++;
     try {
       if (e && e.sessionId) {
         lastEnd = { sid: String(e.sessionId), reason: String(e.reason || ''), at: Date.now() };
@@ -2722,6 +2839,23 @@ function registerBand(on: any): void {
       /* observe only */
     }
     return next(e);
+  }).catch(($: $T, e: any, next: any) => next(e));
+
+  // A compaction of the main conversation that stood: the next prompt carries the handoff note, whichever hooks a managed plugin
+  // lets through (0.6.15). `precompute` is the ahead-of-time summary, not a compaction, so it does not count.
+  on('session.compact', async ($: $T, e: any, next: any) => {
+    fired['session.compact']++;
+    const t0 = Date.now(); // before the compaction: a classic SessionStart(compact) restore made during it then counts as made after it
+    const r = await next(e);
+    try {
+      if (compactStood(e, r)) {
+        const sidRaw = await $.session.id();
+        if (sidRaw) compactAt.set(safeId(sidRaw), t0);
+      }
+    } catch {
+      /* observe only */
+    }
+    return r;
   }).catch(($: $T, e: any, next: any) => next(e));
 
   on('ui.render', { component: 'AbovePrompt' }, async ($: $T, e: any, next: any) => {
@@ -2904,6 +3038,11 @@ export const register: Register = (on) => {
       /* name taken or the engine has no tool.register */
     }
     try {
+      await $.command.register({ name: 'ts-selftest', description: 'Check that the handoff restore works here: which events fired in this process and a restore run on a canary note (touches no real data)' });
+    } catch {
+      /* name taken */
+    }
+    try {
       await $.command.register({ name: 'ts-advisor', description: 'Usage Advisor: find the settings that cost the most and what to change (read-only, no LLM; to apply, use /token-stamina:advisor)', argumentHint: '[--json] [--days N] [--brief]' });
     } catch {
       /* name taken */
@@ -2956,5 +3095,6 @@ export const register: Register = (on) => {
     await recallRun($, String(e.args || ''), surface);
     return {};
   });
+  on('command.run', { command: 'ts-selftest' }, ($) => answer('ts-selftest', () => selftestRun($)));
   on('command.run', { command: 'ts-advisor' }, ($, e) => answer('ts-advisor', () => advisorCommand($, e.args)));
 };
