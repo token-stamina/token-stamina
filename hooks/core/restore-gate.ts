@@ -1,6 +1,8 @@
 // Pure rules for the restore that runs from prompt.submit when a managed plugin sends the classic events and prompt.context
 // past this plugin (0.6.15), and the text of /ts-selftest. No file access here.
 
+import { safeId, pickClearNote } from './handoff.ts';
+
 export interface EndReport { sid: string; reason: string; at: number }
 
 export interface SubmitRestoreIn {
@@ -27,6 +29,50 @@ export function submitRestoreSource(i: SubmitRestoreIn): 'clear' | 'compact' | n
   if (i.nowMs < e.at || i.nowMs - e.at >= i.endMaxAgeMs) return null;
   return 'clear';
 }
+
+// 0.6.16: a /clear typed by hand leaves no marker, but session.end names the session that was cleared. The note to bring back is that
+// session's own, never the folder's latest (another chat of the same folder may have written it).
+export interface EndedSession { sid: string; at: number }
+
+// The cleared session as the restore for session `sid` may use it: a fresh clear report that is not this session's, else null.
+export function endedSession(lastEnd: EndReport | null, sid: string, nowMs: number, maxAgeMs: number): EndedSession | null {
+  if (!lastEnd || lastEnd.reason !== 'clear') return null;
+  if (safeId(lastEnd.sid) === safeId(sid)) return null;
+  if (nowMs < lastEnd.at || nowMs - lastEnd.at >= maxAgeMs) return null;
+  return { sid: safeId(lastEnd.sid), at: lastEnd.at };
+}
+
+// The cleared session's own note: its Claude note if written within an hour before the clear, else its auto note, else nothing.
+export function pickEndedNote(
+  ended: EndedSession, claudeText: string | null, claudeMtimeMs: number | null, autoText: string | null,
+): { kind: 'claude' | 'auto'; text: string; from: string } | null {
+  const p = pickClearNote(claudeText, claudeMtimeMs, autoText, ended.at);
+  return p ? { ...p, from: ended.sid } : null;
+}
+
+// A note the folder fallback (the cwd's latest) found for a clear whose cleared session is known: only that session's note stands.
+// With no cleared session known there is nothing to compare, and the old behaviour stays.
+export function fallbackVerdict(noteFrom: string | null | undefined, ended: EndedSession | null): 'ok' | 'other_session' {
+  if (!ended) return 'ok';
+  return noteFrom && safeId(noteFrom) === ended.sid ? 'ok' : 'other_session';
+}
+
+// session.end with reason clear: refresh the handoff note first? Only for a session this process saw a prompt in, and only while the
+// exit's short budget has room (the save reads the transcript and writes a few files).
+export const END_SAVE_MIN_MS = 2500;
+export function endSaveDue(reason: string, hadPrompt: boolean, remainingMs: number): boolean {
+  return reason === 'clear' && hadPrompt && remainingMs >= END_SAVE_MIN_MS;
+}
+
+// The one line when a clear marker was dropped as too old (0.6.16).
+export function expiredLine(lang: string): string {
+  return lang === 'ko'
+    ? 'Token Stamina: 인계 메모가 1시간이 지나 붙이지 않았어요. /ts-recall 로 다시 불러올 수 있어요'
+    : 'Token Stamina: the handoff note is older than 1h and was not attached. /ts-recall brings it back';
+}
+
+// The /ts-selftest scratch folder: one fixed name, emptied after each run ($.fs cannot delete).
+export const SELFTEST_DIR = 'ts-selftest';
 
 // A compaction that counts: of the main conversation, a real one (not the ahead-of-time 'precompute'), and it stood (not skipped).
 export function compactStood(e: { trigger?: string; agentId?: string } | null | undefined, r: { messages?: unknown; skip?: unknown } | null | undefined): boolean {

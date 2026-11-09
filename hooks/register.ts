@@ -64,7 +64,7 @@ import {
   type FleetEntry,
   type SessionItem,
 } from './core/fleet.ts';
-import { submitRestoreSource, compactStood, renderSelftest, newCounts, type SelfCheck } from './core/restore-gate.ts';
+import { submitRestoreSource, compactStood, renderSelftest, newCounts, endedSession, pickEndedNote, fallbackVerdict, endSaveDue, expiredLine, SELFTEST_DIR, type SelfCheck, type EndedSession } from './core/restore-gate.ts';
 import { shouldSkipHook, paceSample, type PaceConfig, type PaceState } from './core/pacer.ts';
 import {
   decide as topicGateDecide,
@@ -554,7 +554,17 @@ async function restoreMarked($: $T, env: Env, sid: string, nowMs: number, via: s
       await appendEvent($, env, { event: 'handoff_drop', session: sid, source: via, reason, from_session: mk.from, age_sec: typeof mk.at === 'number' ? Math.round((nowMs - mk.at) / 1000) : null });
       return null;
     };
-    if (dec.action !== 'restore') return drop(dec.reason);
+    if (dec.action !== 'restore') {
+      if (dec.reason === 'expired' && !expiredTold.has(sid)) {
+        expiredTold.add(sid); // once per session
+        try {
+          $.ui.log(expiredLine(lang));
+        } catch {
+          /* the line is a courtesy */
+        }
+      }
+      return drop(dec.reason);
+    }
     const cf = sessionFileName(dir, mk.from, true);
     const ctext = await readNote($, cf);
     const ct = ctext === null ? null : await mtimeOf($, cf);
@@ -665,6 +675,7 @@ const ctxSeen = new Set<string>(); // sessions prompt.context has fired for
 const restoredVia = new Map<string, number>(); // sid -> when a classic / prompt.submit path injected a restore (prompt.context then skips)
 const ctxRestoredAt = new Map<string, number>(); // sid -> when prompt.context injected one (the classic latest-note path then skips)
 const notClearedLogged = new Set<string>();
+const expiredTold = new Set<string>(); // sessions told that an expired marker was not attached (0.6.16)
 const fired = newCounts(); // how often each path fired in this process (/ts-selftest)
 const submitSeen = new Set<string>(); // sessions whose first real prompt prompt.submit has served (0.6.15)
 const compactAt = new Map<string, number>(); // sid -> when a compaction of it stood (session.compact) and no prompt has served the restore yet
@@ -792,7 +803,7 @@ async function onSessionStart($: $T, e: any): Promise<string[]> {
     // prompt.context just injected this session's note (it ran first): the second path adds nothing
     const done = ctxRestoredAt.get(safeId(sid));
     if (!(done !== undefined && nowMs - done < RESTORE_DEDUP_MS)) {
-      const ctx = await restoreLatest($, env, cfg, safeId(sid), sid, e.cwd, e.source, nowMs);
+      const ctx = await restoreLatest($, env, cfg, safeId(sid), sid, e.cwd, e.source, nowMs, e.source === 'clear' ? endedSession(lastEnd, safeId(sid), nowMs, END_MAX_AGE_MS) : null);
       if (ctx) {
         out.push(ctx);
         restoredVia.set(safeId(sid), nowMs);
@@ -804,14 +815,20 @@ async function onSessionStart($: $T, e: any): Promise<string[]> {
 
 // The compact / clear restore from the session's own note or the cwd's latest one (handoff.js::runStart), shared by the
 // classic SessionStart and prompt.context. Records handoff_restore; returns the text for the model, or null.
-async function restoreLatest($: $T, env: Env, cfg: Cfg, sidS: string, sid: string, cwd: string | undefined, source: 'clear' | 'compact', nowMs: number): Promise<string | null> {
+async function restoreLatest($: $T, env: Env, cfg: Cfg, sidS: string, sid: string, cwd: string | undefined, source: 'clear' | 'compact', nowMs: number, ended: EndedSession | null = null): Promise<string | null> {
   try {
     const dir = joinPath(env.home, 'handoff');
+    // A clear whose cleared session is known (session.end): that session's own note, never the folder's latest (0.6.16).
+    if (source === 'clear' && ended) return await restoreEnded($, env, cfg, sidS, sid, ended, nowMs);
     const own = await notePair($, sessionFileName(dir, sidS), sessionFileName(dir, sidS, true));
     const latest = await notePair($, latestFileName(dir, cwd), latestFileName(dir, cwd, true));
     const fromSide = await readText($, latestFileName(dir, cwd, true) + '.from');
     const p = pickFromData(sidS, source, own, latest, fromSide ? fromSide.trim() : null, nowMs);
     if (!p) return null;
+    if (source === 'clear' && fallbackVerdict(p.from, ended) === 'other_session') {
+      await appendEvent($, env, { event: 'handoff_drop', session: sid, source: 'clear', reason: 'other_session', from_session: p.from || null });
+      return null;
+    }
     // A clear the Clear button started is recorded as source clear_button (savings section C counts it as a clear).
     const btn = source === 'clear' && p.from ? await buttonClear($, env, nowMs) : null;
     const viaButton = !!btn && safeId(p.from) === btn.from;
@@ -829,6 +846,23 @@ async function restoreLatest($: $T, env: Env, cfg: Cfg, sidS: string, sid: strin
   } catch {
     return null; /* restore is best-effort */
   }
+}
+
+// 0.6.16: the typed /clear restore: the note of the session session.end reported as cleared, read as restoreMarked reads a marker's.
+async function restoreEnded($: $T, env: Env, cfg: Cfg, sidS: string, sid: string, ended: EndedSession, nowMs: number): Promise<string | null> {
+  const dir = joinPath(env.home, 'handoff');
+  const cf = sessionFileName(dir, ended.sid, true);
+  const ctext = await readNote($, cf);
+  const ct = ctext === null ? null : await mtimeOf($, cf);
+  const p = pickEndedNote(ended, ctext, ct, await readNote($, sessionFileName(dir, ended.sid)));
+  const age = Math.round((nowMs - ended.at) / 1000);
+  if (!p) {
+    await appendEvent($, env, { event: 'handoff_drop', session: sid, source: 'clear', reason: 'no_note', from_session: ended.sid, age_sec: age });
+    return null;
+  }
+  await appendEvent($, env, { event: 'handoff_restore', session: sid, source: 'clear', kind: p.kind, fallback: false, from_session: p.from });
+  await showRecent($, env, p.from, cfg.lang || 'en');
+  return clearContext(p);
 }
 
 // prompt.context (0.6.13): the restore that does not depend on a classic hook. Fires once per conversation, and again after a
@@ -871,6 +905,7 @@ async function contextRestore($: $T): Promise<string | null> {
     // No marker: a later call for the same session is a compaction (the conversation is read again); a first call in a process
     // that already saw another session is taken for a /clear. A plain startup restores nothing.
     let source: 'clear' | 'compact' | null = null;
+    let endedClear: EndedSession | null = null;
     if (!first) {
       const last = ctxRestoredAt.get(sid) ?? 0;
       if (nowMs - last > CTX_COMPACT_GAP_MS) source = 'compact';
@@ -879,12 +914,13 @@ async function contextRestore($: $T): Promise<string | null> {
       // (the hook did not run) the old guess stays: another session came first, so this is a clear.
       const end = lastEnd && safeId(lastEnd.sid) !== sid && nowMs - lastEnd.at < END_MAX_AGE_MS ? lastEnd : null;
       if (end) {
+        endedClear = endedSession(end, sid, nowMs, END_MAX_AGE_MS);
         lastEnd = null;
         source = end.reason === 'clear' ? 'clear' : null;
       } else source = 'clear';
     }
     if (!source) return null;
-    const text = await restoreLatest($, env, cfg, sid, sidRaw, cwd, source, nowMs);
+    const text = await restoreLatest($, env, cfg, sid, sidRaw, cwd, source, nowMs, source === 'clear' ? endedClear : null);
     if (text) ctxRestoredAt.set(sid, nowMs);
     return text;
   } catch {
@@ -928,7 +964,7 @@ async function submitRestore($: $T): Promise<string | null> {
     compactAt.delete(sid); // served or stood down: either way once
     const source = submitRestoreSource({ sid, nowMs, first, lastEnd, compactAt: cAt, restoredAt, endMaxAgeMs: END_MAX_AGE_MS, dedupMs: RESTORE_DEDUP_MS });
     if (!source) return null;
-    const text = await restoreLatest($, env, cfg, sid, sidRaw, cwd, source, nowMs);
+    const text = await restoreLatest($, env, cfg, sid, sidRaw, cwd, source, nowMs, source === 'clear' ? endedSession(lastEnd, sid, nowMs, END_MAX_AGE_MS) : null);
     if (text) restoredVia.set(sid, nowMs);
     return text;
   } catch {
@@ -1132,6 +1168,8 @@ async function submitContext($: $T, e: any): Promise<string[]> {
   if (hints.topic) out.push(hints.topic);
   const note = await submitRestore($);
   if (note) out.push(note);
+  const att = takeAttach();
+  if (att) out.push('Token Stamina: the person chose to attach this note of the previous chat to their message:\n' + att);
   if (hints.nudge) out.push(hints.nudge);
   return out;
 }
@@ -1807,7 +1845,7 @@ async function emptyTree($: $T, dir: string): Promise<void> {
 }
 
 async function scratchHome($: $T, env: Env): Promise<string | null> {
-  const stamp = 'ts-selftest-' + Date.now();
+  const stamp = SELFTEST_DIR;
   const roots: string[] = [];
   // $.env.get takes a literal name (the engine lists the variables a module reads)
   let tmp = '';
@@ -1820,6 +1858,7 @@ async function scratchHome($: $T, env: Env): Promise<string | null> {
   roots.push(joinPath(env.home, 'selftest', stamp));
   for (const r of roots) {
     try {
+      await emptyTree($, r); // a fixed folder: whatever an earlier run left is emptied first
       await $.fs.write(joinPath(r, 'probe.txt'), 'x');
       if ((await $.fs.read(joinPath(r, 'probe.txt'))) === 'x') return r;
     } catch {
@@ -2516,17 +2555,39 @@ async function readChat($: $T, path: string, wide: boolean): Promise<any[] | nul
   }
 }
 
-// /ts-recall and the button: screen only, nothing reaches the model. The terminal gets $.ui.log rows; another surface (the
+// The "Continue from this note" choice of the Previous chat dialog (0.6.16): the shown lines ride the next prompt.submit once. The same text is
+// never queued twice in a process.
+let attachQueue: string | null = null;
+const attachedText = new Set<string>();
+function queueAttach(text: string): void {
+  if (attachedText.has(text)) return;
+  attachedText.add(text);
+  attachQueue = text;
+}
+function takeAttach(): string | null {
+  const t = attachQueue;
+  attachQueue = null;
+  return t;
+}
+
+// /ts-recall and the button: screen only, nothing reaches the model (unless the person picks "Continue from this note" in the desktop dialog). The terminal gets $.ui.log rows; another surface (the
 // desktop draws no $.ui.log row) gets the same lines in one dialog.
 async function recallRun($: $T, query: string, surface?: string): Promise<void> {
   let lang = 'en';
-  const show = async (lines: string[]): Promise<void> => {
+  const ko = () => lang === 'ko';
+  // `attachable`: the lines are real turns of the previous chat. The desktop dialog then offers "Continue from this note" (0.6.16): the next message
+  // carries these lines once. With nothing to attach the second option stays a plain OK ($.ui.ask needs 2 to 4 options).
+  const show = async (lines: string[], attachable = false): Promise<void> => {
     if (!surface || surface === 'terminal') {
       for (const l of lines) $.ui.log(l);
       return;
     }
+    const body = lines.join('\n').slice(0, 9000);
+    const foot = ko() ? "'이 메모로 이어가기'를 고르면 다음 메시지에 이 메모가 붙어요. 기타 입력은 쓰이지 않아요" : "Pick 'Continue from this note' to attach it to your next message. Text typed under Other is not used.";
+    const attach = ko() ? '이 메모로 이어가기' : 'Continue from this note';
     try {
-      await $.ui.ask(lines.join('\n').slice(0, 9000), { options: [lang === 'ko' ? '닫기' : 'Close', lang === 'ko' ? '확인' : 'OK'], header: lang === 'ko' ? '이전 대화' : 'Previous chat' });
+      const a = await $.ui.ask(attachable ? body + '\n\n' + foot : body, { options: [ko() ? '닫기' : 'Close', attachable ? attach : ko() ? '확인' : 'OK'], header: ko() ? '이전 대화' : 'Previous chat' });
+      if (attachable && a === attach) queueAttach(body);
     } catch {
       /* dismissed */
     }
@@ -2539,7 +2600,9 @@ async function recallRun($: $T, query: string, surface?: string): Promise<void> 
     if (!rc) return await show([noPreviousLine(lang)]);
     const rows = await readChat($, rc.transcript, !!query.trim());
     if (!rows) return await show([noPreviousLine(lang)]);
-    await show(recallLines(chatTurns(rows), lang, query));
+    const turns = chatTurns(rows);
+    const q = query.trim().toLowerCase();
+    await show(recallLines(turns, lang, query), q ? turns.some((t) => (t.user + ' ' + t.claude).toLowerCase().includes(q)) : turns.length > 0);
   } catch {
     await show([noPreviousLine(lang)]);
   }
@@ -2599,8 +2662,8 @@ async function clearPress($: $T, asked = false): Promise<void> {
       ? ko ? '인계 메모는 저장됐어요. 비울까요?' : 'The handoff note is saved. Clear now?'
       : ko ? '비울까요?' : 'Clear now?';
     // With the button the exact note (of this chat) is attached to the first message. A /clear typed by hand leaves no marker: the first
-    // message after it gets the folder's latest note, when session.end reports the clear and prompt.submit is not skipped too (0.6.15).
-    const q = bypassed ? q0 + (ko ? ' (관리 플러그인 때문에 일부 기능이 꺼져 있어요. 이 버튼으로 비우면 이 대화의 인계 메모가 새 대화 첫 메시지에 붙어요. 직접 친 /clear 는 이 폴더의 가장 최근 메모가 붙을 수 있지만 같은 대화의 메모라는 보장은 없어요)' : ' (A managed plugin switches off some features. Clear with this button and the handoff note of this chat is attached to the first message of the new chat. A typed /clear may bring back the latest note of this folder instead, not necessarily the note of this chat)') : q0;
+    // message after it gets the cleared chat's own note (session.end names it), when prompt.submit is not skipped too (0.6.15, 0.6.16).
+    const q = bypassed ? q0 + (ko ? ' (관리 플러그인 때문에 일부 기능이 꺼져 있어요. 이 버튼으로 비우면 이 대화의 인계 메모가 새 대화 첫 메시지에 붙어요. 직접 친 /clear 도 비운 대화의 메모만 붙고, 다른 대화의 메모는 붙지 않아요)' : ' (A managed plugin switches off some features. Clear with this button and the handoff note of this chat is attached to the first message of the new chat. A typed /clear brings back the note of the chat it cleared, never the note of another chat)') : q0;
     const yes = ko ? '비우기' : 'Clear';
     let answer = asked ? yes : '';
     if (!asked) {
@@ -2642,6 +2705,27 @@ async function clearPress($: $T, asked = false): Promise<void> {
   } catch {
     $.ui.log(ko ? 'Token Stamina: 비우기 버튼을 처리하지 못했어요. /clear 를 입력하세요' : 'Token Stamina: the Clear button failed; type /clear');
   }
+}
+
+// The same saveHandoff the Clear button runs, for a /clear typed by hand (0.6.16). Skips when the process's current session is not the ending one.
+async function saveOnClear($: $T, e: any): Promise<void> {
+  const sidRaw = (await $.session.id()) || undefined;
+  if (!sidRaw || safeId(sidRaw) !== safeId(e.sessionId)) return;
+  const env = await readEnv($);
+  const { cfg: cfg0 } = await loadConfig($, env);
+  if (cfg0.handoff === false) return;
+  let cwd: string | undefined;
+  try {
+    cwd = await $.session.cwd();
+  } catch {
+    cwd = undefined;
+  }
+  if (shouldSkipHook(env.entrypoint, cwd, cfg0.excludeCwd)) return;
+  const nowMs = Date.now();
+  const tp = await transcriptFor($, env, sidRaw, cwd);
+  if (!tp) return;
+  const usage = await readUsage($, env, nowMs);
+  await saveHandoff($, env, await withLangFrom($, env, cfg0, null, sidRaw, nowMs), { session_id: sidRaw, cwd, transcript_path: tp }, await readTranscript($, tp), usage, nowMs);
 }
 
 // The Compact button: save the handoff note, ask, then $.session.compact() (the call /compact makes). The event only on a
@@ -2837,6 +2921,13 @@ function registerBand(on: any): void {
       }
     } catch {
       /* observe only */
+    }
+    // 0.6.16: a clear refreshes the handoff note first (the transcript is still there, $.session.id() is still this session until next(e)),
+    // so the restore of the next session reads the last turns, not the last periodic save. Best-effort, inside the exit's short budget.
+    try {
+      if (e && e.sessionId && endSaveDue(String(e.reason || ''), submitSeen.has(safeId(e.sessionId)) || lastSave.has(safeId(e.sessionId)), next.budget.remainingMs)) await saveOnClear($, e);
+    } catch {
+      /* the periodic save still stands */
     }
     return next(e);
   }).catch(($: $T, e: any, next: any) => next(e));

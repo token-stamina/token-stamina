@@ -145,6 +145,13 @@ An optional board for people who run several sessions at once. It shows, per ses
 - `claude plugin test .` runs the spec in `hooks/register.test.ts` against a fake engine.
 - `claude plugin validate .` checks the manifest and the types contract (every plugin state key must be declared in `types/index.d.ts`).
 
+## v0.6.16: a typed /clear brings back its own chat's note
+- **No other chat's note after a typed /clear.** The first prompt after a /clear typed by hand (no marker) now restores only the note of the session that `session.end` reported as cleared. The folder's latest note is no longer used for it; a fallback hit from another session is dropped and recorded as `handoff_drop` with reason `other_session`.
+- **The note is fresh at a typed /clear.** `session.end` with reason `clear` first runs the same save the Clear button runs (inside the exit's short budget, harmless on failure).
+- **Expired marker, said once.** A marker older than 1 hour that is dropped now shows one line (once per session) that the note was not attached and `/ts-recall` brings it back.
+- **"Continue from this note" in the desktop Previous chat dialog.** The second choice (it was a second "OK" that did nothing) now adds the shown note to your next message, once; a line at the bottom says so and that text typed under Other is not used. With nothing found the dialog keeps a plain Close / OK.
+- **`/ts-selftest` reuses one scratch folder** (`ts-selftest`) and empties it, instead of a new folder per run.
+
 ## v0.6.15: the restore also works when prompt.context is skipped
 - **prompt.submit restores without a marker.** A managed plugin can skip `prompt.context` as well as the classic hooks (seen live: the notice "its prompt.context hook was skipped", while `prompt.submit`, `turn.complete`, `session.start` and `session.end` run). So the first prompt of a session that `session.end` reported as a `/clear` (typed by hand: no marker exists) now gets the folder's latest note, and the first prompt after a compaction gets the session's note. Compaction is seen through the `session.compact` hook (a real compaction of the main conversation that was not skipped; the ahead-of-time `precompute` does not count). A resume or a plain startup restores nothing, and a note another path already put in (classic SessionStart, `prompt.context`, a marker) is not added again.
 - **The Clear question is straight about it.** Under a bypass it says the button attaches this chat's note, and a typed `/clear` may bring back the latest note of the folder instead.
@@ -294,7 +301,7 @@ Everything goes under `~/.claude/token-stamina/` (or `TOKEN_STAMINA_HOME`):
 
 `handoff/` holds **text from your session**:
 - `<session>.md` and `latest-<hash>.md`: the working folder path and session id, up to the last `handoffPrompts` requests (default 3, clipped to 200 characters each), commit subjects, edited file paths and to-do items, capped by `handoffMaxTokens`.
-- A managed plugin ahead of this one can send the classic events and `prompt.context` past Token Stamina (the notice "its prompt.context hook was skipped"). Then `prompt.submit` is the restore path: it attaches the Clear-button or `clear_session` note to the first message of the new chat, and (0.6.15) the latest note after a `/clear` that `session.end` reported and after a compaction. A resume restores nothing.
+- A managed plugin ahead of this one can send the classic events and `prompt.context` past Token Stamina (the notice "its prompt.context hook was skipped"). Then `prompt.submit` is the restore path: it attaches the Clear-button or `clear_session` note to the first message of the new chat, and (0.6.15) the note after a `/clear` that `session.end` reported (0.6.16: the cleared chat's own note, never the folder's latest) and after a compaction. A resume restores nothing.
 - `<session>.json`: up to 40 commit subjects and file paths, and the last `clearRecentTurns` turns (your text and Claude's reply, 140 characters each) used for the on-screen replay after a clear. `0` stores none.
 - `<session>.claude.md`: a note Claude writes itself when asked to before a compact or clear (free text, no cap); `latest-<hash>.claude.md` and its `.from` file point to the newest one.
 - `pending-clear-<id>.json`: a short marker left when Claude clears its own session in the desktop app; emptied once used.

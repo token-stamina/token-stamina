@@ -146,7 +146,7 @@ test('the band above the prompt shows the last turns before the first prompt of 
   on('command.register', () => ({ value: { command: 'x' } }));
   on('tool.register', () => ({ value: undefined }));
   engineBand(on);
-  on('prompt.submit', (_: any, e: any) => ({ text: e.text }));
+  on('prompt.submit', (_: any, e: any) => ({ text: e.text, context: e.context }));
   await $.classic.Stop({ session_id: 'OLD', cwd: '/w', transcript_path: '/t/OLD.jsonl' } as any);
   // The marker stays until the first prompt: the band only reads it.
   await $.session.start({ cwd: '/w', surface: 'desktop', isInteractive: true });
@@ -1771,7 +1771,7 @@ const recallWorld = (on: any, files: Files, sizes?: Record<string, number>) => {
   on('session.start', (_: any, e: any) => ({ cwd: e.cwd }));
   on('command.register', () => ({ value: { command: 'x' } }));
   on('tool.register', () => ({ value: undefined }));
-  on('prompt.submit', (_: any, e: any) => ({ text: e.text }));
+  on('prompt.submit', (_: any, e: any) => ({ text: e.text, context: e.context }));
   on('command.run', { command: 'ts-recall' }, () => ({}));
   engineBand(on);
   return { logged, appended };
@@ -2776,7 +2776,7 @@ test('0.6.15 Clear question under a bypass says what a typed /clear brings back'
   await ui.press({ key: 'clear' });
   await ui.unmount();
   expect(asked[0]).toContain('Clear with this button');
-  expect(asked[0]).toContain('A typed /clear may bring back the latest note of this folder');
+  expect(asked[0]).toContain('A typed /clear brings back the note of the chat it cleared');
 });
 
 test('0.6.15 /ts-selftest: counts, the bypass verdict, PASS on the canary restore, and the scratch files are emptied', async ($, on) => {
@@ -2790,9 +2790,15 @@ test('0.6.15 /ts-selftest: counts, the bypass verdict, PASS on the canary restor
   expect(r.text).toMatch(/classic\.SessionStart\s+0/);
   expect(r.text).toContain('bypass: yes');
   expect(r.text.split('\n').pop()).toBe('PASS');
-  const scratch = Object.keys(files).filter((p) => p.startsWith('/tmp/x/ts-selftest-'));
+  const scratch = Object.keys(files).filter((p) => p.startsWith('/tmp/x/ts-selftest/'));
   expect(scratch.length).toBeGreaterThan(0);
   for (const p of scratch) expect(files[p]).toBe('');
+  // a second run reuses the same folder: no new ts-selftest-<ms> tree
+  const r2: any = await $.command.run({ command: 'ts-selftest' } as any);
+  expect(r2.text.split('\n').pop()).toBe('PASS');
+  expect(Object.keys(files).filter((p) => p.startsWith('/tmp/x/ts-selftest-')).length).toBe(0);
+  expect(new Set(Object.keys(files).filter((p) => p.startsWith('/tmp/x/')).map((p) => p.split('/')[3])).size).toBe(1);
+  for (const p of Object.keys(files).filter((p) => p.startsWith('/tmp/x/ts-selftest/'))) expect(files[p]).toBe('');
   expect(Object.keys(files).filter((p) => p.startsWith(HOME) && /SELFOLD|SELFNEW/.test(p)).length).toBe(0); // nothing of the canary in the real data folder
 });
 
@@ -2804,4 +2810,35 @@ test('0.6.15 /ts-selftest: with no temp folder it uses selftest/ under the data 
   const mine = Object.keys(files).filter((p) => p.startsWith(HOME + '/selftest/'));
   expect(mine.length).toBeGreaterThan(0);
   for (const p of mine) expect(files[p]).toBe('');
+});
+
+test('0.6.16 an expired marker is told to the user once per session, with /ts-recall', async ($, on) => {
+  const files: Files = { [pendingClearName(DIR, HOST)]: marker('OLD', 61 * MIN), [sessionFileName(DIR, 'OLD')]: autoNote('auto note body') };
+  asSession(on, files, { v: 'EXP1' });
+  const logged: string[] = [];
+  on('ui.log', (_: any, e: any) => { logged.push(String(e.text)); return { value: undefined }; });
+  const s: any = await $.prompt.submit({ text: 'hello' } as any);
+  expect(submitText(s)).not.toContain('auto note body');
+  expect(logged.filter((l) => l.includes('older than 1h') && l.includes('/ts-recall')).length).toBe(1);
+  files[pendingClearName(DIR, HOST)] = marker('OLD2', 62 * MIN);
+  await $.prompt.submit({ text: 'again' } as any);
+  expect(logged.filter((l) => l.includes('older than 1h')).length).toBe(1);
+  expect(evOf(files, 'handoff_drop')[0].reason).toBe('expired');
+});
+
+test('0.6.16 Previous chat (desktop): "Continue from this note" puts the note in the next prompt.submit context once, not the one after', async ($, on) => {
+  const files: Files = { [PREV]: chatLog(3), [HOME + '/recall.json']: recFile() };
+  recallWorld(on, files);
+  const asked = person(on, 'Continue from this note');
+  await $.session.start({ cwd: '/w', surface: 'desktop', isInteractive: true } as any);
+  const ui = await $.ui.mount({ ...BAND, surface: 'desktop' });
+  await ui.press({ key: 'recall' });
+  await until(() => asked.length > 0);
+  await ui.unmount();
+  expect(asked[0]).toContain("Pick 'Continue from this note' to attach it");
+  expect(seenQuestions[0].options.map((o: any) => o.label)).toEqual(['Close', 'Continue from this note']);
+  const n1: any = await $.prompt.submit({ text: 'next' } as any);
+  const n2: any = await $.prompt.submit({ text: 'after' } as any);
+  expect(submitText(n1)).toContain('question 2 about lexer');
+  expect(submitText(n2)).not.toContain('question 2 about lexer');
 });
