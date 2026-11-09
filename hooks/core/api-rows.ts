@@ -19,7 +19,10 @@ export function apiRows(msgs: unknown): any[] {
     const role = (m as any).role === 'assistant' ? 'assistant' : 'user';
     const c = (m as any).content;
     if (role !== 'user' || !Array.isArray(c) || !c.some(isResult) || c.every(isResult)) {
-      row(role, c);
+      // A user message no one typed (a tool-search line, a task notification, a peer session's message, only reminders) is
+      // isMeta here too, so it is not listed as a request (0.6.13). A result-only message is left as it is.
+      const plain = role === 'user' && !(Array.isArray(c) && c.some(isResult));
+      row(role, c, plain && !promptBody(promptText({ message: { content: c } })) ? { isMeta: true } : undefined);
       continue;
     }
     let i = 0;

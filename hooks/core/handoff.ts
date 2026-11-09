@@ -85,7 +85,11 @@ export function promptText(o: any): string {
 // same string or as separate text blocks), so they are cut off first. '' for prompts no one typed.
 export function promptBody(t: string): string {
   const b = t.replace(/<system-reminder>[\s\S]*?<\/system-reminder>/g, ' ').replace(/\s+/g, ' ').trim();
-  return /^<(system-reminder|local-command|command-|cross-session-message|task-notification|side-sessions-event|ci-monitor-event)/.test(b) ? '' : b;
+  if (/^<(system-reminder|local-command|command-|cross-session-message|task-notification|side-sessions-event|ci-monitor-event)/.test(b)) return '';
+  // Text the app or a tool puts in the user role (0.6.13): a tool-search result line, a notification, a peer session's message.
+  if (/^(Tool loaded\.|\[SYSTEM NOTIFICATION|Another Claude session sent a message)/.test(b)) return '';
+  if (/<(cross-session-message[\s>]|task-notification>)/.test(b)) return '';
+  return b;
 }
 
 export interface ScanCommit { id: string | null; s: string }
@@ -103,6 +107,9 @@ export interface ScanResult {
 }
 
 export const WAITING_MAX = 5;
+export const SESSIONS_MAX = 8; // sessions opened with start_session (a coordinator can run 5 to 10)
+const START_SESSION = /(?:^|__)start_session$/;
+const END_SESSION = /(?:^|__)(?:stop_session|archive_session|delete_session)$/;
 const WAIT_CLIP = 80;
 const TASK_DONE = /^(completed|failed|killed|stopped|cancelled|canceled)$/i;
 
@@ -122,6 +129,8 @@ export function waitingOn(entries: any[]): string[] {
   const agents = new Map<string, string>(); // tool_use_id -> description
   const resolved = new Set<string>();
   const doneTasks = new Set<string>();
+  const sess = new Map<string, { title: string; id: string }>(); // tool_use_id -> a session start_session opened
+  const endedSessions = new Set<string>();
   for (const o of entries) {
     if (!o || o.isSidechain || !o.message) continue;
     const c = o.message.content;
@@ -133,6 +142,10 @@ export function waitingOn(entries: any[]): string[] {
         if (SHELL_TOOLS.has(b.name) && inp.run_in_background === true) bg.set(b.id, clip(desc, WAIT_CLIP));
         else if (b.name === 'Agent' || b.name === 'Task') agents.set(b.id, clip(desc, WAIT_CLIP));
         else if (b.name === 'TaskStop' && inp.task_id) doneTasks.add(String(inp.task_id));
+        else if (START_SESSION.test(String(b.name || ''))) {
+          const title = String(inp.title || inp.name || inp.prompt || '').replace(/\s+/g, ' ').trim();
+          sess.set(b.id, { title: clip(title, WAIT_CLIP), id: '' });
+        } else if (END_SESSION.test(String(b.name || '')) && inp.session_id) endedSessions.add(String(inp.session_id));
       }
     } else if (o.type === 'user') {
       let text = typeof c === 'string' ? c : '';
@@ -143,6 +156,15 @@ export function waitingOn(entries: any[]): string[] {
             resolved.add(b.tool_use_id);
             const m = bg.has(b.tool_use_id) ? /\bID:\s*([A-Za-z0-9_-]+)/.exec(resultText(b)) : null;
             if (m) taskOf.set(b.tool_use_id, m[1]);
+            const ss = sess.get(b.tool_use_id);
+            if (ss) {
+              // as much as the result gives: an id (session_id / a local_... token) and a name
+              const rt = resultText(b);
+              const idm = /"?session_?id"?\s*[:=]\s*"?([A-Za-z0-9_-]{4,})|\b(local_[A-Za-z0-9_-]+)/i.exec(rt);
+              if (idm) ss.id = idm[1] || idm[2] || '';
+              const nm = /"?(?:title|name)"?\s*[:=]\s*"([^"\n]{1,80})"/i.exec(rt);
+              if (nm && !ss.title) ss.title = nm[1];
+            }
           } else if (b.type === 'text') text += ' ' + b.text;
         }
       for (const m of text.matchAll(/<task-notification>[\s\S]*?<\/task-notification>/g)) {
@@ -159,7 +181,12 @@ export function waitingOn(entries: any[]): string[] {
     out.push(`background ${task ? 'task ' + task : 'command'}: ${d}`);
   }
   for (const [id, d] of agents) if (!resolved.has(id)) out.push(`agent: ${d}`);
-  return out.slice(-WAITING_MAX);
+  const sessions: string[] = [];
+  for (const [, ss] of sess) {
+    if (ss.id && endedSessions.has(ss.id)) continue;
+    sessions.push(`session${ss.id ? ' ' + ss.id : ''}: ${ss.title || '(untitled)'}`);
+  }
+  return [...out.slice(-WAITING_MAX), ...sessions.slice(-SESSIONS_MAX)];
 }
 
 // Pure: extract what the note needs from parsed transcript lines.
@@ -231,7 +258,7 @@ export interface RenderMeta {
   todos: any[] | null;
   waiting?: string[];
 }
-export interface RenderParams { promptLen: number; nCommits: number; nFiles: number; nTodos: number }
+export interface RenderParams { promptLen: number; nCommits: number; nFiles: number; nTodos: number; nPrompts?: number }
 
 // One line pointing at the session's own conversation file, so a model asked "what was that earlier?" can search it.
 export const transcriptLine = (shown: string): string => `- transcript: ${shown}`;
@@ -252,11 +279,11 @@ export function render(m: RenderMeta, p: RenderParams): string {
   out.push(`- saved: ${m.saved}`);
   if (m.prompts.length) {
     out.push('', '## Last user requests (oldest first)');
-    for (const t of m.prompts.slice(-3)) out.push(`- ${clip(t, p.promptLen)}`);
+    for (const t of m.prompts.slice(-(p.nPrompts || 3))) out.push(`- ${clip(t, p.promptLen)}`);
   }
   if (m.waiting && m.waiting.length) {
     out.push('', '## Waiting on (started, no result yet when this note was saved)');
-    for (const w of m.waiting.slice(-WAITING_MAX)) out.push(`- ${clip(w, p.promptLen + 40)}`);
+    for (const w of m.waiting.slice(-(WAITING_MAX + SESSIONS_MAX))) out.push(`- ${clip(w, p.promptLen + 40)}`);
   }
   if (m.commits.length) {
     out.push('', '## Commits this session');
@@ -274,8 +301,10 @@ export function render(m: RenderMeta, p: RenderParams): string {
 }
 
 // Shrink step by step until under the token cap, then hard-cut.
-export function renderCapped(m: RenderMeta, maxTokens: number): string {
-  const p: RenderParams = { promptLen: 200, nCommits: 20, nFiles: 15, nTodos: 20 };
+export function renderCapped(m: RenderMeta, maxTokens: number, requests = 3): string {
+  const want = Math.max(1, Math.min(20, Math.floor(Number(requests)) || 3));
+  const p: RenderParams = { promptLen: 200, nCommits: 20, nFiles: 15, nTodos: 20, nPrompts: want };
+  // Files, commits and todos shrink first; the requests and the sessions/tasks waiting on go last (0.6.13).
   const steps = [
     () => {
       p.nTodos = 10;
@@ -285,15 +314,20 @@ export function renderCapped(m: RenderMeta, maxTokens: number): string {
       p.nFiles = 8;
     },
     () => {
-      p.promptLen = 120;
+      p.nFiles = 3;
       p.nCommits = 5;
       p.nTodos = 6;
     },
     () => {
-      p.nFiles = 3;
       p.nCommits = 3;
       p.nTodos = 3;
+      p.promptLen = 120;
+    },
+    () => {
       p.promptLen = 80;
+    },
+    () => {
+      p.nPrompts = Math.min(want, 3);
     },
   ];
   let md = render(m, p);

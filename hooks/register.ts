@@ -511,6 +511,16 @@ async function restoreMarked($: $T, env: Env, sid: string, nowMs: number, via: s
     }
     const key = markerKey(mk);
     if (spentMarkers.has(key)) return null; // already handled by this process (a failed delete must not re-inject)
+    const dec = decidePromptReason(mk, sid, nowMs);
+    if (dec.action === 'drop' && dec.reason === 'own') {
+      // This session is the one that pressed the button: the clear has not happened (yet). The marker stays for the session
+      // the clear starts, until it expires (0.6.13); one event per marker records that it was left.
+      if (!notClearedLogged.has(key)) {
+        notClearedLogged.add(key);
+        await appendEvent($, env, { event: 'handoff_drop', session: sid, source: via, reason: 'not_cleared', from_session: mk.from, age_sec: typeof mk.at === 'number' ? Math.round((nowMs - mk.at) / 1000) : null });
+      }
+      return null;
+    }
     if (via === 'clear_start') await loadBand($); // the band reads the marker, which the next line spends
     // Consumed on every attempt, as the Node script's unlink. Written directly (writeText swallows the failure): a
     // write that fails must still mark the marker spent in this process, or every later prompt injects the note again.
@@ -524,7 +534,6 @@ async function restoreMarked($: $T, env: Env, sid: string, nowMs: number, via: s
       await appendEvent($, env, { event: 'handoff_drop', session: sid, source: via, reason, from_session: mk.from, age_sec: typeof mk.at === 'number' ? Math.round((nowMs - mk.at) / 1000) : null });
       return null;
     };
-    const dec = decidePromptReason(mk, sid, nowMs);
     if (dec.action !== 'restore') return drop(dec.reason);
     const cf = sessionFileName(dir, mk.from, true);
     const ctext = await readNote($, cf);
@@ -608,8 +617,52 @@ async function pruneNotes($: $T, env: Env, nowMs: number): Promise<void> {
 // Where the main transcript of each session lives, learned from the classic events; tool.call
 // carries no transcript_path. Module state: a reload loses it until the next classic event.
 const transcripts = new Map<string, string>();
+// Which classic events reached this process (0.6.13). A managed plugin ahead of this one can send them past it with
+// next.to(e, <deeper tier>); then none of these is ever set, while prompt.submit / turn.complete (non-classic) still run.
+let classicCount = 0; // classic events seen
+let turnsSeen = 0; // prompt.submit / turn.complete seen: proof this process runs turns
+const classicStopSeen = new Set<string>(); // sessions whose classic.Stop ran (it saves the note, so turn.complete need not)
+const bypassLogged = new Set<string>();
+const seenSessions = new Set<string>(); // every session id this process saw
+const ctxSeen = new Set<string>(); // sessions prompt.context has fired for
+const restoredVia = new Map<string, number>(); // sid -> when a classic / prompt.submit path injected a restore (prompt.context then skips)
+const ctxRestoredAt = new Map<string, number>(); // sid -> when prompt.context injected one (the classic latest-note path then skips)
+const notClearedLogged = new Set<string>();
+const RESTORE_DEDUP_MS = 30 * 60 * 1000;
+const CTX_COMPACT_GAP_MS = 20 * 60 * 1000; // prompt.context fires once per conversation: a compact restore at most this often per session
+
 function remember(e: { session_id?: string; transcript_path?: string }): void {
+  classicCount++;
+  if (e.session_id) seenSessions.add(safeId(e.session_id));
   if (e.session_id && e.transcript_path) transcripts.set(e.session_id, e.transcript_path);
+}
+
+// The main transcript of a session without a classic event (0.6.13): the one a classic event named, else the file Claude
+// Code keeps at <config>/projects/<encoded cwd>/<session id>.jsonl, when it exists.
+async function transcriptFor($: $T, env: Env, sidRaw: string | undefined, cwd: string | undefined): Promise<string | undefined> {
+  if (!sidRaw) return undefined;
+  const known = transcripts.get(sidRaw);
+  if (known) return known;
+  if (!cwd || !/^[A-Za-z0-9_-]+$/.test(sidRaw)) return undefined;
+  try {
+    const path = joinPath(env.configDir, 'projects', encodeCwd(cwd), sidRaw + '.jsonl');
+    if (await $.fs.exists(path)) {
+      transcripts.set(sidRaw, path);
+      return path;
+    }
+  } catch {
+    /* no derived path */
+  }
+  return undefined;
+}
+
+// True when turns run here but no classic hook ever did: a managed plugin is sending them past this one.
+const classicBypassed = (): boolean => turnsSeen > 0 && classicCount === 0;
+
+async function noteBypass($: $T, env: Env, sid: string): Promise<void> {
+  if (bypassLogged.has(sid)) return;
+  bypassLogged.add(sid);
+  await appendEvent($, env, { event: 'classic_bypassed', session: sid, turns: turnsSeen });
 }
 
 // ============================================================================
@@ -648,39 +701,128 @@ async function onSessionStart($: $T, e: any): Promise<string[]> {
 
   if (cfg.handoff !== false && (e.source === 'startup' || e.source === 'clear')) {
     const r = await restoreMarked($, env, safeId(sid), nowMs, 'clear_start', cfg.lang || 'en');
-    if (r) return [...out, r]; // handoff.js answered alone (the nudge line already recorded stays)
+    if (r) {
+      restoredVia.set(safeId(sid), nowMs);
+      return [...out, r]; // handoff.js answered alone (the nudge line already recorded stays)
+    }
   }
 
   if (cfg.handoff !== false && (e.source === 'compact' || e.source === 'clear')) {
-    try {
-      const dir = joinPath(env.home, 'handoff');
-      const sidS = safeId(sid);
-      const own = await notePair($, sessionFileName(dir, sidS), sessionFileName(dir, sidS, true));
-      const latest = await notePair($, latestFileName(dir, e.cwd), latestFileName(dir, e.cwd, true));
-      const fromSide = await readText($, latestFileName(dir, e.cwd, true) + '.from');
-      const p = pickFromData(sidS, e.source, own, latest, fromSide ? fromSide.trim() : null, nowMs);
-      if (p) {
-        // A clear the Clear button started is recorded as source clear_button (savings section C counts it as a clear).
-        const btn = e.source === 'clear' && p.from ? await buttonClear($, env, nowMs) : null;
-        const viaButton = !!btn && safeId(p.from) === btn.from;
-        await appendEvent($, env, {
-          event: 'handoff_restore',
-          session: sid,
-          source: viaButton ? 'clear_button' : e.source,
-          kind: p.kind,
-          fallback: p.fallback,
-          from_session: e.source === 'clear' ? p.from || null : undefined,
-          tokens_at_clear: viaButton && btn!.tokens > 0 ? btn!.tokens : undefined,
-        });
-        const ctx = handoffAdditionalContext(p);
-        if (ctx) out.push(ctx);
-        if (e.source === 'clear' && p.from) await showRecent($, env, p.from, cfg.lang || 'en');
+    // prompt.context just injected this session's note (it ran first): the second path adds nothing
+    const done = ctxRestoredAt.get(safeId(sid));
+    if (!(done !== undefined && nowMs - done < RESTORE_DEDUP_MS)) {
+      const ctx = await restoreLatest($, env, cfg, safeId(sid), sid, e.cwd, e.source, nowMs);
+      if (ctx) {
+        out.push(ctx);
+        restoredVia.set(safeId(sid), nowMs);
       }
-    } catch {
-      /* restore is best-effort */
     }
   }
   return out;
+}
+
+// The compact / clear restore from the session's own note or the cwd's latest one (handoff.js::runStart), shared by the
+// classic SessionStart and prompt.context. Records handoff_restore; returns the text for the model, or null.
+async function restoreLatest($: $T, env: Env, cfg: Cfg, sidS: string, sid: string, cwd: string | undefined, source: 'clear' | 'compact', nowMs: number): Promise<string | null> {
+  try {
+    const dir = joinPath(env.home, 'handoff');
+    const own = await notePair($, sessionFileName(dir, sidS), sessionFileName(dir, sidS, true));
+    const latest = await notePair($, latestFileName(dir, cwd), latestFileName(dir, cwd, true));
+    const fromSide = await readText($, latestFileName(dir, cwd, true) + '.from');
+    const p = pickFromData(sidS, source, own, latest, fromSide ? fromSide.trim() : null, nowMs);
+    if (!p) return null;
+    // A clear the Clear button started is recorded as source clear_button (savings section C counts it as a clear).
+    const btn = source === 'clear' && p.from ? await buttonClear($, env, nowMs) : null;
+    const viaButton = !!btn && safeId(p.from) === btn.from;
+    await appendEvent($, env, {
+      event: 'handoff_restore',
+      session: sid,
+      source: viaButton ? 'clear_button' : source,
+      kind: p.kind,
+      fallback: p.fallback,
+      from_session: source === 'clear' ? p.from || null : undefined,
+      tokens_at_clear: viaButton && btn!.tokens > 0 ? btn!.tokens : undefined,
+    });
+    if (source === 'clear' && p.from) await showRecent($, env, p.from, cfg.lang || 'en');
+    return handoffAdditionalContext(p) || null;
+  } catch {
+    return null; /* restore is best-effort */
+  }
+}
+
+// prompt.context (0.6.13): the restore that does not depend on a classic hook. Fires once per conversation, and again after a
+// /clear or a compaction. Blocks it returns reach the model with the first message. Marker first (the Clear button, a desktop
+// clear_session), then, with no marker, the same compact / clear notes the classic SessionStart restores.
+async function contextRestore($: $T): Promise<string | null> {
+  try {
+    const env = await readEnv($);
+    const { cfg: cfg0 } = await loadConfig($, env);
+    if (cfg0.handoff === false) return null;
+    const sidRaw = (await $.session.id()) || undefined;
+    if (!sidRaw) return null;
+    let cwd: string | undefined;
+    try {
+      cwd = await $.session.cwd();
+    } catch {
+      cwd = undefined;
+    }
+    if (shouldSkipHook(env.entrypoint, cwd, cfg0.excludeCwd)) return null;
+    const sid = safeId(sidRaw);
+    const nowMs = Date.now();
+    const first = !ctxSeen.has(sid);
+    const otherBefore = [...seenSessions].some((x) => x !== sid);
+    ctxSeen.add(sid);
+    seenSessions.add(sid);
+    const via = restoredVia.get(sid);
+    if (via !== undefined) {
+      restoredVia.delete(sid);
+      if (nowMs - via < RESTORE_DEDUP_MS) return null; // a classic hook or prompt.submit already put the note in
+    }
+    const cfg = await withLangFrom($, env, cfg0, null, sidRaw, nowMs);
+    const marked = await restoreMarked($, env, sid, nowMs, 'clear_prompt', cfg.lang || 'en');
+    if (marked) {
+      ctxRestoredAt.set(sid, nowMs);
+      return marked;
+    }
+    // No marker: a later call for the same session is a compaction (the conversation is read again); a first call in a process
+    // that already saw another session is taken for a /clear. A plain startup restores nothing.
+    let source: 'clear' | 'compact' | null = null;
+    if (!first) {
+      const last = ctxRestoredAt.get(sid) ?? 0;
+      if (nowMs - last > CTX_COMPACT_GAP_MS) source = 'compact';
+    } else if (otherBefore) source = 'clear';
+    if (!source) return null;
+    const text = await restoreLatest($, env, cfg, sid, sidRaw, cwd, source, nowMs);
+    if (text) ctxRestoredAt.set(sid, nowMs);
+    return text;
+  } catch {
+    return null;
+  }
+}
+
+// prompt.submit (0.6.13): the second non-classic path for the marker, as the first prompt of a cleared session reaches the model.
+async function submitRestore($: $T): Promise<string | null> {
+  try {
+    const env = await readEnv($);
+    const { cfg: cfg0 } = await loadConfig($, env);
+    if (cfg0.handoff === false) return null;
+    const sidRaw = (await $.session.id()) || undefined;
+    if (!sidRaw) return null;
+    let cwd: string | undefined;
+    try {
+      cwd = await $.session.cwd();
+    } catch {
+      cwd = undefined;
+    }
+    if (shouldSkipHook(env.entrypoint, cwd, cfg0.excludeCwd)) return null;
+    const nowMs = Date.now();
+    const cfg = await withLangFrom($, env, cfg0, null, sidRaw, nowMs);
+    const r = await restoreMarked($, env, safeId(sidRaw), nowMs, 'clear_prompt', cfg.lang || 'en');
+    if (r) restoredVia.set(safeId(sidRaw), nowMs);
+    return r;
+  } catch {
+    return null;
+  }
 }
 
 // ============================================================================
@@ -770,7 +912,10 @@ async function onUserPromptSubmit($: $T, e: any): Promise<string[]> {
   // --- handoff.js::runPrompt: the first prompt after the desktop app's clear_session ---
   if (cfg.handoff !== false) {
     const r = await restoreMarked($, env, safeId(sid), nowMs, 'clear_prompt', cfg.lang || 'en');
-    if (r) out.push(r);
+    if (r) {
+      out.push(r);
+      restoredVia.set(safeId(sid), nowMs);
+    }
   }
 
   const n = await nudge($, env, cfg, usage.state, sid, 'UserPromptSubmit', nowMs);
@@ -802,7 +947,7 @@ async function saveHandoff($: $T, env: Env, cfg: Cfg, e: any, t: Transcript, usa
       await writeJson($, sideFile, acc);
       const meta = buildMeta(sid, e.cwd, nowMs, sc, acc);
       if (e.transcript_path) meta.transcript = tildePath(e.transcript_path, env.userHome);
-      const md = renderCapped(meta, cfg.handoffMaxTokens || 1500);
+      const md = renderCapped(meta, cfg.handoffMaxTokens || 1500, typeof cfg.handoffPrompts === 'number' ? cfg.handoffPrompts : 3);
       await writeText($, sessionFileName(dir, sid), md);
       await writeText($, latestFileName(dir, e.cwd), md);
       // A Claude-written note newer than the cwd's latest one becomes the latest, with its session.
@@ -852,7 +997,7 @@ async function clearMark($: $T, e: any, next: (e: any) => Promise<any>): Promise
     const sid = safeId(sidRaw);
     const cwd = await $.session.cwd();
     const nowMs = Date.now();
-    const tp = transcripts.get(sidRaw);
+    const tp = await transcriptFor($, env, sidRaw, cwd);
     const usage = await readUsage($, env, nowMs);
     const dir = joinPath(env.home, 'handoff');
     if (tp) {
@@ -874,6 +1019,7 @@ async function clearMark($: $T, e: any, next: (e: any) => Promise<any>): Promise
 
 async function onStop($: $T, e: any): Promise<void> {
   remember(e);
+  if (e.session_id) classicStopSeen.add(e.session_id);
   const env = await readEnv($);
   const { cfg: cfg0, user } = await loadConfig($, env);
   if (shouldSkipHook(env.entrypoint, e.cwd, cfg0.excludeCwd)) return;
@@ -915,6 +1061,39 @@ async function onStop($: $T, e: any): Promise<void> {
 
   // --- board.js::run ---
   await boardRow($, env, cfg, e, t, nowMs);
+}
+
+// ============================================================================
+// turn.complete (0.6.13): the auto save that does not depend on classic.Stop. A managed plugin can send the classic events
+// past this one; turn.complete is a different event. Main loop only. When classic.Stop has run for this session it saves
+// the same note, so this stands down; otherwise both may run once, which writes the same content twice (harmless).
+// ============================================================================
+
+async function onTurnComplete($: $T, e: any): Promise<void> {
+  turnsSeen++;
+  if (e.agentId !== undefined) return;
+  const env = await readEnv($);
+  const sidRaw = (await $.session.id()) || undefined;
+  if (!sidRaw) return;
+  const sid = safeId(sidRaw);
+  seenSessions.add(sid);
+  const { cfg: cfg0 } = await loadConfig($, env);
+  let cwd: string | undefined;
+  try {
+    cwd = await $.session.cwd();
+  } catch {
+    cwd = undefined;
+  }
+  if (shouldSkipHook(env.entrypoint, cwd, cfg0.excludeCwd)) return;
+  const nowMs = Date.now();
+  // turns run and no classic event ever came: record it once per session
+  if (classicBypassed()) await noteBypass($, env, sid);
+  if (cfg0.handoff === false) return;
+  if (classicStopSeen.has(sidRaw)) return;
+  const cfg = await withLangFrom($, env, cfg0, null, sidRaw, nowMs);
+  const usage = await readUsage($, env, nowMs);
+  const tp = await transcriptFor($, env, sidRaw, cwd);
+  await saveHandoff($, env, cfg, { session_id: sidRaw, cwd, transcript_path: tp }, await readTranscript($, tp), usage, nowMs);
 }
 
 // ============================================================================
@@ -2051,18 +2230,23 @@ async function clearPress($: $T, asked = false): Promise<void> {
     const sid = safeId(sidRaw);
     const usage = await readUsage($, env, nowMs);
     updateStatus($, usage, cfg, user);
-    const tp = sidRaw ? transcripts.get(sidRaw) : undefined;
     let cwd: string | undefined;
     try {
       cwd = await $.session.cwd();
     } catch {
       cwd = undefined;
     }
+    const tp = await transcriptFor($, env, sidRaw, cwd);
     const noteOn = cfg.handoff !== false;
     if (noteOn) await saveHandoff($, env, cfg, { session_id: sidRaw, cwd, transcript_path: tp }, await readTranscript($, tp), usage, nowMs);
-    const q = noteOn
+    // Classic hooks are being sent past this plugin (a managed plugin): the restore then runs from prompt.context / prompt.submit.
+    // Say so on the question instead of clearing silently (0.6.13); the clear itself goes ahead.
+    const bypassed = noteOn && classicBypassed();
+    if (bypassed) await noteBypass($, env, sid);
+    const q0 = noteOn
       ? ko ? '인계 메모는 저장됐어요. 비울까요?' : 'The handoff note is saved. Clear now?'
       : ko ? '비울까요?' : 'Clear now?';
+    const q = bypassed ? q0 + (ko ? ' (classic 훅이 건너뛰어지고 있어요. 복원은 prompt.context 에서 해요)' : ' (classic hooks are being skipped; restore runs from prompt.context)') : q0;
     const yes = ko ? '비우기' : 'Clear';
     let answer = asked ? yes : '';
     if (!asked) {
@@ -2116,13 +2300,13 @@ async function compactPress($: $T, asked = false): Promise<void> {
     const sid = safeId(sidRaw);
     const usage = await readUsage($, env, nowMs);
     updateStatus($, usage, cfg, user);
-    const tp = sidRaw ? transcripts.get(sidRaw) : undefined;
     let cwd: string | undefined;
     try {
       cwd = await $.session.cwd();
     } catch {
       cwd = undefined;
     }
+    const tp = await transcriptFor($, env, sidRaw, cwd);
     const noteOn = cfg.handoff !== false;
     if (noteOn) await saveHandoff($, env, cfg, { session_id: sidRaw, cwd, transcript_path: tp }, await readTranscript($, tp), usage, nowMs);
     const q = noteOn
@@ -2211,7 +2395,7 @@ async function chipPress($: $T): Promise<void> {
     let tp: string | undefined;
     try {
       const sidRaw = (await $.session.id()) || undefined;
-      tp = sidRaw ? transcripts.get(sidRaw) : undefined;
+      tp = await transcriptFor($, env, sidRaw, await $.session.cwd());
     } catch {
       tp = undefined;
     }
@@ -2260,6 +2444,7 @@ function registerBand(on: any): void {
   // Any prompt retires the band for good; classic.UserPromptSubmit consumes the marker on its own.
   // The "previous chat" button lives for 5 prompts.
   on('prompt.submit', async ($: $T, e: any, next: any) => {
+    turnsSeen++;
     await update($, bandGone, () => true);
     try {
       const rc = (await read($, recallAtom)) as Recall | null;
@@ -2270,7 +2455,9 @@ function registerBand(on: any): void {
     } catch {
       /* best-effort */
     }
-    return next(e);
+    // The handoff after a clear, without a classic hook: attached beside the first prompt of the cleared session.
+    const note = !e.isMeta && !e.command ? await submitRestore($) : null;
+    return next(note ? { ...e, context: [...(e.context || []), note] } : e);
   }).catch(($: $T, e: any, next: any) => next(e));
 
   on('ui.render', { component: 'AbovePrompt' }, async ($: $T, e: any, next: any) => {
@@ -2360,6 +2547,22 @@ export const register: Register = (on) => {
   on('classic.Stop', async ($, e, next) => {
     const r = await next(e);
     await onStop($, e);
+    return r;
+  }).catch(($, e, next) => next(e));
+
+  // Not classic: still reached when a managed plugin sends the classic events past this plugin (0.6.13).
+  on('prompt.context', async ($, e, next) => {
+    const text = await contextRestore($);
+    return next(text ? { ...e, blocks: [...e.blocks, { name: 'tokenStaminaHandoff', text }] } : e);
+  }).catch(($, e, next) => next(e));
+
+  on('turn.complete', async ($, e, next) => {
+    const r = await next(e);
+    try {
+      await onTurnComplete($, e);
+    } catch {
+      /* the auto save is best-effort */
+    }
     return r;
   }).catch(($, e, next) => next(e));
 

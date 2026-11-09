@@ -28,7 +28,7 @@ type Files = Record<string, string>;
 // The engine hands the hooks absolute paths in the platform's form (C:\h\... on Windows): compare them as /h/...
 const norm = (p: string) => String(p).replace(/\\/g, '/').replace(/^[A-Za-z]:/, '');
 
-function world(on: any, files: Files, opts: { host?: string; usage?: any; messages?: any[]; onWrite?: (p: string, text: string) => boolean; ages?: Record<string, number>; denyWrite?: string; denyPath?: RegExp; noSid?: boolean; sizes?: Record<string, number>; tooBig?: RegExp; onRead?: (p: string) => void; env?: Record<string, string>; model?: string } = {}) {
+function world(on: any, files: Files, opts: { host?: string; usage?: any; messages?: any[]; onWrite?: (p: string, text: string) => boolean; ages?: Record<string, number>; denyWrite?: string; denyPath?: RegExp; noSid?: boolean; sidRef?: { v: string }; sizes?: Record<string, number>; tooBig?: RegExp; onRead?: (p: string) => void; env?: Record<string, string>; model?: string } = {}) {
   const mtime: Record<string, number> = {};
   for (const p of Object.keys(files)) mtime[p] = Date.now() - ((opts.ages && opts.ages[p]) || 0);
   const status: (string | undefined)[] = [];
@@ -65,7 +65,7 @@ function world(on: any, files: Files, opts: { host?: string; usage?: any; messag
     return seen.size ? { value: [...seen.values()] } : { deny: 'ENOENT' };
   });
   on('session.messages', () => (opts.messages ? { value: opts.messages } : { deny: 'no messages in the test' }));
-  on('session.id', () => (opts.noSid ? { deny: 'no session id in the test' } : { value: 'S1' }));
+  on('session.id', () => (opts.sidRef ? { value: opts.sidRef.v } : opts.noSid ? { deny: 'no session id in the test' } : { value: 'S1' }));
   on('session.cwd', () => ({ value: '/w' }));
   on('session.model', () => ({ value: opts.model || 'claude-opus-4-7' }));
   on('session.usage', () => ({ value: opts.usage || { startedAt: 0, context: { tokens: 1000, window: 200000 }, rateLimits: [] } }));
@@ -1534,7 +1534,7 @@ test('handoff_drop: a marker from the session itself is recorded as own', async 
   world(on, f1, { host: HOST });
   on('classic.UserPromptSubmit', () => ({}));
   await $.classic.UserPromptSubmit({ session_id: 'S2', cwd: '/w', prompt: 'hi' } as any);
-  expect(evOf(f1, 'handoff_drop').map((x) => x.reason)).toEqual(['own']);
+  expect(evOf(f1, 'handoff_drop').map((x) => x.reason)).toEqual(['not_cleared']); // 0.6.13: the marker is kept, not spent as own
 });
 
 test('handoff_drop: a marker whose session left no memo is recorded as no_note', async ($, on) => {
@@ -2405,4 +2405,143 @@ test('fallback Stop on API rows: a request typed beside a tool_result and a Wait
   expect(note).toContain('also fix the footer');
   expect(note).toContain('## Waiting on');
   expect(note).toContain('agent: look up 4 things');
+});
+
+// ---- 0.6.13: restore and auto-save without any classic hook (a managed plugin sends the classic events past this one) ----
+// Only prompt.context / prompt.submit / turn.complete are raised below; no classic.* event reaches the plugin.
+
+const asSession = (on: any, files: Files, id: { v: string }, opts: object = {}) => {
+  world(on, files, { host: HOST, noSid: true, sidRef: id, ...opts });
+  on('prompt.context', (_: any, e: any) => ({ blocks: e.blocks }));
+  on('prompt.submit', (_: any, e: any) => ({ text: e.text, context: e.context }));
+  on('turn.complete', (_: any, e: any) => ({ text: e.answer }));
+};
+const blocksText = (r: any) => JSON.stringify((r && r.blocks) || []);
+const completeArgs = (extra: object = {}) => ({ answer: 'done', durationMs: 5, isAborted: false, turnId: 't1', reason: 'answer', ...extra }) as any;
+
+test('no classic hook: prompt.context restores the Clear button note into the first message, once', async ($, on) => {
+  const files: Files = { [sessionFileName(DIR, 'OLD1')]: autoNote('work on x'), [pendingClearName(DIR, HOST)]: marker('OLD1', 2000, { button: true }) };
+  const sid = { v: 'NEW1' };
+  asSession(on, files, sid);
+  const r: any = await $.prompt.context({ blocks: [] } as any);
+  expect(r.blocks.map((b: any) => b.name)).toContain('tokenStaminaHandoff');
+  expect(blocksText(r)).toContain('work on x');
+  const again: any = await $.prompt.context({ blocks: [] } as any);
+  expect(blocksText(again)).not.toContain('work on x');
+  const rs = evOf(files, 'handoff_restore');
+  expect(rs.length).toBe(1);
+  expect(rs[0].source).toBe('clear_button');
+  expect(rs[0].from_session).toBe('OLD1');
+});
+
+test('no classic hook: prompt.submit attaches the note beside the first prompt; prompt.context then adds nothing', async ($, on) => {
+  const files: Files = { [sessionFileName(DIR, 'OLD2')]: autoNote('ship the parser'), [pendingClearName(DIR, HOST)]: marker('OLD2', 2000, { button: true }) };
+  const sid = { v: 'NEW2' };
+  asSession(on, files, sid);
+  const s: any = await $.prompt.submit({ text: 'continue' } as any);
+  expect((s.context || []).join('\n')).toContain('ship the parser');
+  const c: any = await $.prompt.context({ blocks: [] } as any);
+  expect(blocksText(c)).not.toContain('ship the parser');
+  expect(evOf(files, 'handoff_restore').length).toBe(1);
+});
+
+test('classic SessionStart restored the clear note: prompt.context does not add it a second time', async ($, on) => {
+  const files: Files = { [latestFileName(DIR, '/w', true)]: '# note by Claude\nnext: ship it\n', [latestFileName(DIR, '/w', true) + '.from']: 'OLD3' };
+  const sid = { v: 'NEW3' };
+  asSession(on, files, sid);
+  on('classic.SessionStart', () => ({}));
+  const start: any = await $.classic.SessionStart({ source: 'clear', session_id: 'NEW3', cwd: '/w', transcript_path: '/t/NEW3.jsonl' } as any);
+  expect(ctxOf(start)).toContain('next: ship it');
+  const c: any = await $.prompt.context({ blocks: [] } as any);
+  expect(blocksText(c)).not.toContain('next: ship it');
+  expect(evOf(files, 'handoff_restore').length).toBe(1);
+});
+
+test('no classic hook: turn.complete saves the note with the derived transcript path and the prompt times', async ($, on) => {
+  const tp = '/h/.claude/projects/-w/AUTO1.jsonl'; // <config>/projects/<encoded cwd>/<session>.jsonl
+  const files: Files = { [tp]: prompt('wire up the saver') + asst([{ type: 'tool_use', id: 'e1', name: 'Edit', input: { file_path: '/w/a.ts' } }]) + result('e1') };
+  const sid = { v: 'AUTO1' };
+  asSession(on, files, sid);
+  await $.turn.complete(completeArgs());
+  const note = files[sessionFileName(DIR, 'AUTO1')]!;
+  expect(note).toContain('wire up the saver');
+  expect(note).toContain('- transcript: ~/.claude/projects/-w/AUTO1.jsonl');
+  expect(note).toMatch(/lastPromptTs=\d{4}-/);
+  expect(note).toContain('/w/a.ts');
+  expect(files[latestFileName(DIR, '/w')]).toContain('wire up the saver');
+});
+
+test('turn.complete of a subagent writes no note; a run after classic.Stop leaves the saving to the Stop', async ($, on) => {
+  const tp = '/h/.claude/projects/-w/AUTO2.jsonl';
+  const files: Files = { [tp]: prompt('main work') + asst([{ type: 'text', text: 'ok' }]) };
+  const sid = { v: 'AUTO2' };
+  asSession(on, files, sid);
+  on('classic.Stop', () => ({}));
+  await $.turn.complete(completeArgs({ agentId: 'sub1' }));
+  expect(files[sessionFileName(DIR, 'AUTO2')]).toBeUndefined();
+  await $.classic.Stop({ session_id: 'AUTO2', cwd: '/w', transcript_path: tp } as any);
+  delete files[sessionFileName(DIR, 'AUTO2')];
+  await $.turn.complete(completeArgs());
+  expect(files[sessionFileName(DIR, 'AUTO2')]).toBeUndefined(); // the classic Stop ran for this session: it saves
+});
+
+test('classic events absent while turns run: classic_bypassed is recorded once per session and the Clear question says so', async ($, on) => {
+  const files = S1_FILES();
+  const w = clearWorld(on, files, {}, 209000, HOST);
+  on('prompt.submit', (_: any, e: any) => ({ text: e.text, context: e.context }));
+  on('turn.complete', (_: any, e: any) => ({ text: e.answer }));
+  on('command.run', { command: 'clear' }, () => ({}));
+  const asked = person(on, 'Clear');
+  await $.session.start({ cwd: '/w', surface: 'terminal', isInteractive: true } as any);
+  await $.prompt.submit({ text: 'hello' } as any);
+  await $.turn.complete(completeArgs());
+  await $.turn.complete(completeArgs({ turnId: 't2' }));
+  expect(evOf(files, 'classic_bypassed').length).toBe(1);
+  const ui = await $.ui.mount({ ...BAND, surface: 'terminal' });
+  await ui.press({ key: 'clear' });
+  await ui.unmount();
+  expect(asked[0]).toContain('The handoff note is saved. Clear now?');
+  expect(asked[0]).toContain('classic hooks are being skipped; restore runs from prompt.context');
+  expect(evOf(files, 'classic_bypassed').length).toBe(1);
+  expect(w.appended.length).toBe(0);
+});
+
+test('a button marker is not spent by a prompt of the session that pressed it: kept, not_cleared once, restored for the next session', async ($, on) => {
+  const files: Files = { [sessionFileName(DIR, 'S1')]: autoNote('keep me'), [pendingClearName(DIR, HOST)]: marker('S1', 2000, { button: true }) };
+  world(on, files, { host: HOST });
+  on('classic.UserPromptSubmit', () => ({}));
+  const a: any = await $.classic.UserPromptSubmit({ session_id: 'S1', cwd: '/w', prompt: 'still here' } as any);
+  const b: any = await $.classic.UserPromptSubmit({ session_id: 'S1', cwd: '/w', prompt: 'and again' } as any);
+  expect(ctxOf(a)).not.toContain('keep me');
+  expect(ctxOf(b)).not.toContain('keep me');
+  expect(JSON.parse(files[pendingClearName(DIR, HOST)]!).from).toBe('S1');
+  expect(evOf(files, 'handoff_drop').map((x) => x.reason)).toEqual(['not_cleared']);
+  const c: any = await $.classic.UserPromptSubmit({ session_id: 'S2', cwd: '/w', prompt: 'first of the new one' } as any);
+  expect(ctxOf(c)).toContain('keep me');
+  expect(evOf(files, 'handoff_restore').length).toBe(1);
+});
+
+test('fallback rows: injected user text is not listed as a request; started sessions are listed under Waiting on', async ($, on) => {
+  const files: Files = {};
+  const messages = [
+    { role: 'user', content: 'build the thing' },
+    { role: 'assistant', content: [{ type: 'tool_use', id: 'ss1', name: 'mcp__ccd_session__start_session', input: { title: 'worker A', prompt: 'do x' } }] },
+    { role: 'user', content: [{ type: 'tool_result', tool_use_id: 'ss1', content: '{"session_id":"local_abc123","name":"worker A"}' }] },
+    { role: 'user', content: '<task-notification><task-id>t9</task-id><status>completed</status></task-notification>' },
+    { role: 'user', content: 'Tool loaded.' },
+    { role: 'user', content: 'Another Claude session sent a message: <cross-session-message from="x">hi</cross-session-message>' },
+    { role: 'user', content: '[SYSTEM NOTIFICATION - not from the user] something' },
+    { role: 'user', content: 'a real follow up' },
+  ];
+  world(on, files, { messages });
+  on('classic.Stop', () => ({}));
+  await $.classic.Stop({ session_id: 'S1', cwd: '/w', transcript_path: '/t/big.jsonl' } as any);
+  const note = files[sessionFileName(DIR, 'S1')]!;
+  expect(note).toContain('build the thing');
+  expect(note).toContain('a real follow up');
+  expect(note).not.toContain('Tool loaded');
+  expect(note).not.toContain('cross-session');
+  expect(note).not.toContain('task-notification');
+  expect(note).not.toContain('SYSTEM NOTIFICATION');
+  expect(note).toContain('session local_abc123: worker A');
 });

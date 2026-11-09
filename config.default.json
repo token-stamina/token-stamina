@@ -73,6 +73,7 @@
   "gateAtTokens": 200000,
   "idleGapSec": 3600,
   "handoffMaxTokens": 1500,
+  "handoffPrompts": 3,
   "clearButton": true,
   "compactButton": true,
   "usageChip": true,
