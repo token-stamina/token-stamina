@@ -42,6 +42,38 @@ export function endedSession(lastEnd: EndReport | null, sid: string, nowMs: numb
   return { sid: safeId(lastEnd.sid), at: lastEnd.at };
 }
 
+// 0.6.17: one note, one restore. A session that took a clear restore keeps a record of it in its own file (<sid>.restored.json in the
+// handoff folder), so a restart, a module reload or a late `first` cannot hand it the same cleared session's note a second time (seen
+// live: a clear_button restore, then the same note again 42 minutes and 2 hours later from a lastEnd that was still alive).
+export interface RestoredRecord { from: string; clearAt: number; at: number } // the cleared session, the clear evidence's time, when the restore ran
+
+export function parseRestoredRecord(text: string | null | undefined): RestoredRecord | null {
+  if (!text) return null;
+  try {
+    const o = JSON.parse(text);
+    if (!o || typeof o.from !== 'string' || !o.from || typeof o.clearAt !== 'number' || typeof o.at !== 'number') return null;
+    return { from: safeId(o.from), clearAt: o.clearAt, at: o.at };
+  } catch {
+    return null;
+  }
+}
+
+// The record to keep after a clear restore. With no clear evidence time (a folder-fallback restore) the restore time stands for it.
+export function makeRestoredRecord(from: string, evidenceAt: number | null, nowMs: number): RestoredRecord {
+  return { from: safeId(from), clearAt: evidenceAt ?? nowMs, at: nowMs };
+}
+
+// May a clear restore of `from` go ahead for the session whose record is `rec`? Not when the record names the same cleared session
+// and the evidence of this clear (session.end time, marker time) is not newer than what the record already served: the record's
+// restore time bounds it too, because the evidence of the clear that was served always came before the restore that served it.
+// No evidence time at all cannot prove a newer clear, so it counts as the old one. Another cleared session, or a clear after the
+// record, is a restore as before.
+export function restoreOnceVerdict(rec: RestoredRecord | null, from: string, evidenceAt: number | null): 'ok' | 'already_restored' {
+  if (!rec || safeId(rec.from) !== safeId(from)) return 'ok';
+  if (evidenceAt === null) return 'already_restored';
+  return evidenceAt <= Math.max(rec.clearAt, rec.at) ? 'already_restored' : 'ok';
+}
+
 // The cleared session's own note: its Claude note if written within an hour before the clear, else its auto note, else nothing.
 export function pickEndedNote(
   ended: EndedSession, claudeText: string | null, claudeMtimeMs: number | null, autoText: string | null,

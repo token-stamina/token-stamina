@@ -145,6 +145,10 @@ An optional board for people who run several sessions at once. It shows, per ses
 - `claude plugin test .` runs the spec in `hooks/register.test.ts` against a fake engine.
 - `claude plugin validate .` checks the manifest and the types contract (every plugin state key must be declared in `types/index.d.ts`).
 
+## v0.6.17: a cleared chat's note comes back once
+- **No second copy of the same note.** A chat that took a clear restore (Clear button, marker or typed `/clear`) keeps `handoff/<session>.restored.json` (`from`, `clearAt`, `at`). A later restore of the same cleared chat into the same chat is dropped (`handoff_drop` reason `already_restored`) unless the clear evidence is newer than the record; a new clear still restores. Fixes the note re-appearing 40 minutes to 2 hours after a Clear-button restore when `prompt.submit` saw the chat as new again.
+- **`prompt.submit` uses the `session.end` report up**, as `prompt.context` already did. Compact restores are unchanged. `/ts-selftest` has a new check: "the same note is not restored twice into one chat".
+
 ## v0.6.16: a typed /clear brings back its own chat's note
 - **No other chat's note after a typed /clear.** The first prompt after a /clear typed by hand (no marker) now restores only the note of the session that `session.end` reported as cleared. The folder's latest note is no longer used for it; a fallback hit from another session is dropped and recorded as `handoff_drop` with reason `other_session`.
 - **The note is fresh at a typed /clear.** `session.end` with reason `clear` first runs the same save the Clear button runs (inside the exit's short budget, harmless on failure).

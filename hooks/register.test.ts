@@ -2842,3 +2842,29 @@ test('0.6.16 Previous chat (desktop): "Continue from this note" puts the note in
   expect(submitText(n1)).toContain('question 2 about lexer');
   expect(submitText(n2)).not.toContain('question 2 about lexer');
 });
+
+// ---- 0.6.17: one note, one restore (written for `claude plugin test`; that package is not installed on the PC that wrote them) ----
+
+test('0.6.17 a record for the same cleared session blocks a second restore into that chat (handoff_drop already_restored)', async ($, on) => {
+  const files: Files = {
+    [sessionFileName(DIR, 'OLDY')]: autoNote('note y'),
+    // the record served a clear of OLDY a minute ago; the marker of that same clear (two minutes old) shows up again
+    [DIR + '/NEWY.restored.json']: JSON.stringify({ from: 'OLDY', clearAt: Date.now() - 120000, at: Date.now() - 60000 }),
+    [pendingClearName(DIR, HOST)]: marker('OLDY', 120000, { button: true }),
+  };
+  asSession(on, files, { v: 'NEWY' });
+  const s: any = await $.prompt.submit({ text: 'hello' } as any);
+  expect(submitText(s)).not.toContain('note y');
+  expect(evOf(files, 'handoff_drop').map((x) => x.reason)).toContain('already_restored');
+  expect(evOf(files, 'handoff_restore').length).toBe(0);
+});
+
+test('0.6.17 a marker restore leaves <sid>.restored.json naming the cleared session', async ($, on) => {
+  const files: Files = { [sessionFileName(DIR, 'OLDZ')]: autoNote('note z'), [pendingClearName(DIR, HOST)]: marker('OLDZ', 2000, { button: true }) };
+  asSession(on, files, { v: 'NEWZ' });
+  const s: any = await $.prompt.submit({ text: 'hello' } as any);
+  expect(submitText(s)).toContain('note z');
+  const rec = JSON.parse(files[DIR + '/NEWZ.restored.json'] || '{}');
+  expect(rec.from).toBe('OLDZ');
+  expect(typeof rec.clearAt).toBe('number');
+});

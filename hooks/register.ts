@@ -64,7 +64,7 @@ import {
   type FleetEntry,
   type SessionItem,
 } from './core/fleet.ts';
-import { submitRestoreSource, compactStood, renderSelftest, newCounts, endedSession, pickEndedNote, fallbackVerdict, endSaveDue, expiredLine, SELFTEST_DIR, type SelfCheck, type EndedSession } from './core/restore-gate.ts';
+import { submitRestoreSource, compactStood, renderSelftest, newCounts, endedSession, pickEndedNote, fallbackVerdict, endSaveDue, expiredLine, SELFTEST_DIR, parseRestoredRecord, makeRestoredRecord, restoreOnceVerdict, type SelfCheck, type EndedSession } from './core/restore-gate.ts';
 import { shouldSkipHook, paceSample, type PaceConfig, type PaceState } from './core/pacer.ts';
 import {
   decide as topicGateDecide,
@@ -512,6 +512,26 @@ async function hintedBefore($: $T, env: Env, mk: { from: string; at: number }): 
   }
 }
 
+// 0.6.17: the per-session record of the clear restore it took (<sid>.restored.json). A file, not process memory, so a restart or a
+// module reload keeps it. $.fs cannot delete: the file is only ever overwritten (a pruned, emptied one reads as no record).
+const restoredRecordFile = (env: Env, sid: string): string => joinPath(env.home, 'handoff', `${safeId(sid)}.restored.json`);
+
+// True (and one handoff_drop already_restored) when session `sid` already took the note of `from` for a clear at or after this evidence.
+async function restoredBefore($: $T, env: Env, sid: string, from: string, evidenceAt: number | null, via: string): Promise<boolean> {
+  try {
+    const rec = parseRestoredRecord(await readText($, restoredRecordFile(env, sid)));
+    if (restoreOnceVerdict(rec, from, evidenceAt) === 'ok') return false;
+    await appendEvent($, env, { event: 'handoff_drop', session: sid, source: via, reason: 'already_restored', from_session: safeId(from) });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+async function noteRestored($: $T, env: Env, sid: string, from: string, evidenceAt: number | null, nowMs: number): Promise<void> {
+  await writeJson($, restoredRecordFile(env, sid), makeRestoredRecord(from, evidenceAt, nowMs));
+}
+
 const BUTTON_HOST = 'button';
 // Restore from the desktop-app clear marker (pending-clear-<host>.json), shared by SessionStart and
 // UserPromptSubmit. $.fs cannot delete, so a used marker is overwritten with {} (read as absent).
@@ -565,11 +585,14 @@ async function restoreMarked($: $T, env: Env, sid: string, nowMs: number, via: s
       }
       return drop(dec.reason);
     }
+    const markAt = typeof mk.at === 'number' ? mk.at : null;
+    if (await restoredBefore($, env, sid, mk.from, markAt, via)) return null; // this chat already took that clear's note (0.6.17)
     const cf = sessionFileName(dir, mk.from, true);
     const ctext = await readNote($, cf);
     const ct = ctext === null ? null : await mtimeOf($, cf);
     const p = pickClearNote(ct === null ? null : ctext, ct, await readNote($, sessionFileName(dir, mk.from)), mk.at);
     if (!p) return drop('no_note');
+    await noteRestored($, env, sid, mk.from, markAt, nowMs);
     const ev: Record<string, unknown> = { event: 'handoff_restore', session: sid, source: mk.button === true ? 'clear_button' : via, kind: p.kind, from_session: mk.from };
     if (typeof mk.tokens === 'number' && mk.tokens > 0) ev.tokens_at_clear = mk.tokens;
     ev.hinted = await hintedBefore($, env, mk);
@@ -829,6 +852,11 @@ async function restoreLatest($: $T, env: Env, cfg: Cfg, sidS: string, sid: strin
       await appendEvent($, env, { event: 'handoff_drop', session: sid, source: 'clear', reason: 'other_session', from_session: p.from || null });
       return null;
     }
+    // 0.6.17: no clear evidence here, so a note this chat already took from that session does not come twice.
+    if (source === 'clear' && p.from) {
+      if (await restoredBefore($, env, sidS, p.from, null, 'clear')) return null;
+      await noteRestored($, env, sidS, p.from, null, nowMs);
+    }
     // A clear the Clear button started is recorded as source clear_button (savings section C counts it as a clear).
     const btn = source === 'clear' && p.from ? await buttonClear($, env, nowMs) : null;
     const viaButton = !!btn && safeId(p.from) === btn.from;
@@ -851,6 +879,7 @@ async function restoreLatest($: $T, env: Env, cfg: Cfg, sidS: string, sid: strin
 // 0.6.16: the typed /clear restore: the note of the session session.end reported as cleared, read as restoreMarked reads a marker's.
 async function restoreEnded($: $T, env: Env, cfg: Cfg, sidS: string, sid: string, ended: EndedSession, nowMs: number): Promise<string | null> {
   const dir = joinPath(env.home, 'handoff');
+  if (await restoredBefore($, env, sidS, ended.sid, ended.at, 'clear')) return null; // 0.6.17: the same clear's note, once per chat
   const cf = sessionFileName(dir, ended.sid, true);
   const ctext = await readNote($, cf);
   const ct = ctext === null ? null : await mtimeOf($, cf);
@@ -860,6 +889,7 @@ async function restoreEnded($: $T, env: Env, cfg: Cfg, sidS: string, sid: string
     await appendEvent($, env, { event: 'handoff_drop', session: sid, source: 'clear', reason: 'no_note', from_session: ended.sid, age_sec: age });
     return null;
   }
+  await noteRestored($, env, sidS, p.from, ended.at, nowMs);
   await appendEvent($, env, { event: 'handoff_restore', session: sid, source: 'clear', kind: p.kind, fallback: false, from_session: p.from });
   await showRecent($, env, p.from, cfg.lang || 'en');
   return clearContext(p);
@@ -964,7 +994,9 @@ async function submitRestore($: $T): Promise<string | null> {
     compactAt.delete(sid); // served or stood down: either way once
     const source = submitRestoreSource({ sid, nowMs, first, lastEnd, compactAt: cAt, restoredAt, endMaxAgeMs: END_MAX_AGE_MS, dedupMs: RESTORE_DEDUP_MS });
     if (!source) return null;
-    const text = await restoreLatest($, env, cfg, sid, sidRaw, cwd, source, nowMs, source === 'clear' ? endedSession(lastEnd, sid, nowMs, END_MAX_AGE_MS) : null);
+    const endedNow = source === 'clear' ? endedSession(lastEnd, sid, nowMs, END_MAX_AGE_MS) : null;
+    if (source === 'clear') lastEnd = null; // 0.6.17: used once, as prompt.context does (lastClearEnd, clearCheck's own evidence, stays)
+    const text = await restoreLatest($, env, cfg, sid, sidRaw, cwd, source, nowMs, endedNow);
     if (text) restoredVia.set(sid, nowMs);
     return text;
   } catch {
@@ -1898,6 +1930,9 @@ async function selftestRun($: $T): Promise<string> {
       checks.push({ name: 'a session with a host id leaves the terminal button marker alone', ok: r2 === null });
       const r3 = await restoreMarked($, term, 'SELFNEW3', Date.now(), 'selftest', cfg.lang || 'en');
       checks.push({ name: 'a session with no host id takes the button marker', ok: !!r3 && r3.includes(CANARY + ' two') });
+      // 2b. 0.6.17: the chat that took SELFOLD2's note (r3) gets it no second time from a clear report that is not newer
+      const r3b = await restoreLatest($, term, cfg, 'SELFNEW3', 'SELFNEW3', '/selftest', 'clear', Date.now(), { sid: 'SELFOLD2', at: Date.now() - 5000 });
+      checks.push({ name: 'the same note is not restored twice into one chat', ok: r3b === null });
       // 3. the compaction restore from the session own note
       await writeText($, sessionFileName(dir, 'SELFC'), note(CANARY + ' three'));
       const r4 = await restoreLatest($, term, cfg, 'SELFC', 'SELFC', '/selftest', 'compact', Date.now());
